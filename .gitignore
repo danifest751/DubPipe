@@ -1,0 +1,23 @@
+node_modules/
+dist/
+.dubpipe/
+config.yaml
+*.log
+key/
+.env
+tests/fixtures/.build/
+release/
+scripts/screens/
+
+# Внутренние документы, не для публикации
+tz-DubPipe.md
+
+# Python
+__pycache__/
+*.pyc
+
+# Разное
+*.tsbuildinfo
+coverage/
+.DS_Store
+Thumbs.db

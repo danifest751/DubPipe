@@ -1,0 +1,133 @@
+{
+  "name": "dubpipe",
+  "version": "1.0.0",
+  "description": "Automatic English to Russian video dubbing and subtitles, running locally",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "dub": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist",
+    "prompts",
+    "python",
+    "config.yaml.example",
+    "README.md",
+    "README.ru.md",
+    "LICENSE",
+    "THIRD-PARTY-NOTICES.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "ui": "tsx src/cli.ts ui",
+    "app:dev": "npm run build && electron electron/main.cjs",
+    "app:build": "npm run build && electron-builder --win --x64"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "onnxruntime-node": "^1.29.0",
+    "yaml": "^2.5.1",
+    "zod": "^3.23.8"
+  },
+  "optionalDependencies": {
+    "@xenova/transformers": "^2.17.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2",
+    "vitest": "^2.1.1"
+  },
+  "build": {
+    "appId": "ai.dubpipe.app",
+    "productName": "DubPipe",
+    "copyright": "Только для личного использования",
+    "extraMetadata": {
+      "main": "electron/main.cjs"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "src/ui/public/**/*",
+      "prompts/**/*",
+      "python/**/*",
+      "config.yaml.example",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release",
+      "buildResources": "electron"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false
+    },
+    "portable": {
+      "artifactName": "DubPipe-portable-${version}.exe"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "AudioVideo"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.video"
+    },
+    "asar": false
+  },
+  "author": "Mikhail Sergeev",
+  "keywords": [
+    "dubbing",
+    "subtitles",
+    "srt",
+    "whisper",
+    "piper",
+    "tts",
+    "translation",
+    "speech-recognition",
+    "diarization",
+    "ffmpeg",
+    "video",
+    "electron"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/danifest751/DubPipe.git"
+  },
+  "bugs": {
+    "url": "https://github.com/danifest751/DubPipe/issues"
+  },
+  "homepage": "https://github.com/danifest751/DubPipe#readme"
+}

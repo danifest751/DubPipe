@@ -1,0 +1,64 @@
+name: Bug report
+description: Something does not work as described
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. The single most useful attachment is `run.log` from the
+        working directory of the file you processed — remove anything private first, and
+        never paste API keys or tokens.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you ran, what you got, what you expected instead.
+      placeholder: |
+        Ran: npx tsx src/cli.ts process episode.mp4
+        Got: the stage "Синтез" fails with …
+        Expected: a dubbed file next to the source
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: The relevant part of `run.log`, or the console output.
+      render: text
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: 1.0.0, or the commit hash
+    validations:
+      required: true
+
+  - type: dropdown
+    id: how
+    attributes:
+      label: How do you run it
+      options:
+        - Packaged application (.exe)
+        - npm / command line
+        - Browser interface (dub ui)
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: OS and Node.js version
+      placeholder: Windows 10, Node 22.4
+    validations:
+      required: true
+
+  - type: textarea
+    id: material
+    attributes:
+      label: Material
+      description: >
+        Length of the video, language, anything unusual — music under the speech, several
+        speakers, no audio track. Do not attach copyrighted material.

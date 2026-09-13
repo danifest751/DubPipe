@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DubPipe</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- Значки инлайном: страница обязана открываться без сети. -->
+    <svg hidden xmlns="http://www.w3.org/2000/svg">
+      <symbol id="i-video" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="14" height="14" rx="2" /><path d="m16 10 6-3v10l-6-3z" /></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12-7.5z" /></symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2" /><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" /></symbol>
+      <symbol id="i-chip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2" /><path d="M10 2v4M14 2v4M10 18v4M14 18v4M2 10h4M2 14h4M18 10h4M18 14h4" /></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></symbol>
+      <symbol id="i-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7" /></symbol>
+      <symbol id="i-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6" /></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L19 7" /></symbol>
+      <symbol id="i-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9" /></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18" /></symbol>
+      <symbol id="i-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></symbol>
+      <symbol id="i-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12M6 12l6 6 6-6M4 20h16" /></symbol>
+      <symbol id="i-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.5 1.5" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.5-1.5" /></symbol>
+      <symbol id="i-sound" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v4h4l5 4V6L8 10z" /><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11" /></symbol>
+      <symbol id="i-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20zM12 9v5M12 17.5v.5" /></symbol>
+    </svg>
+
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand"><b>DubPipe</b><span id="version"></span></div>
+        <nav class="nav" id="nav">
+          <button data-view="library" class="active"><svg class="ico"><use href="#i-video" /></svg> Видео</button>
+          <button data-view="settings"><svg class="ico"><use href="#i-gear" /></svg> Настройки</button>
+          <button data-view="environment"><svg class="ico"><use href="#i-chip" /></svg> Окружение <span class="tail" id="envBadge"></span></button>
+        </nav>
+        <div class="sidebar-foot">
+          <button class="jobchip" id="jobChip" hidden></button>
+          <div class="meta" id="profileNote"></div>
+        </div>
+      </aside>
+
+      <div class="content">
+        <main>
+          <div class="progress-list" id="progressList"></div>
+
+          <!-- ================= Видео ================= -->
+          <section data-view="library" class="view active">
+            <div class="readiness" id="readiness" hidden></div>
+
+            <div class="view-head">
+              <div>
+                <h1>Видео</h1>
+                <p class="lead">Выберите папку — файлы появятся списком. Нажмите «Дублировать», и через несколько минут рядом появится озвученная копия.</p>
+              </div>
+              <button id="openOther" class="ghost"><svg class="ico"><use href="#i-link" /></svg> Другой файл или ссылка</button>
+            </div>
+
+            <div class="workdir">
+              <svg class="ico big"><use href="#i-folder" /></svg>
+              <div class="grow">
+                <div class="meta">Папка с видео</div>
+                <div class="mono" id="workdirPath">не выбрана</div>
+              </div>
+              <button id="pickFolder" class="primary">Выбрать папку</button>
+              <button id="refreshLibrary" class="ghost">Обновить</button>
+            </div>
+
+            <div id="libraryList" class="cards"></div>
+
+            <details class="more" id="historyBlock">
+              <summary>Ранее обработанные файлы из других папок</summary>
+              <div id="projectList" class="cards"></div>
+            </details>
+          </section>
+
+          <!-- ================= Проект ================= -->
+          <section data-view="project" class="view">
+            <div class="project-head">
+              <button id="backToLibrary" class="ghost"><svg class="ico"><use href="#i-back" /></svg> Все видео</button>
+              <div class="grow">
+                <h1 id="projectName">—</h1>
+                <div class="meta mono" id="projectPath"></div>
+              </div>
+              <span class="pill" id="projectStatus"></span>
+            </div>
+
+            <div class="card action-bar">
+              <button id="startJob" class="primary big"><svg class="ico"><use href="#i-play" /></svg> Дублировать</button>
+              <button id="cancelJob" disabled>Остановить</button>
+              <button id="toggleAdvanced" class="ghost">Дополнительно <svg class="ico"><use href="#i-chev" /></svg></button>
+              <span class="grow"></span>
+              <span class="meta" id="actionHint"></span>
+            </div>
+
+            <div class="card advanced" id="advanced" hidden>
+              <div class="row">
+                <label class="field">Со стадии<select id="fromStage"></select></label>
+                <label class="field">По стадию<select id="toStage"></select></label>
+                <label class="field">Модель перевода на этот раз<input id="modelOverride" type="text" placeholder="из настроек" list="modelList" /><datalist id="modelList"></datalist></label>
+              </div>
+              <div class="out-place">
+                <b>Куда сохранить итог</b>
+                <div class="row" role="radiogroup">
+                  <label class="check"><input type="radio" name="outMode" value="beside" checked /> Рядом с исходным файлом</label>
+                  <label class="check"><input type="radio" name="outMode" value="folder" /> В другую папку</label>
+                </div>
+                <div class="row nowrap" id="outFolderRow" hidden>
+                  <input id="outDir" type="text" placeholder="папка не выбрана" readonly />
+                  <button id="pickOutDir" type="button">Обзор</button>
+                </div>
+                <span class="meta" id="outPreview"></span>
+              </div>
+              <button id="clearProjectCache" class="ghost small">Сбросить кэш этого файла</button>
+            </div>
+
+            <div class="stepper" id="stepper"></div>
+            <div id="jobResult" class="stack"></div>
+
+            <div class="card review" id="review" hidden>
+              <div class="row between">
+                <h2 style="margin:0">Просмотр и правка</h2>
+                <span class="meta">Смотрите готовый файл; всё, что не так, помечайте здесь — потом одна кнопка пересведёт файл.</span>
+              </div>
+              <div class="review-body">
+                <video id="reviewVideo" controls preload="metadata"></video>
+                <div class="review-side">
+                  <div class="review-now" id="reviewNow"></div>
+                  <div class="review-mix">
+                    <div class="opt-text"><b>Громкости</b><span>Действуют только для этого видео.</span></div>
+                    <label class="slider"><span>Оригинал <em id="mixBgLabel"></em></span><input id="mixBg" type="range" min="-30" max="6" step="1" /></label>
+                    <label class="slider"><span>Русская речь <em id="mixVoiceLabel"></em></span><input id="mixVoice" type="range" min="-12" max="12" step="1" /></label>
+                    <label class="slider"><span>Приглушение оригинала под речью <em id="mixDuckLabel"></em></span><input id="mixDuck" type="range" min="-40" max="0" step="1" /></label>
+                  </div>
+                </div>
+              </div>
+              <div class="review-marks" id="reviewMarks"></div>
+              <div class="row">
+                <button id="reviewApply" class="primary">Внести правки и пересвести</button>
+                <button id="reviewDiscard" class="ghost">Отменить пометки</button>
+                <span class="grow"></span>
+                <button id="reviewReset" class="ghost danger">Начать заново</button>
+              </div>
+            </div>
+
+            <div class="subtabs" id="subtabs">
+              <button data-sub="segments" class="active">Реплики</button>
+              <button data-sub="subtitles">Субтитры</button>
+              <button data-sub="compare">Сравнение моделей</button>
+              <button data-sub="log">Журнал</button>
+            </div>
+
+            <div data-subview="segments" class="subview active">
+              <div class="row" style="margin-bottom: 10px">
+                <button id="saveSegments" class="primary">Сохранить правки</button>
+                <button id="reloadSegments" class="ghost">Перечитать</button>
+                <span class="meta" id="editorInfo"></span>
+              </div>
+              <audio id="player" controls preload="none"></audio>
+              <div class="table-wrap" style="margin-top: 10px">
+                <table id="segmentsTable">
+                  <thead><tr><th>#</th><th>Начало</th><th>Конец</th><th>Слот</th><th>Спикер</th><th>Оригинал</th><th>Перевод</th><th>Укладка</th><th>Флаги</th><th></th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div data-subview="subtitles" class="subview">
+              <div class="card stack">
+                <div class="row">
+                  <div class="seg" role="radiogroup">
+                    <label><input type="radio" name="subLang" value="en" checked /> Английские</label>
+                    <label><input type="radio" name="subLang" value="ru" /> Русские</label>
+                  </div>
+                  <button id="makeSubtitles" class="primary">Сделать субтитры</button>
+                  <button id="saveSubtitles">Сохранить SRT</button>
+                  <button id="rebuildSubtitles" class="ghost">Пересобрать из реплик</button>
+                  <span class="grow"></span>
+                  <span class="meta" id="subsSummary"></span>
+                </div>
+                <span class="meta mono" id="subsFile"></span>
+              </div>
+
+              <div class="subs-preview" id="subsPreview" hidden>
+                <video id="subsVideo" controls preload="metadata"></video>
+                <div class="subs-overlay"><span id="subsOverlayText"></span></div>
+              </div>
+
+              <div class="table-wrap" style="margin-top: 10px">
+                <table id="subsTable">
+                  <thead><tr><th>#</th><th>Начало</th><th>Конец</th><th>Длит.</th><th>Текст (не более двух строк)</th><th>Замечания</th><th></th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div data-subview="compare" class="subview">
+              <div class="card stack">
+                <p class="lead" style="margin:0">Одни и те же реплики проходят через несколько моделей. Рядом — укладка в слот, время и стоимость. Понравившийся вариант применяется одной кнопкой.</p>
+                <div class="row">
+                  <label class="field">Реплик для пробы<input id="compareLimit" type="number" min="1" value="10" style="min-width:90px" /></label>
+                  <label class="field grow">Модели через запятую<input id="compareModels" type="text" placeholder="anthropic/claude-sonnet-4.5, openai/gpt-5.2" /></label>
+                  <button id="runCompare" class="primary">Сравнить</button>
+                </div>
+                <div class="row">
+                  <input id="modelSearch" type="text" placeholder="поиск по каталогу моделей" />
+                  <label class="check"><input type="checkbox" id="modelFree" /> только бесплатные</label>
+                </div>
+                <div id="modelCatalog" class="catalog"></div>
+              </div>
+              <div id="compareResult" style="margin-top: 14px"></div>
+            </div>
+
+            <div data-subview="log" class="subview">
+              <div class="row" style="margin-bottom: 10px">
+                <label class="check"><input type="checkbox" id="showDebug" /> подробные строки</label>
+                <button id="clearLog" class="ghost small">Очистить</button>
+              </div>
+              <pre id="logView" class="log"></pre>
+            </div>
+          </section>
+
+          <!-- ================= Настройки ================= -->
+          <section data-view="settings" class="view">
+            <div class="view-head">
+              <div>
+                <h1>Настройки</h1>
+                <p class="lead">Изменения применяются после сохранения. Значения проверяются, ошибка показывается у поля.</p>
+              </div>
+            </div>
+
+            <div class="settings">
+              <nav class="settings-nav" id="settingsNav">
+                <button data-group="translate" class="active">Перевод</button>
+                <button data-group="voice">Голос</button>
+                <button data-group="asr">Распознавание</button>
+                <button data-group="audio">Звук</button>
+                <button data-group="fit">Подгонка</button>
+                <button data-group="system">Система</button>
+                <button data-group="yaml">Файл YAML</button>
+              </nav>
+
+              <form class="settings-form" id="settingsForm" onsubmit="return false">
+                <!-- Перевод -->
+                <fieldset data-group="translate" class="active">
+                  <legend>Перевод</legend>
+
+                  <div class="opt">
+                    <div class="opt-text"><b>Где переводить</b><span>Облачная модель качественнее и требует ключ. Локальный вариант работает без сети через Ollama.</span></div>
+                    <div class="opt-ctl seg" role="radiogroup">
+                      <label><input type="radio" name="profile" value="hybrid" /> Облачная модель</label>
+                      <label><input type="radio" name="profile" value="offline" /> Локально (Ollama)</label>
+                    </div>
+                  </div>
+
+                  <div class="opt" data-only="hybrid">
+                    <div class="opt-text"><b>Ключ доступа</b><span id="keyHelp">Ключ Kilo Code. Хранится на этом компьютере отдельно от настроек и никуда не передаётся, кроме шлюза.</span></div>
+                    <div class="opt-ctl stack">
+                      <div class="row nowrap">
+                        <input id="keyInput" type="password" placeholder="вставьте ключ" autocomplete="off" />
+                        <button id="keyToggle" class="ghost small" type="button">показать</button>
+                      </div>
+                      <div class="row">
+                        <button id="keySave" class="small" type="button">Сохранить ключ</button>
+                        <button id="keyCheck" class="small" type="button">Проверить</button>
+                        <button id="keyRemove" class="ghost small" type="button">Удалить</button>
+                        <span class="meta" id="keyStatus"></span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="opt" data-only="hybrid">
+                    <div class="opt-text"><b>Модель</b><span>Весь каталог шлюза Kilo Code; цена — за миллион токенов запроса / ответа. Сравнить несколько на своём видео можно на странице файла.</span></div>
+                    <div class="opt-ctl stack">
+                      <div class="combo" id="settingsModelCombo">
+                        <input data-key="translate.model" id="settingsModel" type="text" placeholder="начните вводить: claude, gpt, free…" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="false" aria-controls="settingsModelList" />
+                        <div class="combo-list" id="settingsModelList" role="listbox" hidden></div>
+                      </div>
+                      <div class="row">
+                        <button id="settingsModelCheck" class="small" type="button" title="Перевести три пробные реплики этой моделью">Проверить модель</button>
+                        <button id="settingsModelRefresh" class="ghost small" type="button" title="Запросить каталог заново">обновить каталог</button>
+                        <span class="meta" id="settingsModelNote"></span>
+                      </div>
+                      <div class="model-check" id="settingsModelCheckResult" hidden></div>
+                    </div>
+                  </div>
+
+                  <div class="opt" data-only="offline">
+                    <div class="opt-text"><b>Локальная модель Ollama</b><span>Должна быть установлена: <code>ollama pull имя</code>.</span></div>
+                    <div class="opt-ctl"><input data-key="translate.fallback_model" type="text" /></div>
+                  </div>
+
+                  <div class="opt">
+                    <div class="opt-text"><b>Ненормативная лексика</b><span>Как переводить брань в оригинале.</span></div>
+                    <div class="opt-ctl">
+                      <select data-key="translate.profanity">
+                        <option value="soft">Смягчать</option>
+                        <option value="hard">Запикивать</option>
+                        <option value="keep">Оставлять как есть</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <details class="more">
+                    <summary>Тонкая настройка</summary>
+                    <div class="opt">
+                      <div class="opt-text"><b>Реплик в одном запросе</b><span>8–12 — рекомендуемый диапазон.</span></div>
+                      <div class="opt-ctl"><input data-key="translate.batch_size" type="number" min="1" max="50" /></div>
+                    </div>
+                    <div class="opt">
+                      <div class="opt-text"><b>Темп речи, символов в секунду</b><span>Ориентир для подбора длины перевода. Фактический темп показывается после синтеза.</span></div>
+                      <div class="opt-ctl"><input data-key="translate.chars_per_second" type="number" min="5" max="30" step="0.5" /></div>
+                    </div>
+                    <div class="opt">
+                      <div class="opt-text"><b>Дожимать длину вторым запросом</b><span>Реплики, не попавшие в слот, переписываются ещё раз.</span></div>
+                      <div class="opt-ctl"><label class="switch"><input data-key="translate.fit_length_pass" type="checkbox" /><i></i></label></div>
+                    </div>
+                  </details>
+                </fieldset>
+
+                <!-- Голос -->
+                <fieldset data-group="voice">
+                  <legend>Голос</legend>
+                  <div class="opt">
+                    <div class="opt-text"><b>Голос по умолчанию</b><span>Русские голоса piper. Работают без сети.</span></div>
+                    <div class="opt-ctl row nowrap">
+                      <select data-key="tts.default_voice" id="defaultVoice"></select>
+                      <button id="previewVoice" class="small" type="button"><svg class="ico"><use href="#i-sound" /></svg> Прослушать</button>
+                    </div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b>Голоса спикеров</b><span>Когда в видео несколько говорящих, каждому можно назначить свой голос. Пока диаризация не подключена, все реплики идут как speaker_0.</span></div>
+                    <div class="opt-ctl stack" id="voiceMap"></div>
+                  </div>
+                  <audio id="voicePlayer" controls preload="none" hidden></audio>
+                </fieldset>
+
+                <!-- Распознавание -->
+                <fieldset data-group="asr">
+                  <legend>Распознавание речи</legend>
+                  <div class="opt">
+                    <div class="opt-text"><b>Модель Whisper</b><span>Крупнее — точнее и медленнее. Веса загружаются при первом использовании.</span></div>
+                    <div class="opt-ctl">
+                      <select data-key="asr.model">
+                        <option value="tiny">tiny — 75 МБ, быстро, грубо</option>
+                        <option value="base">base — 142 МБ</option>
+                        <option value="small">small — 465 МБ, разумный баланс</option>
+                        <option value="medium">medium — 1.5 ГБ, точнее, в 3 раза медленнее</option>
+                        <option value="large-v3">large-v3 — 3.1 ГБ, лучшее качество, медленно</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b>Язык оригинала</b><span>Код языка, например en.</span></div>
+                    <div class="opt-ctl"><input data-key="asr.language" type="text" style="min-width:90px" /></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b>Уточнять границы реплик по речи</b><span>Подтягивает начало и конец к реальной речи. Отключать не стоит.</span></div>
+                    <div class="opt-ctl"><label class="switch"><input data-key="asr.vad.enabled" type="checkbox" /><i></i></label></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b>Разные голоса для персонажей</b><span>Определяет, кто говорит (pyannote, локально на процессоре), и раздаёт голоса по спикерам — см. «Голоса». Нужен Python и однократная загрузка модели.</span></div>
+                    <div class="opt-ctl"><label class="switch"><input data-key="asr.diarization.enabled" type="checkbox" /><i></i></label></div>
+                  </div>
+                  <div class="opt" id="hfTokenBlock">
+                    <div class="opt-text"><b>Токен Hugging Face</b><span>Нужен один раз — скачать веса модели. Бесплатный, с правом чтения. Перед этим примите условия на странице модели <code>pyannote/speaker-diarization-community-1</code> (huggingface.co). Хранится на этом компьютере, в файл настроек не попадает.</span></div>
+                    <div class="opt-ctl stack">
+                      <div class="row nowrap">
+                        <input id="hfTokenInput" type="password" placeholder="hf_…" autocomplete="off" />
+                        <button id="hfTokenToggle" class="ghost small" type="button">показать</button>
+                      </div>
+                      <div class="row">
+                        <button id="hfTokenSave" class="small" type="button">Сохранить токен</button>
+                        <button id="hfTokenRemove" class="ghost small" type="button">Удалить</button>
+                        <span class="meta" id="hfTokenStatus"></span>
+                      </div>
+                    </div>
+                  </div>
+                </fieldset>
+
+                <!-- Звук -->
+                <fieldset data-group="audio">
+                  <legend>Звук</legend>
+                  <div class="opt">
+                    <div class="opt-text"><b>Убирать оригинальную речь из фонограммы</b><span>Отделяет голос от музыки нейросетью. Заметно дольше, нужен Python с numpy и onnxruntime. Иначе оригинал просто приглушается на время реплик.</span></div>
+                    <div class="opt-ctl"><label class="switch"><input data-key="separation.enabled" type="checkbox" /><i></i></label></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b>Громкость фона</b><span id="bgLabel"></span></div>
+                    <div class="opt-ctl"><input data-key="mix.background_gain_db" type="range" min="-30" max="6" step="1" /></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b>Громкость дубляжа</b><span id="voiceLabel"></span></div>
+                    <div class="opt-ctl"><input data-key="mix.voice_gain_db" type="range" min="-12" max="12" step="1" /></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b>Выравнивать громкость итога</b><span>Нормализация по стандарту вещания (EBU R128).</span></div>
+                    <div class="opt-ctl"><label class="switch"><input data-key="mix.loudnorm" type="checkbox" /><i></i></label></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b>Оставлять оригинальную дорожку</b><span>В итоговом файле будет две дорожки: русская и исходная — переключаются в плеере.</span></div>
+                    <div class="opt-ctl"><label class="switch"><input data-key="keep_original_track" type="checkbox" /><i></i></label></div>
+                  </div>
+                </fieldset>
+
+                <!-- Подгонка -->
+                <fieldset data-group="fit">
+                  <legend>Подгонка по времени</legend>
+                  <div class="opt">
+                    <div class="opt-text"><b>Подгонять реплики под таймкоды</b><span>Ускорение, сокращение и разведение наложений. Без этого реплики кладутся как есть.</span></div>
+                    <div class="opt-ctl"><label class="switch"><input data-key="alignment.enabled" type="checkbox" /><i></i></label></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b>Максимальное ускорение</b><span id="tempoLabel"></span></div>
+                    <div class="opt-ctl"><input data-key="alignment.max_tempo" type="range" min="1" max="1.6" step="0.05" /></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b>Попыток сократить реплику</b><span>Сколько раз просить модель укоротить текст, если он не влезает.</span></div>
+                    <div class="opt-ctl"><input data-key="alignment.max_retranslate" type="number" min="0" max="5" /></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b>Предел сдвига реплики, мс</b><span>Насколько реплика может опоздать, чтобы не наехать на предыдущую.</span></div>
+                    <div class="opt-ctl"><input data-key="alignment.max_shift_ms" type="number" min="0" max="10000" step="100" /></div>
+                  </div>
+                </fieldset>
+
+                <!-- Система -->
+                <fieldset data-group="system">
+                  <legend>Система</legend>
+                  <div class="opt">
+                    <div class="opt-text"><b>Служебный каталог</b><span>Кэш стадий, загруженные программы и модели.</span></div>
+                    <div class="opt-ctl mono" id="cacheDir"></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b>Кэш обработанных файлов</b><span>Программы и модели не удаляются — только промежуточные результаты.</span></div>
+                    <div class="opt-ctl"><button id="clearAllCache" class="small" type="button">Очистить кэш</button></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b>Файл настроек</b></div>
+                    <div class="opt-ctl mono" id="configPath"></div>
+                  </div>
+                </fieldset>
+
+                <!-- YAML -->
+                <fieldset data-group="yaml">
+                  <legend>Файл YAML</legend>
+                  <p class="lead">Полный файл настроек для тех, кому так удобнее. Сохраняется той же кнопкой.</p>
+                  <textarea id="configText" spellcheck="false"></textarea>
+                </fieldset>
+              </form>
+            </div>
+
+            <div class="savebar" id="savebar" hidden>
+              <span id="saveNote">Есть несохранённые изменения</span>
+              <button id="resetSettings" class="ghost">Отменить</button>
+              <button id="saveSettings" class="primary">Сохранить</button>
+            </div>
+          </section>
+
+          <!-- ================= Окружение ================= -->
+          <section data-view="environment" class="view">
+            <div class="view-head">
+              <div>
+                <h1>Окружение</h1>
+                <p class="lead">Программы и модели загружаются в служебный каталог — без установки в систему и прав администратора.</p>
+              </div>
+              <div class="row">
+                <button id="fetchTools" class="primary"><svg class="ico"><use href="#i-down" /></svg> Догрузить недостающее</button>
+                <button id="refreshEnv" class="ghost">Проверить заново</button>
+              </div>
+            </div>
+            <div id="envList" class="cards"></div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <div id="legal" class="overlay" hidden>
+      <div class="dialog">
+        <h2>Только для личного просмотра</h2>
+        <p id="legalText" class="lead"></p>
+        <div class="row between"><span></span><button id="legalOk" class="primary">Понятно</button></div>
+      </div>
+    </div>
+
+    <div id="browser" class="overlay" hidden>
+      <div class="dialog">
+        <div class="row between"><h2 id="browserTitle">Выберите папку</h2><button id="browserClose" class="ghost small">Закрыть</button></div>
+        <div class="mono" id="browserPath"></div>
+        <div id="browserList" class="browser-list"></div>
+        <div class="row between"><span class="meta" id="browserHint"></span><button id="browserChoose" class="primary">Выбрать эту папку</button></div>
+      </div>
+    </div>
+
+    <div id="otherDialog" class="overlay" hidden>
+      <div class="dialog">
+        <div class="row between"><h2>Другой файл или ссылка</h2><button id="otherClose" class="ghost small">Закрыть</button></div>
+        <p class="lead" style="margin:0">Путь к файлу на диске или ссылка на YouTube.</p>
+        <div class="row nowrap">
+          <input id="otherInput" type="text" placeholder="C:\videos\lecture.mp4 или https://youtu.be/…" />
+          <button id="otherPick" type="button">Обзор</button>
+        </div>
+        <div class="row between"><span></span><button id="otherOpen" class="primary">Открыть</button></div>
+      </div>
+    </div>
+
+    <div class="toasts" id="toasts"></div>
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,9 @@
+# Нормализация переводов строк: в репозитории всегда LF, в рабочей копии — как принято в ОС.
+* text=auto eol=lf
+
+# Бинарные файлы не трогать.
+*.mp4 binary
+*.png binary
+*.wav binary
+*.onnx binary
+*.bin binary

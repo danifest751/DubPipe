@@ -1,0 +1,33 @@
+{
+  "description": "Эталонная разметка тестового ролика (ТЗ §10): два спикера, фоновая музыка",
+  "source": "tests/fixtures/sample.mp4",
+  "generated_by": "scripts/make-fixture.mjs (piper, локальный синтез)",
+  "duration_seconds": 12,
+  "tolerance_ms": 250,
+  "segments": [
+    {
+      "start": 0.6,
+      "end": 2.539,
+      "speaker": "speaker_0",
+      "text_en": "So what do you think about the new plan?"
+    },
+    {
+      "start": 2.989,
+      "end": 5.833,
+      "speaker": "speaker_1",
+      "text_en": "Honestly, it looks better than the last one."
+    },
+    {
+      "start": 6.283,
+      "end": 7.421,
+      "speaker": "speaker_0",
+      "text_en": "That is not a high bar."
+    },
+    {
+      "start": 7.871,
+      "end": 10.762,
+      "speaker": "speaker_1",
+      "text_en": "Fair enough. Let us ship it and see."
+    }
+  ]
+}

@@ -1,0 +1,113 @@
+# DubPipe — конфигурация (ТЗ §5.3)
+# Все поля необязательны: пропущенное берётся из значения по умолчанию.
+# Создать рабочую копию: dub config init
+
+# Профиль исполнения (ТЗ §15).
+#   offline — ничего не уходит в сеть после загрузки моделей, ключи не нужны
+#   hybrid  — то же самое, но перевод (S3) идёт через Kilo Gateway
+profile: hybrid
+
+input: null            # путь или YouTube-URL; переопределяется аргументом CLI
+output: null           # итоговый файл; переопределяется флагом --out
+keep_original_track: false   # вторая аудиодорожка с оригиналом
+
+# --- Шлюз ИИ (используется только стадией S3) --------------------------------
+# ВАЖНО (ТЗ §3.1.1): у шлюза нет синтеза речи и нет таймкодов транскрипции,
+# поэтому он применим только к переводу.
+kilo_gateway:
+  api_key_env: KILO_API_KEY
+  endpoint: https://api.kilocode.ai/api/openrouter
+  timeout_ms: 120000
+  max_retries: 3
+  api_key_file: null         # запасной путь к файлу с токеном, если переменная не задана
+
+# --- S2. Распознавание речи --------------------------------------------------
+asr:
+  engine: whisper-cpp        # whisper-cpp | xenova-whisper
+  model: small               # tiny | base | small | medium | large-v3
+  device: cpu
+  language: en
+  threads: null              # null = по числу ядер
+  endpoint: null
+  api_key_env: null
+  vad:
+    enabled: true            # уточнение границ реплик (ТЗ FR-2)
+    window_ms: 400
+    model: ggml-silero-v5.1.2
+  diarization:
+    enabled: true            # при недоступности модели — деградация до speaker_0
+    engine: pyannote         # pyannote (Python + PyTorch, локально) | none
+    model: pyannote/speaker-diarization-community-1
+    max_speakers: 4
+    hf_token_env: HF_TOKEN   # имя переменной с токеном Hugging Face (нужен один раз, для загрузки весов)
+
+# --- S3. Перевод -------------------------------------------------------------
+translate:
+  engine: kilo-gateway       # kilo-gateway | ollama (задаётся профилем)
+  model: anthropic/claude-sonnet-4.5
+  fallback_engine: ollama    # куда деградировать при недоступности шлюза
+  fallback_model: qwen2.5:7b-instruct
+  ollama_endpoint: http://127.0.0.1:11434
+  batch_size: 10             # 8–12 реплик за запрос (ТЗ §3.4)
+  profanity: soft            # soft | hard | keep
+  chars_per_second: 11.5     # темп речи для контроля длины (ТЗ FR-3).
+                             # Величина приблизительная: один и тот же голос
+                             # произносит разные фразы со скоростью 9–14 симв/с.
+                             # Фактический темп прогона S5 пишет в calibration.json
+  length_tolerance: 0.15
+  length_tolerance_floor_ms: 250   # на коротких слотах ±15% недостижимы физически
+  fit_length_pass: true      # корректирующий проход по репликам вне допуска
+  context_segments: 3
+
+# --- S5. Синтез речи ---------------------------------------------------------
+tts:
+  engine: piper              # piper | edge-tts  (kilo-gateway невозможен, ТЗ §3.1.1)
+  model: null
+  default_voice: ru_RU-irina-medium
+  voice_map:                 # голос на спикера (ТЗ FR-5)
+    speaker_0: ru_RU-irina-medium
+    speaker_1: ru_RU-dmitri-medium
+  endpoint: null
+  api_key_env: null
+  concurrency: 2
+  sample_rate: 48000
+
+# --- S4. Отделение голоса от фона -------------------------------------------
+separation:
+  enabled: false             # выключено по умолчанию: дорого по времени на CPU
+  engine: mdx-onnx           # mdx-onnx | demucs
+  model: UVR-MDX-NET-Inst_HQ_3
+  fallback_to_ducking: true  # нет разделителя — приглушаем оригинал (ТЗ FR-4)
+
+# --- S6. Подгонка по таймкодам ----------------------------------------------
+alignment:
+  enabled: true
+  min_tempo: 0.9
+  max_tempo: 1.25
+  max_retranslate: 2
+  gap_ms: 50
+  max_shift_ms: 1500         # предел сдвига реплики вправо (ТЗ FR-6.5)
+  drift_reset_gap_ms: 700    # пауза, на которой накопленный сдвиг обнуляется
+
+# --- Субтитры ----------------------------------------------------------------
+subtitles:
+  max_line_chars: 42      # символов в строке
+  max_lines: 2            # строк в титре
+  min_duration_ms: 1000   # минимальная длительность титра
+  max_duration_ms: 7000   # максимальная длительность титра
+  gap_ms: 84              # зазор между соседними титрами (2 кадра при 24 к/с)
+  max_cps: 17             # предел скорости чтения, символов в секунду
+
+# --- S7. Сведение ------------------------------------------------------------
+mix:
+  background_gain_db: -6
+  voice_gain_db: 0
+  loudnorm: true
+  loudnorm_target_lufs: -16
+  duck_db: -18               # приглушение оригинала при выключенной S4
+  duck_fade_ms: 120
+
+# --- Кэш ---------------------------------------------------------------------
+cache:
+  enabled: true
+  dir: .dubpipe
