@@ -395,6 +395,8 @@ const DICTIONARY = {
   'unit.gb': { ru: 'ГБ', en: 'GB' },
   'unit.db': { ru: 'дБ', en: 'dB' },
 
+  'settings.whisper.turbo': { ru: 'large-v3-turbo — 1.5 ГБ, качество large, быстрее втрое', en: 'large-v3-turbo — 1.5 GB, large quality, three times faster' },
+
   // --- общее
   'common.cancel': { ru: 'Отмена', en: 'Cancel' },
   'common.close': { ru: 'Закрыть', en: 'Close' },
