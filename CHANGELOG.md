@@ -25,10 +25,17 @@ All notable changes to this project are documented here. Versions follow
 
 ### Sound
 
+- Fitting no longer laid replicas over their neighbours on every second run. The length of
+  the fitted clip was written over the length of the synthesis it was computed from, so a
+  re-run planned from its own output, chose no speed-up at all and rendered clips that did
+  not fit the time they were given.
+- The original voice no longer comes back in the gaps between replicas. Lines are 50 ms
+  apart by default and a transition lasts 120, so the envelope released the original
+  between every pair of them — under continuous dubbed speech the original actor was
+  audible in each gap.
 - A quiet trace of the original voice is left under the Russian speech, -12 dB by default,
   chosen by ear: removing it completely made the scene sterile, because breath and the room
   go with the voice.
-
 - The original voice is removed only where the Russian speech plays, instead of ducking the
   whole original track: the music no longer dips under every line, and a song that is not
   dubbed keeps its vocals.
@@ -36,8 +43,18 @@ All notable changes to this project are documented here. Versions follow
   it shorter. On a 35-minute Korean episode: 52 rewritten replicas became 1, 114 sped-up
   became 9, the largest drift fell from 1357 ms to 330 ms.
 
+### Subtitles
+
+- Russian subtitles follow the Russian voice. Fitting may shift a line by up to 1.5 s, and
+  the subtitle stayed where the original had been spoken.
+
 ### Length control
 
+- Translation orders a line by the room it really has — its own slot plus the pause fitting
+  is allowed to borrow — and every place that judges a line uses that same ruler: the
+  corrective pass, the run summary, the shortening prompt, the replica table in the
+  interface and the model comparison. Measuring it differently in different places was the
+  single largest source of defects in this pipeline.
 - A line's duration is modelled as a fixed cost per replica plus characters over a rate,
   fitted per voice instead of assumed. On one voice: 0.51 s and 17.8 characters per second,
   against the 11.5 the pipeline had been aiming at — long lines were being asked for a third
@@ -60,6 +77,10 @@ All notable changes to this project are documented here. Versions follow
 
 ### Robustness
 
+- A clip is re-voiced when anything it was made from changes: the text, the voice, or the
+  sample rate it is rendered at.
+- Changing how much of the following pause fitting may borrow re-translates the file, since
+  that is what decides the length the translation is ordered at.
 - A batch the translation model refuses costs its own replicas, not the whole stage. An
   untranslated replica keeps its original text only when a Russian voice can read it;
   Hangul and Han characters stay silent instead of becoming noise.
