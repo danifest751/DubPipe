@@ -20,6 +20,15 @@ All notable changes to this project are documented here. Versions follow
 - `scripts/clean-hallucinations.mts` applies the same rules to a transcript that already
   exists, so a file recognised before this change need not be recognised again.
 
+### Sound
+
+- The original voice is removed only where the Russian speech plays, instead of ducking the
+  whole original track: the music no longer dips under every line, and a song that is not
+  dubbed keeps its vocals.
+- Fitting borrows the silence that follows a replica instead of asking the model to rewrite
+  it shorter. On a 35-minute Korean episode: 52 rewritten replicas became 1, 114 sped-up
+  became 9, the largest drift fell from 1357 ms to 330 ms.
+
 ### Speed
 
 - The speaker embedding network, which is 96% of diarization, runs on any DirectX GPU

@@ -156,6 +156,30 @@ The packaged app needs neither Node.js nor Python: an installer and a portable b
 > Russian. The code, this README and the configuration reference are what an English-speaking
 > contributor needs; source comments are in Russian or English depending on the module.
 
+### What happens to the original track
+
+The Russian speech goes over the original, so something has to be done with it.
+There are three ways, chosen by the settings.
+
+Without separation — the default — the original is **ducked** by 18 dB under our
+speech. Simple and reliable, but the music dips along with the foreign voice.
+
+With separation on, the **extracted voice is subtracted** from the original, and
+only where our own speech plays. The music stays at full level, and between
+replicas the original is untouched, so a song we do not dub keeps its vocals.
+That is the default, `separation.apply: under_speech`.
+
+`everywhere` replaces the original with the rebuilt background for the whole
+film. It removes the original voice everywhere, and strips songs of their vocals.
+
+### Fitting to the timing
+
+A replica that does not fit its slot used to be rewritten shorter by the model,
+losing meaning. Fitting now first borrows the silence that follows the replica,
+up to 1.2 seconds, never crossing into the next one. On a Korean episode that
+took the number of rewritten replicas from 52 down to 1, and sped-up ones from
+114 down to 9.
+
 ## Subtitles
 
 The **Subtitles** button next to **Dub** (or `--subtitles` on the command line) runs
