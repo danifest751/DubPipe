@@ -6,7 +6,7 @@ import { cancellation } from '../core/cancel.js';
 import { StageError } from '../core/errors.js';
 import { languageProfile } from '../core/languages.js';
 import { counter, log } from '../core/logger.js';
-import { slotOf, type Segment } from '../core/types.js';
+import { availableSeconds, slotOf, type Segment } from '../core/types.js';
 import type { Workspace } from '../core/workspace.js';
 import { selectChatClient, type ChatClient, type ChatUsage } from '../providers/llm/index.js';
 import { formatCost } from '../providers/llm/catalog.js';
@@ -256,9 +256,10 @@ export function buildBatchRequest(
   charsPerSecond: number,
   expansionCap: number = MAX_EXPANSION,
   overheadSeconds = 0,
+  room: (segment: Segment) => number = slotOf,
 ): string {
   const lines = batch.map((segment) => {
-    const slot = slotOf(segment);
+    const slot = room(segment);
     return JSON.stringify({
       id: segment.id,
       slot_seconds: Number(slot.toFixed(2)),
@@ -369,9 +370,10 @@ async function translateBatch(
   usage: RunUsage,
   expansionCap: number,
   overheadSeconds: number,
+  room: (segment: Segment) => number,
 ): Promise<TranslationPayload> {
   const ids = batch.map((segment) => segment.id);
-  const request = buildBatchRequest(batch, charsPerSecond, expansionCap, overheadSeconds);
+  const request = buildBatchRequest(batch, charsPerSecond, expansionCap, overheadSeconds, room);
   let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -557,6 +559,21 @@ export async function translateSegments(
   let failedBatches = 0;
   // Язык оригинала — параметр: от него зависят и предел длины перевода, и промпт.
   const sourceLanguage = languageProfile(config.asr.language);
+  // Сколько места у реплики на самом деле: её слот плюс пауза после неё,
+  // которую займёт укладка. Иначе на редком на диалог материале у модели
+  // просят перевести реплику одной буквой — слот там короче надбавки.
+  const ordered = [...segments].sort((a, b) => a.start - b.start);
+  const roomByIndex = new Map(
+    ordered.map((segment, index) => [
+      segment.id,
+      availableSeconds(ordered, index, {
+        borrowSeconds: config.alignment.borrow_silence_ms / 1000,
+        gapSeconds: config.alignment.gap_ms / 1000,
+      }),
+    ]),
+  );
+  const room = (segment: Segment) => roomByIndex.get(segment.id) ?? slotOf(segment);
+
   const batches = planBatches(segments, config.translate.batch_size);
   const glossary: Record<string, string> = {};
 
@@ -576,7 +593,7 @@ export async function translateSegments(
 
     let payload: TranslationPayload;
     try {
-      payload = await translateBatch(client, systemPrompt, batch, cps, usage, sourceLanguage.expansionCap, overhead);
+      payload = await translateBatch(client, systemPrompt, batch, cps, usage, sourceLanguage.expansionCap, overhead, room);
     } catch (error) {
       // Один упрямый пакет не должен обнулять час работы: на 99 пакетах модель
       // почти наверняка где-нибудь нарушит формат ответа или не уложится в

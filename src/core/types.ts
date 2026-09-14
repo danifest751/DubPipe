@@ -91,3 +91,30 @@ export function makeSegment(init: Partial<Segment> & Pick<Segment, 'id' | 'start
 export function slotOf(segment: Pick<Segment, 'start' | 'end'>): number {
   return segment.end - segment.start;
 }
+
+/**
+ * Сколько времени на самом деле отведено реплике: её собственный слот плюс
+ * тишина после неё, которую можно занять.
+ *
+ * Пауза между репликами — такое же место для речи: там всё равно молчат.
+ * Стадия укладки это уже использует, а стадия перевода раньше не знала и
+ * заказывала перевод по одному слоту. На редком на диалог материале это
+ * доходило до нелепости: слот 0.5 с при надбавке 0.7 с давал отрицательное
+ * число знаков, и у модели просили перевести реплику одной буквой.
+ *
+ * Занимается не вся пауза, а ограниченная часть: иначе перед долгим молчанием
+ * реплика растянулась бы на всю его длину и уехала от картинки.
+ */
+export function availableSeconds(
+  segments: Pick<Segment, 'start' | 'end'>[],
+  index: number,
+  options: { borrowSeconds: number; gapSeconds: number },
+): number {
+  const segment = segments[index];
+  if (!segment) return 0;
+  const slot = slotOf(segment);
+  const next = segments[index + 1];
+  const limit = next ? next.start - options.gapSeconds : segment.end + options.borrowSeconds;
+  const room = Math.max(0, Math.min(options.borrowSeconds, limit - segment.end));
+  return slot + room;
+}
