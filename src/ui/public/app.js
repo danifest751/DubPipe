@@ -663,6 +663,51 @@ const SEGMENT_COLUMNS = [
   { key: 'listen', width: 128, min: 88 },
 ];
 const COLUMN_STORE = 'dubpipe.segmentColumns.v2';
+const HIDDEN_STORE = 'dubpipe.segmentColumnsHidden';
+
+/** Колонки, скрытые на этом устройстве: на узком экране нужны не все. */
+function hiddenColumns() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(HIDDEN_STORE) ?? '[]');
+    return new Set(Array.isArray(saved) ? saved.filter((key) => typeof key === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function setHiddenColumns(keys) {
+  try {
+    localStorage.setItem(HIDDEN_STORE, JSON.stringify([...keys]));
+  } catch {
+    // Не сохранилось — выбор действует до конца сеанса.
+  }
+}
+
+/** Список колонок с галочками: что показывать, что убрать. */
+function renderColumnPicker() {
+  const box = $('#columnPicker');
+  if (!box) return;
+  const hidden = hiddenColumns();
+  box.innerHTML = SEGMENT_COLUMNS.map(
+    (column) =>
+      `<label class="check"><input type="checkbox" data-column="${column.key}" ${hidden.has(column.key) ? '' : 'checked'} /> ` +
+      `<span>${escapeHtml(t(`segments.${column.key}`))}</span></label>`,
+  ).join('');
+  box.querySelectorAll('[data-column]').forEach((input) =>
+    input.addEventListener('change', () => {
+      const keys = hiddenColumns();
+      if (input.checked) keys.delete(input.dataset.column);
+      else keys.add(input.dataset.column);
+      // Совсем без колонок таблица бессмысленна.
+      if (keys.size >= SEGMENT_COLUMNS.length) {
+        input.checked = true;
+        return;
+      }
+      setHiddenColumns(keys);
+      renderSegments();
+    }),
+  );
+}
 
 /** Ширины колонок; null — колонка забирает остаток строки. */
 function columnWidths() {
@@ -697,10 +742,19 @@ function renderColumns() {
   const group = $('#segmentsTable colgroup');
   if (!group) return;
   const widths = columnWidths();
-  group.innerHTML = widths.map((width) => (width === null ? '<col />' : `<col style="width:${width}px" />`)).join('');
+  const hidden = hiddenColumns();
+
+  // Колонка описывается элементом colgroup только пока она на виду: у скрытой
+  // ячейки нет в раскладке, и лишний элемент сдвинул бы ширины соседей.
+  group.innerHTML = widths
+    .filter((width, index) => !hidden.has(SEGMENT_COLUMNS[index].key))
+    .map((width) => (width === null ? '<col />' : `<col style="width:${width}px" />`))
+    .join('');
 
   $$('#segmentsTable thead th').forEach((cell, index) => {
     cell.querySelector('.col-grip')?.remove();
+    cell.hidden = hidden.has(SEGMENT_COLUMNS[index].key);
+    if (cell.hidden) return;
     if (index >= SEGMENT_COLUMNS.length - 1) return;
     const grip = document.createElement('div');
     grip.className = 'col-grip';
@@ -746,6 +800,7 @@ function startColumnDrag(event, index, grip) {
 
 function renderSegments() {
   renderColumns();
+  renderColumnPicker();
   const body = $('#segmentsTable tbody');
   if (state.segments.length === 0) {
     body.innerHTML = `<tr><td colspan="10"><span class="meta">${t('segments.empty')}</span></td></tr>`;
@@ -769,6 +824,14 @@ function renderSegments() {
       </tr>`;
     })
     .join('');
+
+  const hidden = hiddenColumns();
+  if (hidden.size > 0) {
+    const columns = SEGMENT_COLUMNS.map((column, index) => (hidden.has(column.key) ? index : -1)).filter((i) => i >= 0);
+    body.querySelectorAll('tr').forEach((row) => {
+      for (const index of columns) if (row.cells[index]) row.cells[index].hidden = true;
+    });
+  }
 
   body.querySelectorAll('input, textarea').forEach((field) =>
     field.addEventListener('change', () => {
@@ -1156,6 +1219,18 @@ $('#reviewReset').addEventListener('click', (event) =>
     await loadSegments().catch(() => {});
   }).catch(showError),
 );
+
+$('#toggleColumns').addEventListener('click', (event) => {
+  const menu = $('#columnPicker');
+  menu.hidden = !menu.hidden;
+  event.stopPropagation();
+});
+// Щелчок мимо закрывает список.
+document.addEventListener('click', (event) => {
+  const menu = $('#columnPicker');
+  if (!menu || menu.hidden) return;
+  if (!menu.contains(event.target) && event.target !== $('#toggleColumns')) menu.hidden = true;
+});
 
 $('#reloadSegments').addEventListener('click', (event) => withBusy(event.currentTarget, loadSegments).catch(showError));
 $('#saveSegments').addEventListener('click', (event) =>
