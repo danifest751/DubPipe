@@ -358,6 +358,18 @@
                     </div>
                   </div>
                   <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.asrBackend">Чем считать распознавание</b><span data-i18n="settings.asrBackendNote">Сборка whisper.cpp. Автоматически выбирается официальная под ваше железо. Vulkan работает на видеокартах AMD и Intel и вдвое быстрее, но собран не проектом whisper.cpp.</span></div>
+                    <div class="opt-ctl">
+                      <select data-key="asr.backend">
+                        <option value="auto" data-i18n="settings.backend.auto">Автоматически</option>
+                        <option value="blas" data-i18n="settings.backend.blas">Процессор (BLAS)</option>
+                        <option value="cpu" data-i18n="settings.backend.cpu">Процессор без BLAS</option>
+                        <option value="cuda" data-i18n="settings.backend.cuda">Видеокарта NVIDIA (CUDA)</option>
+                        <option value="vulkan" data-i18n="settings.backend.vulkan">Видеокарта через Vulkan (AMD, Intel)</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="opt">
                     <div class="opt-text"><b data-i18n="settings.sourceLanguage">Язык оригинала</b><span data-i18n="settings.sourceLanguageNote">На каком языке говорят в оригинале.</span></div>
                     <div class="opt-ctl"><select data-key="asr.language" id="sourceLanguage"></select></div>
                   </div>
@@ -368,6 +380,18 @@
                   <div class="opt">
                     <div class="opt-text"><b data-i18n="settings.diarization">Разные голоса для персонажей</b><span>Определяет, кто говорит (pyannote, локально на процессоре), и раздаёт голоса по спикерам — см. «Голоса». Нужен Python и однократная загрузка модели.</span></div>
                     <div class="opt-ctl"><label class="switch"><input data-key="asr.diarization.enabled" type="checkbox" /><i></i></label></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.diarizationDevice">Где считать голоса</b><span data-i18n="settings.diarizationDeviceNote">На видеокарте вчетверо быстрее, если установлен onnxruntime-directml. Результат тот же.</span></div>
+                    <div class="opt-ctl">
+                      <select data-key="asr.diarization.device">
+                        <option value="auto" data-i18n="settings.device.auto">Автоматически</option>
+                        <option value="gpu" data-i18n="settings.device.gpu">Видеокарта</option>
+                        <option value="igpu" data-i18n="settings.device.igpu">Встроенная видеокарта</option>
+                        <option value="dgpu" data-i18n="settings.device.dgpu">Отдельная видеокарта</option>
+                        <option value="cpu" data-i18n="settings.device.cpu">Процессор</option>
+                      </select>
+                    </div>
                   </div>
                   <div class="opt" id="hfTokenBlock">
                     <div class="opt-text"><b data-i18n="settings.hfToken">Токен Hugging Face</b><span>Нужен один раз — скачать веса модели. Бесплатный, с правом чтения. Перед этим примите условия на странице модели <code>pyannote/speaker-diarization-community-1</code> (huggingface.co). Хранится на этом компьютере, в файл настроек не попадает.</span></div>
@@ -391,6 +415,18 @@
                   <div class="opt">
                     <div class="opt-text"><b data-i18n="settings.separation">Убирать оригинальную речь из фонограммы</b><span>Отделяет голос от музыки нейросетью. Заметно дольше, нужен Python с numpy и onnxruntime. Иначе оригинал просто приглушается на время реплик.</span></div>
                     <div class="opt-ctl"><label class="switch"><input data-key="separation.enabled" type="checkbox" /><i></i></label></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.separationDevice">Где считать отделение</b><span data-i18n="settings.separationDeviceNote">На видеокарте впятеро быстрее: минута звука за три секунды вместо семнадцати.</span></div>
+                    <div class="opt-ctl">
+                      <select data-key="separation.device">
+                        <option value="auto" data-i18n="settings.device.auto">Автоматически</option>
+                        <option value="gpu" data-i18n="settings.device.gpu">Видеокарта</option>
+                        <option value="igpu" data-i18n="settings.device.igpu">Встроенная видеокарта</option>
+                        <option value="dgpu" data-i18n="settings.device.dgpu">Отдельная видеокарта</option>
+                        <option value="cpu" data-i18n="settings.device.cpu">Процессор</option>
+                      </select>
+                    </div>
                   </div>
                   <div class="opt">
                     <div class="opt-text"><b data-i18n="settings.backgroundLevel">Громкость фона</b><span id="bgLabel"></span></div>

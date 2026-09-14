@@ -228,7 +228,7 @@ const DICTIONARY = {
   'settings.whisper.medium': { ru: 'medium — 1.5 ГБ, точнее, в 3 раза медленнее', en: 'medium — 1.5 GB, more accurate, 3× slower' },
   'settings.whisper.large': { ru: 'large-v3 — 3.1 ГБ, лучшее качество, медленно', en: 'large-v3 — 3.1 GB, best quality, slow' },
   'settings.sourceLanguage': { ru: 'Язык оригинала', en: 'Source language' },
-  'settings.sourceLanguageNote': { ru: 'Код языка, например en.', en: 'Language code, for example en.' },
+  'settings.sourceLanguageNote': { ru: 'На каком языке говорят в оригинале.', en: 'What language is spoken in the original.' },
   'settings.vad': { ru: 'Уточнять границы реплик по речи', en: 'Refine replica boundaries by speech' },
   'settings.vadNote': { ru: 'Подтягивает начало и конец к реальной речи. Отключать не стоит.', en: 'Pulls the start and end to the actual speech. Better left on.' },
   'settings.diarization': { ru: 'Разные голоса для персонажей', en: 'Separate voices per character' },
@@ -394,6 +394,33 @@ const DICTIONARY = {
   'unit.mb': { ru: 'МБ', en: 'MB' },
   'unit.gb': { ru: 'ГБ', en: 'GB' },
   'unit.db': { ru: 'дБ', en: 'dB' },
+
+  'settings.asrBackend': { ru: 'Чем считать распознавание', en: 'What computes recognition' },
+  'settings.asrBackendNote': {
+    ru: 'Сборка whisper.cpp. Автоматически выбирается официальная под ваше железо. Vulkan работает на видеокартах AMD и Intel и вдвое быстрее, но собран не проектом whisper.cpp.',
+    en: 'The whisper.cpp build. Automatic picks an official one for your hardware. Vulkan works on AMD and Intel GPUs and is twice as fast, but it is not built by the whisper.cpp project.',
+  },
+  'settings.backend.auto': { ru: 'Автоматически', en: 'Automatic' },
+  'settings.backend.blas': { ru: 'Процессор (BLAS)', en: 'CPU (BLAS)' },
+  'settings.backend.cpu': { ru: 'Процессор без BLAS', en: 'CPU without BLAS' },
+  'settings.backend.cuda': { ru: 'Видеокарта NVIDIA (CUDA)', en: 'NVIDIA GPU (CUDA)' },
+  'settings.backend.vulkan': { ru: 'Видеокарта через Vulkan (AMD, Intel)', en: 'GPU through Vulkan (AMD, Intel)' },
+
+  'settings.diarizationDevice': { ru: 'Где считать голоса', en: 'Where to work out the voices' },
+  'settings.diarizationDeviceNote': {
+    ru: 'На видеокарте вчетверо быстрее, если установлен onnxruntime-directml. Результат тот же.',
+    en: 'Four times faster on the GPU when onnxruntime-directml is installed. The result is the same.',
+  },
+  'settings.separationDevice': { ru: 'Где считать отделение', en: 'Where to separate the voice' },
+  'settings.separationDeviceNote': {
+    ru: 'На видеокарте впятеро быстрее: минута звука за три секунды вместо семнадцати.',
+    en: 'Five times faster on the GPU: a minute of audio in three seconds instead of seventeen.',
+  },
+  'settings.device.auto': { ru: 'Автоматически', en: 'Automatic' },
+  'settings.device.gpu': { ru: 'Видеокарта', en: 'GPU' },
+  'settings.device.igpu': { ru: 'Встроенная видеокарта', en: 'Integrated GPU' },
+  'settings.device.dgpu': { ru: 'Отдельная видеокарта', en: 'Discrete GPU' },
+  'settings.device.cpu': { ru: 'Процессор', en: 'CPU' },
 
   'settings.whisper.turbo': { ru: 'large-v3-turbo — 1.5 ГБ, качество large, быстрее втрое', en: 'large-v3-turbo — 1.5 GB, large quality, three times faster' },
 
