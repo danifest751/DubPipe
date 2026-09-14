@@ -602,7 +602,103 @@ function fitInfo(segment) {
   return { cls: delta > 0 ? 'long' : 'short', label: `${label} (${delta > 0 ? '+' : ''}${delta.toFixed(2)})` };
 }
 
+/*
+ * Ширины колонок таблицы реплик.
+ *
+ * Колонок десять, и у каждого материала своя нужда: где-то важен длинный
+ * оригинал, где-то — укладка. Поэтому ширины тянутся мышью за правый край
+ * заголовка и запоминаются на этом устройстве. Раскладка таблицы фиксированная,
+ * поэтому последняя колонка больше не уезжает за край карточки.
+ */
+const SEGMENT_COLUMNS = [
+  { key: 'index', width: 46, min: 36 },
+  { key: 'start', width: 96, min: 70 },
+  { key: 'end', width: 96, min: 70 },
+  { key: 'slot', width: 66, min: 52 },
+  { key: 'speaker', width: 152, min: 90 },
+  { key: 'source', width: 280, min: 120 },
+  { key: 'target', width: 280, min: 120 },
+  { key: 'fit', width: 116, min: 80 },
+  { key: 'flags', width: 96, min: 60 },
+  { key: 'listen', width: 150, min: 90 },
+];
+const COLUMN_STORE = 'dubpipe.segmentColumns';
+
+function columnWidths() {
+  const defaults = SEGMENT_COLUMNS.map((column) => column.width);
+  try {
+    const saved = JSON.parse(localStorage.getItem(COLUMN_STORE) ?? 'null');
+    if (!Array.isArray(saved) || saved.length !== defaults.length) return defaults;
+    return saved.map((value, index) =>
+      Number.isFinite(value) ? Math.max(SEGMENT_COLUMNS[index].min, Math.round(value)) : defaults[index],
+    );
+  } catch {
+    // Приватное окно или запрет на хранилище — просто берём умолчания.
+    return defaults;
+  }
+}
+
+function saveColumnWidths(widths) {
+  try {
+    localStorage.setItem(COLUMN_STORE, JSON.stringify(widths));
+  } catch {
+    // Не сохранилось — не беда: ширины действуют до конца сеанса.
+  }
+}
+
+function renderColumns() {
+  const group = $('#segmentsTable colgroup');
+  if (!group) return;
+  const widths = columnWidths();
+  group.innerHTML = widths.map((width) => `<col style="width:${width}px" />`).join('');
+
+  $$('#segmentsTable thead th').forEach((cell, index) => {
+    cell.querySelector('.col-grip')?.remove();
+    if (index >= SEGMENT_COLUMNS.length - 1) return;
+    const grip = document.createElement('div');
+    grip.className = 'col-grip';
+    grip.title = t('segments.columnsHint');
+    grip.addEventListener('pointerdown', (event) => startColumnDrag(event, index, grip));
+    // Двойной щелчок по тянучке возвращает исходные ширины.
+    grip.addEventListener('dblclick', () => {
+      saveColumnWidths(SEGMENT_COLUMNS.map((column) => column.width));
+      renderColumns();
+      toast(t('segments.columnsReset'), 'ok');
+    });
+    cell.appendChild(grip);
+  });
+}
+
+function startColumnDrag(event, index, grip) {
+  event.preventDefault();
+  const widths = columnWidths();
+  const startX = event.clientX;
+  const startWidth = widths[index];
+  const cols = $$('#segmentsTable colgroup col');
+  grip.classList.add('active');
+  document.body.classList.add('col-resizing');
+  grip.setPointerCapture(event.pointerId);
+
+  const move = (moveEvent) => {
+    const width = Math.max(SEGMENT_COLUMNS[index].min, Math.round(startWidth + (moveEvent.clientX - startX)));
+    widths[index] = width;
+    if (cols[index]) cols[index].style.width = `${width}px`;
+  };
+  const stop = () => {
+    grip.removeEventListener('pointermove', move);
+    grip.removeEventListener('pointerup', stop);
+    grip.removeEventListener('pointercancel', stop);
+    grip.classList.remove('active');
+    document.body.classList.remove('col-resizing');
+    saveColumnWidths(widths);
+  };
+  grip.addEventListener('pointermove', move);
+  grip.addEventListener('pointerup', stop);
+  grip.addEventListener('pointercancel', stop);
+}
+
 function renderSegments() {
+  renderColumns();
   const body = $('#segmentsTable tbody');
   if (state.segments.length === 0) {
     body.innerHTML = `<tr><td colspan="10"><span class="meta">${t('segments.empty')}</span></td></tr>`;
@@ -622,7 +718,7 @@ function renderSegments() {
         <td><textarea data-field="text_ru">${escapeHtml(segment.text_ru ?? '')}</textarea></td>
         <td class="fit ${fit.cls}">${fit.label}${segment.tts_duration ? `<br><span class="meta">${t('segments.synth', { value: segment.tts_duration.toFixed(2) })}</span>` : ''}</td>
         <td><span class="meta">${(segment.flags ?? []).join(', ')}${segment.overlap ? ' overlap' : ''}</span></td>
-        <td><button data-play-original="${index}" class="ghost small">${icon('play')} ${t('segments.original')}</button>${clip ? `<button data-play-clip="${escapeAttr(clip)}" class="ghost small">${icon('play')} синтез</button>` : ''}</td>
+        <td><button data-play-original="${index}" class="ghost small">${icon('play')} ${t('segments.original')}</button>${clip ? `<button data-play-clip="${escapeAttr(clip)}" class="ghost small">${icon('play')} ${t('segments.tts')}</button>` : ''}</td>
       </tr>`;
     })
     .join('');

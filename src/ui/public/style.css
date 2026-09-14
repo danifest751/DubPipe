@@ -378,10 +378,39 @@ td.num input { width: 78px; min-width: 0; font-variant-numeric: tabular-nums; }
 .fit.short { color: var(--warn); }
 .fit .meta { color: var(--text-dim); font-weight: normal; }
 
-/* Текстовые колонки редактора должны дышать, служебные — ужаться. */
-#segmentsTable th:nth-child(6), #segmentsTable th:nth-child(7) { min-width: 240px; }
+/*
+ * Ширины колонок реплик задаёт colgroup, поэтому раскладка фиксированная:
+ * иначе длинный текст растягивал соседей, последняя колонка уезжала за край
+ * карточки и кнопки прослушивания было не достать.
+ */
+#segmentsTable { table-layout: fixed; }
 #segmentsTable td textarea { min-height: 58px; }
 #segmentsTable td:last-child { white-space: nowrap; }
+#segmentsTable th { position: relative; }
+
+/* Тянучка на правом краю заголовка: ширина запоминается на этом устройстве. */
+.col-grip {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none;
+  z-index: 1;
+}
+.col-grip::after {
+  content: '';
+  position: absolute;
+  top: 20%;
+  bottom: 20%;
+  left: 3px;
+  width: 1px;
+  background: var(--line);
+}
+.col-grip:hover::after, .col-grip.active::after { background: var(--accent); left: 2px; width: 2px; }
+body.col-resizing { cursor: col-resize; user-select: none; }
 
 /* --- обозреватель и окна -------------------------------------------------- */
 
