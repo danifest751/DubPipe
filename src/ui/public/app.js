@@ -487,11 +487,16 @@ function renderJob() {
       const item = planned.get(stage.id);
       if (!item) return `<div class="step skipped"><svg class="mark"><use href="#i-dot" /></svg><b>${t(STAGE_SHORT[stage.id])}</b><span class="sub">${t('stage.state.skipped')}</span></div>`;
       const mark = item.state === 'done' ? 'check' : item.state === 'running' ? 'spin' : 'dot';
+      // Что стадия делает, сервер присылает ключом словаря: сама строка у него
+      // русская — её печатает командная строка, где язык не выбирают.
+      const doing = item.progress?.phrase
+        ? t(item.progress.phrase.key, item.progress.phrase.params ?? {})
+        : item.progress?.detail;
       const sub =
         item.state === 'done'
-          ? (item.provider ?? t('stage.state.done'))
+          ? (item.provider === 'кэш' ? t('work.cached') : (item.provider ?? t('stage.state.done')))
           : item.state === 'running'
-            ? (item.progress?.detail ?? t('stage.state.running'))
+            ? (doing ?? t('stage.state.running'))
             : t('stage.state.pending');
       // Полоса: с известной долей — заполняется, без неё — бежит, чтобы было видно, что процесс жив.
       const percent = item.progress?.percent;

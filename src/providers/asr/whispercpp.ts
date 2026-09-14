@@ -291,7 +291,7 @@ export class WhisperCppProvider implements AsrProvider {
         const match = /progress\s*=\s*(\d+)%/.exec(chunk);
         if (match) {
           log.step(`распознано ${match[1]}%`);
-          log.progress(`распознавание ${match[1]}%`, Number(match[1]));
+          log.progress(`распознавание ${match[1]}%`, Number(match[1]), null, { key: 'work.asr', params: { percent: Number(match[1]) } });
         }
         else log.debug(chunk.trim());
       },

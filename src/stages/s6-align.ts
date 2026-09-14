@@ -284,10 +284,12 @@ export async function runS6(workspace: Workspace, baseConfig: DubConfig, segment
         recordClip(segment, result, voice, shortened, tts.fingerprint);
         fixed++;
         log.step(`сокращено ${counter(index + 1, current.length)} (итерация ${iteration})`);
-        log.progress(`сокращено реплик ${counter(index + 1, current.length)}, итерация ${iteration}`, null, {
-          done: index + 1,
-          total: current.length,
-        });
+        log.progress(
+          `сокращено реплик ${counter(index + 1, current.length)}, итерация ${iteration}`,
+          null,
+          { done: index + 1, total: current.length },
+          { key: 'work.shorten', params: { done: index + 1, total: current.length, iteration } },
+        );
       }
       if (fixed === 0) break;
     }

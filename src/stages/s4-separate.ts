@@ -195,7 +195,7 @@ export async function runS4(workspace: Workspace, config: DubConfig): Promise<S4
           const match = /progress=(\d+)/.exec(chunk);
           if (match) {
             log.step(`разделено ${match[1]}%`);
-            log.progress(`разделение ${match[1]}%`, Number(match[1]));
+            log.progress(`разделение ${match[1]}%`, Number(match[1]), null, { key: 'work.separate', params: { percent: Number(match[1]) } });
           }
           else if (chunk.trim()) log.debug(chunk.trim());
         },

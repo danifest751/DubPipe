@@ -295,7 +295,7 @@ export async function diarize(
         const match = /progress=(\d+)/.exec(chunk);
         if (match) {
           const percent = Number(match[1]);
-          log.progress(`диаризация ${percent}%`, percent);
+          log.progress(`диаризация ${percent}%`, percent, null, { key: 'work.diarize', params: { percent } });
           if (percent - lastPercent >= 10 || percent === 100) {
             lastPercent = percent;
             log.step(`диаризация ${percent}%`);

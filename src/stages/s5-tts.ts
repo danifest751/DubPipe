@@ -167,7 +167,7 @@ export async function runS5(workspace: Workspace, baseConfig: DubConfig, segment
     recordClip(segment, result, voice, segment.text_ru!, provider.fingerprint);
 
     done++;
-    log.progress(`синтезировано реплик ${counter(done, pending.length)}`, null, { done, total: pending.length });
+    log.progress(`синтезировано реплик ${counter(done, pending.length)}`, null, { done, total: pending.length }, { key: 'work.tts', params: { done, total: pending.length } });
     if (done % 10 === 0 || done === pending.length) log.step(`синтезировано ${counter(done, pending.length)}`);
   });
 

@@ -43,7 +43,7 @@ export async function runS2(workspace: Workspace, config: DubConfig, audioPath: 
   let refinedByVad = false;
 
   if (config.asr.vad.enabled) {
-    log.progress('уточнение границ по речи (VAD)', null);
+    log.progress('уточнение границ по речи (VAD)', null, null, { key: 'work.vad' });
     // whisper stretches the last word of a replica up to the next one, so the
     // ends need real speech edges to land inside ±250 ms (SPEC FR-2).
     const vadInput = workspace.file('audio16k.wav');
@@ -80,7 +80,7 @@ export async function runS2(workspace: Workspace, config: DubConfig, audioPath: 
       );
     } else {
       log.step(`диаризация моделью ${config.asr.diarization.model} (Python + PyTorch)`);
-      log.progress('диаризация: загрузка модели', null);
+      log.progress('диаризация: загрузка модели', null, null, { key: 'work.diarizeLoad' });
       try {
         const diarizationInput = workspace.file('audio16k.wav');
         const diarizationFile = workspace.file('diarization.json');
@@ -127,7 +127,7 @@ export async function runS2(workspace: Workspace, config: DubConfig, audioPath: 
   // женский голос по умолчанию (ТЗ FR-5). Без диаризации оценивается единственный
   // спикер по репликам. Ошибка здесь не должна валить стадию.
   if (!noSpeech) {
-    log.progress('оценка пола голосов', null);
+    log.progress('оценка пола голосов', null, null, { key: 'work.gender' });
     try {
       const intervals = speechBySpeaker ?? segments.map((segment) => ({ start: segment.start, end: segment.end, speaker: segment.speaker }));
       const analysis = workspace.file('audio16k.wav');

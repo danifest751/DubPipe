@@ -49,6 +49,21 @@ export interface StageProgress {
   detail: string;
   done?: number;
   total?: number;
+  /**
+   * То же самое для интерфейса, который умеет говорить на двух языках.
+   *
+   * `detail` — готовая русская строка: её печатает командная строка, где язык
+   * не выбирают. Интерфейс же переводится словарём на странице, поэтому ему
+   * нужен ключ и подстановки, а не текст: иначе в английском интерфейсе
+   * квадратики стадий остаются русскими.
+   */
+  phrase?: Phrase;
+}
+
+/** Строка, которую интерфейс переведёт сам: ключ словаря и подстановки. */
+export interface Phrase {
+  key: string;
+  params?: Record<string, string | number>;
 }
 
 export type LogListener = (record: LogRecord) => void;
@@ -122,14 +137,24 @@ class Logger {
    * Ход стадии для интерфейса: полоса, счётчик и подпись. В консоль не пишется —
    * там ту же историю рассказывают строки `step`; здесь важна структура.
    */
-  progress(detail: string, percent: number | null, count?: { done: number; total: number }): void {
+  progress(
+    detail: string,
+    percent: number | null,
+    count?: { done: number; total: number } | null,
+    phrase?: Phrase,
+  ): void {
     const clamped = percent === null ? null : Math.max(0, Math.min(100, Math.round(percent)));
     const computed = count && count.total > 0 ? Math.round((count.done / count.total) * 100) : clamped;
     this.emit({
       level: 'debug',
       kind: 'progress',
       text: detail,
-      progress: { percent: computed, detail, ...(count ? { done: count.done, total: count.total } : {}) },
+      progress: {
+        percent: computed,
+        detail,
+        ...(count ? { done: count.done, total: count.total } : {}),
+        ...(phrase ? { phrase } : {}),
+      },
     });
   }
 

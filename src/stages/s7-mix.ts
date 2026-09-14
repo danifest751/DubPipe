@@ -175,7 +175,7 @@ export async function runS7(
   const sampleRate = config.tts.sample_rate;
 
   log.step(`сборка голосовой дорожки из ${clips.length} реплик`);
-  log.progress('сборка голосовой дорожки', 5);
+  log.progress('сборка голосовой дорожки', 5, null, { key: 'work.voiceTrack' });
   const voiceTrack = await buildVoiceTrack(clips, duration, sampleRate, workspace.file('voice.wav'));
   if (voiceTrack.collisions > 0) {
     warnings.push(
@@ -213,7 +213,7 @@ export async function runS7(
         `убираю исходный голос под речью в ${windows.length} окнах, музыку оставляю` +
           ` (подложка ${config.separation.voice_residual_db} дБ)`,
       );
-      log.progress('вычитание исходного голоса', 35);
+      log.progress('вычитание исходного голоса', 35, null, { key: 'work.subtract' });
       const presence = await buildSpeechPresenceEnvelope(
         windows,
         duration,
@@ -230,7 +230,7 @@ export async function runS7(
       // S4 выключена или не отработала: приглушаем оригинал целиком (ТЗ FR-4).
       const windows = speechWindows(segments, await workspace.readJson<SpeechWindow[]>(workspace.file('speech.json')));
       log.step(`дакинг оригинала на ${config.mix.duck_db} дБ в ${windows.length} речевых окнах`);
-      log.progress('приглушение оригинала под речью', 35);
+      log.progress('приглушение оригинала под речью', 35, null, { key: 'work.duck' });
       const envelope = await buildDuckEnvelope(
         windows,
         duration,
@@ -255,7 +255,7 @@ export async function runS7(
   let finalAudio = mixed;
   if (config.mix.loudnorm) {
     log.step('нормализация громкости (EBU R128, два прохода)');
-    log.progress('нормализация громкости', 60);
+    log.progress('нормализация громкости', 60, null, { key: 'work.loudnorm' });
     const measured = await measureLoudness(ffmpeg, mixed, config.mix.loudnorm_target_lufs);
     const normalized = workspace.file('normalized.wav');
     const loudnorm = measured
@@ -274,7 +274,7 @@ export async function runS7(
   }
 
   log.step(meta.has_video ? 'мультиплексирование (видео копируется)' : 'кодирование аудио');
-  log.progress(meta.has_video ? 'сборка итогового видео' : 'кодирование аудио', 85);
+  log.progress(meta.has_video ? 'сборка итогового видео' : 'кодирование аудио', 85, null, { key: meta.has_video ? 'work.mux' : 'work.encode' });
   const muxArgs = ['-y', '-v', 'error', '-i', sourcePath, '-i', finalAudio];
   const maps: string[] = [];
 

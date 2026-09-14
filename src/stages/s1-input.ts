@@ -80,7 +80,7 @@ export async function runS1(workspace: Workspace, input: string): Promise<S1Resu
   const originalAudio = workspace.file('original.wav');
 
   log.step('Извлечение аудио (48 кГц, моно, 16 бит)');
-  log.progress('извлечение аудио из видео', null);
+  log.progress('извлечение аудио из видео', null, null, { key: 'work.extract' });
   await extractAnalysisAudio(sourcePath, analysisAudio, workspace.toolsDir);
   log.step('Сохранение копии оригинала для сведения');
   await extractOriginalAudio(sourcePath, originalAudio, workspace.toolsDir);

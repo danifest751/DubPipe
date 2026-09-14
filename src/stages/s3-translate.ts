@@ -504,7 +504,7 @@ async function fitLengths(
   const room = roomFor(config, segments);
   const misfits = collectMisfits(segments, cps, tolerance, floor, languageProfile(config.asr.language).expansionCap, overhead, room);
   if (misfits.length === 0) return 0;
-  log.progress(`подгонка длины: реплик вне допуска ${misfits.length}`, null);
+  log.progress(`подгонка длины: реплик вне допуска ${misfits.length}`, null, null, { key: 'work.fitLength', params: { count: misfits.length } });
 
   const template = await loadPromptTemplate('fit-length.md');
   const systemPrompt = template.replace('{profanity_rule}', profanityRule(config.translate.profanity));
@@ -742,7 +742,7 @@ export async function runS3(workspace: Workspace, baseConfig: DubConfig, segment
     onBatch: async (done, total, partial) => {
       await workspace.writeSegments(partial);
       log.step(`пакет ${counter(done, total)} переведён`);
-      log.progress(`переведено пакетов ${counter(done, total)}`, null, { done, total });
+      log.progress(`переведено пакетов ${counter(done, total)}`, null, { done, total }, { key: 'work.translate', params: { done, total } });
     },
   });
 

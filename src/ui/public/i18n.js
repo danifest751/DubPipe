@@ -88,6 +88,26 @@ const DICTIONARY = {
   'stage.state.skipped': { ru: 'пропущена', en: 'skipped' },
   'stage.state.never': { ru: 'не выполнялась', en: 'never run' },
 
+  // --- что стадия делает прямо сейчас: приходит от сервера ключом, а не текстом
+  'work.extract': { ru: 'извлечение аудио из видео', en: 'extracting audio from the video' },
+  'work.asr': { ru: 'распознавание {percent}%', en: 'recognizing {percent}%' },
+  'work.vad': { ru: 'уточнение границ по речи (VAD)', en: 'refining boundaries against speech (VAD)' },
+  'work.diarizeLoad': { ru: 'диаризация: загрузка модели', en: 'diarization: loading the model' },
+  'work.diarize': { ru: 'диаризация {percent}%', en: 'diarization {percent}%' },
+  'work.gender': { ru: 'оценка пола голосов', en: 'estimating voice gender' },
+  'work.translate': { ru: 'переведено пакетов {done}/{total}', en: 'translated {done}/{total} batches' },
+  'work.fitLength': { ru: 'подгонка длины: реплик вне допуска {count}', en: 'fitting length: {count} replicas outside the tolerance' },
+  'work.separate': { ru: 'отделение голоса {percent}%', en: 'separating the voice {percent}%' },
+  'work.tts': { ru: 'синтезировано реплик {done}/{total}', en: 'synthesized {done}/{total} replicas' },
+  'work.shorten': { ru: 'сокращено реплик {done}/{total}, итерация {iteration}', en: 'shortened {done}/{total} replicas, pass {iteration}' },
+  'work.voiceTrack': { ru: 'сборка голосовой дорожки', en: 'building the voice track' },
+  'work.subtract': { ru: 'вычитание исходного голоса', en: 'subtracting the original voice' },
+  'work.duck': { ru: 'приглушение оригинала под речью', en: 'ducking the original under the speech' },
+  'work.loudnorm': { ru: 'нормализация громкости', en: 'normalizing loudness' },
+  'work.mux': { ru: 'сборка итогового видео', en: 'assembling the final video' },
+  'work.encode': { ru: 'кодирование аудио', en: 'encoding the audio' },
+  'work.cached': { ru: 'из кэша', en: 'from the cache' },
+
   // --- состояние задачи
   'job.running': { ru: 'выполняется', en: 'running' },
   'job.done': { ru: 'готово', en: 'done' },
