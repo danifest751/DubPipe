@@ -458,6 +458,37 @@ export function roomFor(config: DubConfig, segments: Segment[]): (segment: Segme
 }
 
 /**
+ * Мерка длины целиком, готовая к отправке в интерфейс.
+ *
+ * Вопрос «влезает ли реплика» задают в четырёх местах, и отвечать на него
+ * надо одинаково: тем же темпом и надбавкой, которыми заказан перевод, тем же
+ * местом (слот плюс занимаемая пауза) и тем же допуском. Интерфейс отвечал на
+ * него сам — по голому слоту, без надбавки, темпом из настроек вместо
+ * замеренного и с допуском, вписанным в код, — и красил красным реплики, на
+ * которые конвейер не жаловался.
+ */
+export interface FitRuler {
+  charsPerSecond: number;
+  overheadSeconds: number;
+  tolerance: number;
+  toleranceFloorSeconds: number;
+  /** Сколько времени отведено каждой реплике, по её номеру. */
+  room: Record<number, number>;
+}
+
+export async function fitRuler(workspace: Workspace, config: DubConfig, segments: Segment[]): Promise<FitRuler> {
+  const shape = await effectiveSpeechShape(workspace, config);
+  const room = roomFor(config, segments);
+  return {
+    charsPerSecond: shape.charsPerSecond,
+    overheadSeconds: shape.overheadSeconds,
+    tolerance: config.translate.length_tolerance,
+    toleranceFloorSeconds: config.translate.length_tolerance_floor_ms / 1000,
+    room: Object.fromEntries(segments.map((segment) => [segment.id, Number(room(segment).toFixed(3))])),
+  };
+}
+
+/**
  * Single corrective pass over replicas outside the length window (SPEC FR-3).
  * A rewrite is kept only when it actually improves the fit, so the pass can
  * never make the result worse.

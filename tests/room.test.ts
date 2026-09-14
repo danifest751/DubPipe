@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { availableSeconds, makeSegment, slotOf } from '../src/core/types.js';
 import { parseConfig } from '../src/config/load.js';
-import { roomFor } from '../src/stages/s3-translate.js';
+import { fitRuler, lengthVerdict, roomFor, type FitRuler } from '../src/stages/s3-translate.js';
 
 const seg = (id: number, start: number, end: number) =>
   makeSegment({ id, start, end, text_en: `line ${id}` });
@@ -64,5 +64,71 @@ describe('Общая мерка места', () => {
     const segments = [seg(0, 0, 2), seg(1, 10, 11)];
     const room = roomFor(config({ borrow_silence_ms: 0 }), segments);
     expect(room(segments[0]!)).toBeCloseTo(slotOf(segments[0]!), 3);
+  });
+});
+
+describe('Мерка длины для интерфейса', () => {
+  const config = (over: Record<string, unknown> = {}) =>
+    parseConfig({ alignment: { borrow_silence_ms: 1200, gap_ms: 50, ...over } }, 'test');
+
+  /** Рабочий каталог понарошку: замера темпа для этого голоса нет. */
+  const workspace = { root: 'ROOT', file: (name: string) => `WS/${name}`, readJson: async () => null } as never;
+
+  /**
+   * Дословно то, что делает таблица реплик в `src/ui/public/app.js`.
+   * Если мерка разойдётся с конвейером, разойдутся и эти два вердикта.
+   */
+  const uiVerdict = (ruler: FitRuler, segment: ReturnType<typeof seg>, textRu: string): boolean => {
+    const room = ruler.room[segment.id] ?? segment.end - segment.start;
+    const estimated = ruler.overheadSeconds + textRu.trim().length / ruler.charsPerSecond;
+    return Math.abs(estimated - room) <= Math.max(room * ruler.tolerance, ruler.toleranceFloorSeconds);
+  };
+
+  it('отдаёт то же место, которым меряет перевод', async () => {
+    const segments = [seg(0, 0, 2), seg(1, 10, 11)];
+    const ruler = await fitRuler(workspace, config(), segments);
+    const room = roomFor(config(), segments);
+    expect(ruler.room[0]).toBeCloseTo(room(segments[0]!), 3);
+    expect(ruler.room[1]).toBeCloseTo(room(segments[1]!), 3);
+  });
+
+  it('отдаёт темп с надбавкой и допуск из настроек', async () => {
+    const settings = config();
+    const ruler = await fitRuler(workspace, settings, [seg(0, 0, 2)]);
+    expect(ruler.charsPerSecond).toBe(settings.translate.chars_per_second);
+    expect(ruler.overheadSeconds).toBe(settings.translate.speech_overhead_seconds);
+    expect(ruler.tolerance).toBe(settings.translate.length_tolerance);
+    expect(ruler.toleranceFloorSeconds).toBeCloseTo(settings.translate.length_tolerance_floor_ms / 1000, 6);
+  });
+
+  it('интерфейс выносит тот же вердикт, что и стадия перевода', async () => {
+    const settings = config();
+    const segments = [seg(0, 0, 2), seg(1, 10, 11)];
+    const ruler = await fitRuler(workspace, settings, segments);
+    const room = roomFor(settings, segments);
+
+    for (const chars of [4, 12, 24, 36, 48, 60, 90]) {
+      const text = 'а'.repeat(chars);
+      for (const segment of segments) {
+        const stage = lengthVerdict(
+          text,
+          room(segment),
+          settings.translate.chars_per_second,
+          settings.translate.length_tolerance,
+          settings.translate.length_tolerance_floor_ms / 1000,
+          settings.translate.speech_overhead_seconds,
+        ).withinTolerance;
+        expect(uiVerdict(ruler, segment, text)).toBe(stage);
+      }
+    }
+  });
+
+  it('реплика, которой хватает занятой паузы, не помечается длинной', async () => {
+    // Прежняя мерка интерфейса — голый слот и темп без надбавки — кричала
+    // именно здесь: место есть, а таблица красила реплику красным.
+    const segments = [seg(0, 0, 2), seg(1, 10, 11)];
+    const ruler = await fitRuler(workspace, config(), segments);
+    const text = 'а'.repeat(Math.round((3.2 - 0.51) * 17.8));
+    expect(uiVerdict(ruler, segments[0]!, text)).toBe(true);
   });
 });

@@ -22,7 +22,9 @@ const state = {
   project: null,          // путь или ссылка открытого проекта
   segments: [],
   originalAudio: null,
-  charsPerSecond: 12,
+  // Мерка длины реплики; настоящая приходит вместе с репликами, эта нужна
+  // лишь до первой загрузки.
+  fit: { charsPerSecond: 17.8, overheadSeconds: 0.51, tolerance: 0.15, toleranceFloorSeconds: 0.25, room: {} },
   job: null,
   progress: new Map(),
   dirty: {},              // изменённые настройки: 'translate.model' → значение
@@ -583,13 +585,21 @@ $('#pickOutDir').addEventListener('click', (event) =>
 
 // --- реплики ---------------------------------------------------------------
 
+// Меркой распоряжается конвейер, здесь она только применяется: место реплики
+// (слот плюс занимаемая пауза), замеренный темп с надбавкой на реплику и
+// допуск из настроек. Пока эта таблица считала по-своему — по голому слоту,
+// без надбавки и с допуском, вписанным в код, — она красила красным реплики,
+// которые конвейер укладывал без единой правки.
 function fitInfo(segment) {
   if (!segment.text_ru) return { cls: '', label: '—' };
-  const slot = segment.end - segment.start;
-  const estimated = segment.text_ru.trim().length / state.charsPerSecond;
-  const delta = estimated - slot;
-  if (Math.abs(delta) <= Math.max(slot * 0.15, 0.25)) return { cls: 'ok', label: t('common.seconds', { value: estimated.toFixed(2) }) };
-  return { cls: delta > 0 ? 'long' : 'short', label: `${t('common.seconds', { value: estimated.toFixed(2) })} (${delta > 0 ? '+' : ''}${delta.toFixed(2)})` };
+  const ruler = state.fit;
+  const room = ruler.room[segment.id] ?? segment.end - segment.start;
+  const estimated = ruler.overheadSeconds + segment.text_ru.trim().length / ruler.charsPerSecond;
+  const delta = estimated - room;
+  const allowed = Math.max(room * ruler.tolerance, ruler.toleranceFloorSeconds);
+  const label = t('common.seconds', { value: estimated.toFixed(2) });
+  if (Math.abs(delta) <= allowed) return { cls: 'ok', label };
+  return { cls: delta > 0 ? 'long' : 'short', label: `${label} (${delta > 0 ? '+' : ''}${delta.toFixed(2)})` };
 }
 
 function renderSegments() {
@@ -655,7 +665,7 @@ async function loadSegments() {
   const data = await api(`/api/segments?input=${encodeURIComponent(state.project)}`);
   state.segments = data.segments;
   state.originalAudio = data.originalAudio;
-  state.charsPerSecond = data.charsPerSecond;
+  if (data.fit) state.fit = data.fit;
   $('#editorInfo').textContent = data.segments.length ? t('segments.count', { count: data.segments.length }) : '';
   state.defaultOutputDir = data.defaultOutputDir ?? null;
   renderOutPlace();

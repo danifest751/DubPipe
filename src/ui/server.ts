@@ -38,6 +38,7 @@ import { message, normalizeLanguage, type UiLanguage } from '../core/i18n.js';
 import { cancellation, isCancelled } from '../core/cancel.js';
 import { applyOverrides, normalizeOverrides, planReview } from '../core/overrides.js';
 import { defaultOutputName, resolveOutputPath } from '../stages/s7-mix.js';
+import { fitRuler } from '../stages/s3-translate.js';
 import { ensureWhisperModel, whisperModelPath } from '../providers/asr/whispercpp.js';
 import { ensureVadModel as ensureSileroVad } from '../providers/vad/silero.js';
 import { ensureVoice } from '../providers/tts/voices.js';
@@ -1009,7 +1010,9 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
             )
           : null,
         originalAudio: existsSync(workspace.file('original.wav')) ? workspace.file('original.wav') : null,
-        charsPerSecond: config.translate.chars_per_second,
+        // Мерка длины — та же, которой меряет конвейер: место с занимаемой
+        // паузой, замеренный темп с надбавкой и допуск из настроек.
+        fit: await fitRuler(workspace, config, segments),
         output,
         overrides: await workspace.readOverrides(),
         voices: RUSSIAN_VOICES,
