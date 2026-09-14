@@ -173,6 +173,7 @@ const DICTIONARY = {
   'segments.source': { ru: 'Оригинал', en: 'Source' },
   'segments.target': { ru: 'Перевод', en: 'Translation' },
   'segments.listen': { ru: 'Прослушать', en: 'Listen' },
+  'segments.genderUnknown': { ru: 'Пол голоса ещё не определён', en: 'Voice gender not determined yet' },
   'segments.columnsHint': { ru: 'Потяните, чтобы изменить ширину; двойной щелчок вернёт исходную', en: 'Drag to resize; double-click restores the default' },
   'segments.columnsReset': { ru: 'Ширина колонок сброшена', en: 'Column widths reset' },
   'segments.slot': { ru: 'Слот', en: 'Slot' },

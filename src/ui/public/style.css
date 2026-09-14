@@ -412,6 +412,25 @@ td.num input { width: 78px; min-width: 0; font-variant-numeric: tabular-nums; }
 .col-grip:hover::after, .col-grip.active::after { background: var(--accent); left: 2px; width: 2px; }
 body.col-resizing { cursor: col-resize; user-select: none; }
 
+/* Спикер: пол голоса слева от выбора — сразу видно, тем ли голосом озвучен. */
+#segmentsTable td.speaker { display: flex; align-items: center; gap: 6px; }
+#segmentsTable td.speaker select { min-width: 0; flex: 1; }
+.gender {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  line-height: 18px;
+  text-align: center;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-faint);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+.gender.male { color: #1d6fd0; border-color: #9cc4ee; background: #eaf2fc; }
+.gender.female { color: #c0398b; border-color: #e7a6cf; background: #fceaf5; }
+
 /* --- обозреватель и окна -------------------------------------------------- */
 
 .overlay {

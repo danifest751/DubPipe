@@ -713,12 +713,12 @@ function renderSegments() {
         <td class="num"><input type="text" data-field="start" value="${segment.start.toFixed(2)}" /></td>
         <td class="num"><input type="text" data-field="end" value="${segment.end.toFixed(2)}" /></td>
         <td>${(segment.end - segment.start).toFixed(2)}</td>
-        <td class="num"><input type="text" data-field="speaker" value="${escapeAttr(segment.speaker)}" /></td>
+        <td class="speaker">${speakerCell(segment)}</td>
         <td><textarea data-field="text_en">${escapeHtml(segment.text_en)}</textarea></td>
         <td><textarea data-field="text_ru">${escapeHtml(segment.text_ru ?? '')}</textarea></td>
         <td class="fit ${fit.cls}">${fit.label}${segment.tts_duration ? `<br><span class="meta">${t('segments.synth', { value: segment.tts_duration.toFixed(2) })}</span>` : ''}</td>
         <td><span class="meta">${(segment.flags ?? []).join(', ')}${segment.overlap ? ' overlap' : ''}</span></td>
-        <td><button data-play-original="${index}" class="ghost small">${icon('play')} ${t('segments.original')}</button>${clip ? `<button data-play-clip="${escapeAttr(clip)}" class="ghost small">${icon('play')} ${t('segments.tts')}</button>` : ''}</td>
+        <td><button data-play-original="${index}" class="ghost small">${icon('play')} ${t('segments.original')}</button>${clip ? `<button data-play-target="${index}" class="ghost small">${icon('play')} ${t('segments.target')}</button>` : ''}</td>
       </tr>`;
     })
     .join('');
@@ -737,9 +737,82 @@ function renderSegments() {
   body.querySelectorAll('[data-play-original]').forEach((button) =>
     button.addEventListener('click', () => { const s = state.segments[Number(button.dataset.playOriginal)]; playOriginal(s.start, s.end); }),
   );
-  body.querySelectorAll('[data-play-clip]').forEach((button) =>
-    button.addEventListener('click', () => { const p = $('#player'); p.src = mediaUrl(button.dataset.playClip); p.dataset.source = ''; p.play(); }),
+  body.querySelectorAll('[data-play-target]').forEach((button) =>
+    button.addEventListener('click', () => playTranslated(state.segments[Number(button.dataset.playTarget)])),
   );
+  body.querySelectorAll('[data-speaker-pick]').forEach((select) =>
+    select.addEventListener('change', () => {
+      const segment = state.segments[Number(select.dataset.speakerPick)];
+      segment.speaker = select.value === '__new' ? nextSpeakerName() : select.value;
+      renderSegments();
+      if (review.data) { renderReviewNow(); renderReviewMarks(); }
+    }),
+  );
+}
+
+/** Первое свободное имя вида `speaker_N`. */
+function nextSpeakerName() {
+  const taken = new Set(state.segments.map((segment) => segment.speaker));
+  let n = 0;
+  while (taken.has(`speaker_${n}`)) n++;
+  return `speaker_${n}`;
+}
+
+/** Пол голоса, определённый на S2: буква и подсказка с частотой основного тона. */
+function genderMark(speaker) {
+  const profile = state.speakers?.[speaker];
+  const gender = profile?.gender === 'м' || profile?.gender === 'ж' ? profile.gender : '—';
+  const title = profile
+    ? t(gender === '—' ? 'review.byRecordUnknown' : gender === 'м' ? 'review.byRecordMale' : 'review.byRecordFemale', {
+        hz: profile.f0 ?? '?',
+      }).replace(/^ · /, '')
+    : t('segments.genderUnknown');
+  return `<span class="gender ${gender === 'м' ? 'male' : gender === 'ж' ? 'female' : ''}" title="${escapeAttr(title)}">${gender}</span>`;
+}
+
+/**
+ * Спикер выбирается из тех, что нашла диаризация, а рядом стоит пол его голоса:
+ * по нему сразу видно, мужчине ли достался мужской голос. Свободный ввод не
+ * годился — опечатка в имени создавала спикера, которого нет ни у кого в карте
+ * голосов, и реплика тихо уезжала на голос по умолчанию.
+ */
+function speakerCell(segment) {
+  const index = state.segments.indexOf(segment);
+  const known = [...new Set([...state.segments.map((item) => item.speaker), segment.speaker])].sort();
+  const options = known
+    .map((name) => `<option value="${escapeAttr(name)}" ${name === segment.speaker ? 'selected' : ''}>${escapeHtml(name)}</option>`)
+    .join('');
+  return `${genderMark(segment.speaker)}<select data-speaker-pick="${index}">${options}<option value="__new">${t('review.newSpeaker')}</option></select>`;
+}
+
+/**
+ * Проигрывает перевод этой реплики.
+ *
+ * Когда дубляж уже собран, крутится он сам — на том месте, где эта реплика
+ * звучит в готовом файле, и ровно столько, сколько длится её клип: так слышно
+ * не голый синтез, а то, что получилось вместе с фоном. Пока готового файла
+ * нет, играет отдельный клип.
+ */
+let stopReviewAt = null;
+function playTranslated(segment) {
+  const clip = segment.aligned_file ?? segment.tts_file;
+  const video = $('#reviewVideo');
+  const duration = segment.aligned_duration ?? segment.tts_duration;
+
+  if (state.output && video.dataset.src) {
+    const start = segment.start + (segment.shift_ms ?? 0) / 1000;
+    stopReviewAt = duration ? start + duration + 0.05 : null;
+    video.currentTime = start;
+    video.play();
+    $('#review').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+
+  if (!clip) return;
+  const player = $('#player');
+  player.src = mediaUrl(clip);
+  player.dataset.source = '';
+  player.play();
 }
 
 let stopAt = null;
@@ -761,6 +834,10 @@ async function loadSegments() {
   const data = await api(`/api/segments?input=${encodeURIComponent(state.project)}`);
   state.segments = data.segments;
   state.originalAudio = data.originalAudio;
+  // Пол голоса определяется на S2 и нужен таблице реплик, а не только режиму
+  // просмотра: по нему видно, тем ли голосом озвучен персонаж.
+  state.speakers = data.speakers ?? {};
+  state.output = data.output ?? null;
   if (data.fit) state.fit = data.fit;
   $('#editorInfo').textContent = data.segments.length ? t('segments.count', { count: data.segments.length }) : '';
   state.defaultOutputDir = data.defaultOutputDir ?? null;
@@ -958,6 +1035,11 @@ for (const [id, key] of Object.entries(MIX_KEYS)) {
 }
 
 $('#reviewVideo').addEventListener('timeupdate', (event) => {
+  // Прослушивание одной реплики: доиграли её кусок — останавливаемся.
+  if (stopReviewAt !== null && event.target.currentTime >= stopReviewAt) {
+    event.target.pause();
+    stopReviewAt = null;
+  }
   if (!review.data) return;
   const index = currentReviewIndex(event.target.currentTime);
   if (index !== review.index) {
