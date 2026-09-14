@@ -106,6 +106,74 @@ export function describeCompute(
   return { adapters, stages, hints };
 }
 
+/**
+ * Вариант выбора устройства для настроек.
+ *
+ * У варианта либо своё имя — тогда это настоящее устройство, найденное в
+ * системе, — либо ключ словаря, если имени у него быть не может («как решит
+ * программа», «процессор»).
+ */
+export interface DeviceOption {
+  value: string;
+  /** Имя устройства так, как его сообщает система. */
+  name?: string;
+  /** Ключ словаря интерфейса для вариантов без собственного имени. */
+  key?: string;
+}
+
+export interface DeviceOptions {
+  /** Сборка whisper.cpp — `asr.backend`. */
+  backend: DeviceOption[];
+  /** Исполнитель стадий на Python — `asr.diarization.device`, `separation.device`. */
+  device: DeviceOption[];
+}
+
+/**
+ * Что вообще можно выбрать на этой машине.
+ *
+ * Список составляется по найденному железу, а не по всем мыслимым вариантам:
+ * «видеокарта», «встроенная видеокарта» и «отдельная видеокарта» в списке на
+ * машине с одной встроенной Radeon — это три способа сказать одно и то же и ни
+ * одного способа понять, что выберется. Поэтому здесь каждое устройство названо
+ * своим именем, а того, чего в системе нет, в списке не появляется.
+ */
+export function deviceOptions(hardware: Hardware): DeviceOptions {
+  const backend: DeviceOption[] = [
+    { value: 'auto', key: 'settings.backend.auto' },
+    { value: 'blas', key: 'settings.backend.blas' },
+    { value: 'cpu', key: 'settings.backend.cpu' },
+  ];
+  const device: DeviceOption[] = [
+    { value: 'auto', key: 'settings.device.auto' },
+    { value: 'cpu', key: 'settings.device.cpu' },
+  ];
+
+  // Первая карта каждого вида: два адаптера одного вида всё равно неразличимы
+  // для onnxruntime — он берёт тот, что видит первым.
+  const seen = new Set<string>();
+  for (const name of hardware.adapters) {
+    const value = gpuKind(name) === 'integrated' ? 'igpu' : 'dgpu';
+    if (seen.has(value)) continue;
+    seen.add(value);
+    device.push({ value, name });
+  }
+
+  // CUDA — только при видеокарте NVIDIA: на остальных этот выбор означал бы
+  // молчаливый откат на процессор.
+  if (hardware.nvidia) {
+    backend.push({ value: 'cuda', name: `${hardware.adapters.find((name) => /nvidia|geforce|rtx|gtx/i.test(name)) ?? 'NVIDIA'} (CUDA)` });
+    device.push({ value: 'cuda', name: `${hardware.adapters.find((name) => /nvidia|geforce|rtx|gtx/i.test(name)) ?? 'NVIDIA'} (CUDA)` });
+  }
+
+  // Сборка с Vulkan есть только под AMD и Intel, и выпускает её не сам проект.
+  if (hardware.amd || hardware.intel) {
+    const adapter = hardware.adapters.find((name) => /amd|radeon|intel|arc|iris|uhd/i.test(name));
+    backend.push({ value: 'vulkan', name: `${adapter ?? 'AMD / Intel'} (Vulkan)` });
+  }
+
+  return { backend, device };
+}
+
 /** Опрашивает систему и собирает карту. */
 export async function inspectCompute(config: DubConfig): Promise<ComputeMap> {
   const hardware = await detectHardware();

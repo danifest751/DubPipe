@@ -24,6 +24,8 @@ import { probePython } from '../stages/s4-separate.js';
 import { installDiarization, probeDiarization, resetDiarizationProbe } from '../providers/diarization/pyannote.js';
 import { applyLogRecord, finishStages, type JobStage } from './job-progress.js';
 import { checkModel } from '../core/model-check.js';
+import { deviceOptions, type DeviceOptions } from '../core/compute.js';
+import { detectHardware } from '../providers/asr/accel.js';
 import {
   cueProblems,
   formatSrt,
@@ -283,6 +285,7 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
   let cancelRequested = false;
   /** Итоговые файлы открытых проектов: их можно отдавать плееру и после перезапуска. */
   const knownOutputs = new Set<string>();
+  let deviceCache: DeviceOptions | null = null;
   const clients = new Set<ServerResponse>();
   const history: LogRecord[] = [];
 
@@ -955,6 +958,14 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       } catch (error) {
         sendJson(response, 502, { error: (error as Error).message });
       }
+      return true;
+    }
+
+    if (route === '/api/devices' && method === 'GET') {
+      // Опрос адаптеров идёт через PowerShell и занимает около секунды,
+      // а железо за время работы программы не меняется.
+      deviceCache ??= deviceOptions(await detectHardware());
+      sendJson(response, 200, deviceCache);
       return true;
     }
 

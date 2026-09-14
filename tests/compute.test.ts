@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseConfig } from '../src/config/load.js';
-import { describeCompute, onnxDevice } from '../src/core/compute.js';
+import { describeCompute, deviceOptions, onnxDevice } from '../src/core/compute.js';
 import { chooseAccel, classifyAdapters } from '../src/providers/asr/accel.js';
 import type { PythonEnvironment } from '../src/stages/s4-separate.js';
 
@@ -69,5 +69,47 @@ describe('Карта вычислений', () => {
   it('стадии на ffmpeg и piper всегда на процессоре', () => {
     expect(stage('Синтез речи').where).toBe('процессор');
     expect(stage('Укладка и сведение').where).toBe('процессор');
+  });
+});
+
+describe('Настройки: список устройств по тому, что есть в системе', () => {
+  const values = (options: { value: string }[]) => options.map((option) => option.value);
+
+  it('видеокарта названа своим именем, а не «встроенной видеокартой»', () => {
+    const { backend, device } = deviceOptions(RADEON);
+    expect(device.find((option) => option.value === 'igpu')?.name).toBe('AMD Radeon 780M Graphics');
+    expect(backend.find((option) => option.value === 'vulkan')?.name).toContain('AMD Radeon 780M Graphics');
+  });
+
+  it('CUDA не предлагается там, где нет NVIDIA', () => {
+    // Выбранная на машине без NVIDIA, она означала молчаливый расчёт на процессоре.
+    expect(values(deviceOptions(RADEON).backend)).not.toContain('cuda');
+    expect(values(deviceOptions(RADEON).device)).not.toContain('cuda');
+    expect(values(deviceOptions(GEFORCE).backend)).toContain('cuda');
+  });
+
+  it('сборки с Vulkan нет там, где под неё нет железа', () => {
+    expect(values(deviceOptions(GEFORCE).backend)).not.toContain('vulkan');
+    expect(values(deviceOptions(classifyAdapters([])).backend)).not.toContain('vulkan');
+  });
+
+  it('без видеокарт остаются только процессорные варианты', () => {
+    const { backend, device } = deviceOptions(classifyAdapters([]));
+    expect(values(backend)).toEqual(['auto', 'blas', 'cpu']);
+    expect(values(device)).toEqual(['auto', 'cpu']);
+  });
+
+  it('несуществующих «видеокарты вообще» в списке больше нет', () => {
+    expect(values(deviceOptions(RADEON).device)).not.toContain('gpu');
+    expect(values(deviceOptions(RADEON).device)).not.toContain('dgpu');
+  });
+
+  it('у варианта либо своё имя, либо ключ перевода — но не пусто', () => {
+    for (const hardware of [RADEON, GEFORCE, classifyAdapters([])]) {
+      const { backend, device } = deviceOptions(hardware);
+      for (const option of [...backend, ...device]) {
+        expect(option.name ?? option.key).toBeTruthy();
+      }
+    }
   });
 });

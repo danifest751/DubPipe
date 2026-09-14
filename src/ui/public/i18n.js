@@ -444,6 +444,7 @@ const DICTIONARY = {
     ru: 'На видеокарте впятеро быстрее: минута звука за три секунды вместо семнадцати.',
     en: 'Five times faster on the GPU: a minute of audio in three seconds instead of seventeen.',
   },
+  'settings.device.missing': { ru: '{value} — в этой системе не найдено', en: '{value} — not found in this system' },
   'settings.device.auto': { ru: 'Автоматически', en: 'Automatic' },
   'settings.device.gpu': { ru: 'Видеокарта', en: 'GPU' },
   'settings.device.igpu': { ru: 'Встроенная видеокарта', en: 'Integrated GPU' },

@@ -1401,10 +1401,54 @@ function applyProfileVisibility(profile) {
   $$('[data-only]').forEach((element) => { element.hidden = element.dataset.only !== profile; });
 }
 
+/*
+ * Списки устройств в настройках строятся по тому, что нашлось в системе.
+ *
+ * Раньше в них стояли все мыслимые варианты: «видеокарта», «встроенная
+ * видеокарта», «отдельная видеокарта», CUDA. На машине с одной встроенной
+ * Radeon это четыре способа сказать одно и то же и ни одного способа понять,
+ * что выберется, — а выбрав CUDA там, где нет NVIDIA, человек молча получал
+ * расчёт на процессоре. Теперь у каждого устройства своё имя, а того, чего в
+ * системе нет, в списке не появляется.
+ */
+const DEVICE_FIELDS = {
+  'asr.backend': 'backend',
+  'asr.diarization.device': 'device',
+  'separation.device': 'device',
+};
+
+function renderDeviceOptions(config = state.config) {
+  if (!state.devices) return;
+  for (const [key, list] of Object.entries(DEVICE_FIELDS)) {
+    const select = $(`#settingsForm [data-key="${key}"]`);
+    const options = state.devices[list];
+    if (!select || !options) continue;
+    const chosen = config ? getPath(config, key) : select.value;
+    select.innerHTML = options
+      .map((option) => `<option value="${escapeAttr(option.value)}">${escapeHtml(option.name ?? t(option.key))}</option>`)
+      .join('');
+    // Устройство из настроек могло исчезнуть — например, файл настроек принесли
+    // с другой машины. Молча подменять выбор нельзя, поэтому он остаётся видимым.
+    if (chosen && !options.some((option) => option.value === chosen)) {
+      select.insertAdjacentHTML(
+        'beforeend',
+        `<option value="${escapeAttr(chosen)}">${escapeHtml(t('settings.device.missing', { value: chosen }))}</option>`,
+      );
+    }
+    if (chosen) select.value = chosen;
+  }
+}
+
+async function loadDevices() {
+  state.devices = await api('/api/devices');
+  renderDeviceOptions();
+}
+
 function fillForm(config) {
   state.config = config;
   state.dirty = {};
   $('#savebar').hidden = true;
+  renderDeviceOptions(config);
 
   $$('#settingsForm [data-key]').forEach((field) => {
     const value = getPath(config, field.dataset.key);
@@ -1906,6 +1950,7 @@ function connectEvents() {
 /** Всё, что рисуется кодом, а не разметкой, нужно перерисовать после смены языка. */
 function rerenderAll() {
   window.i18n.applyTranslations();
+  renderDeviceOptions();
   fillStageSelects();
   renderSegments();
   renderJob();
@@ -1932,6 +1977,7 @@ window.i18n.applyTranslations();
 renderSegments();
 renderJob();
 connectEvents();
+loadDevices().catch(() => {});
 refreshState().catch(showError);
 loadReadiness().catch(showError);
 loadLibrary().catch(showError);
