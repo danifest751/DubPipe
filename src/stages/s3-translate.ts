@@ -25,9 +25,12 @@ import { effectiveSpeechShape } from '../core/calibration.js';
 // ---------------------------------------------------------------------------
 
 /** Rough spoken length of a Russian line at the configured speech rate. */
-export function estimateSpeechSeconds(text: string, charsPerSecond: number): number {
+export function estimateSpeechSeconds(text: string, charsPerSecond: number, overheadSeconds = 0): number {
   const normalized = text.trim().replace(/\s+/g, ' ');
-  return normalized.length / charsPerSecond;
+  // Та же модель, что и при расчёте цели: надбавка плюс знаки, делённые на
+  // темп. Считать по-разному здесь и там — верный способ получить отчёт, где
+  // нормальные реплики объявлены недобором.
+  return overheadSeconds + normalized.length / charsPerSecond;
 }
 
 export interface LengthVerdict {
@@ -51,8 +54,9 @@ export function lengthVerdict(
   charsPerSecond: number,
   tolerance: number,
   toleranceFloorSeconds = 0,
+  overheadSeconds = 0,
 ): LengthVerdict {
-  const estimatedSeconds = estimateSpeechSeconds(textRu, charsPerSecond);
+  const estimatedSeconds = estimateSpeechSeconds(textRu, charsPerSecond, overheadSeconds);
   const ratio = slotSeconds > 0 ? estimatedSeconds / slotSeconds : Infinity;
   const allowed = Math.max(slotSeconds * tolerance, toleranceFloorSeconds);
   return {
@@ -280,6 +284,7 @@ export function lengthStats(
   charsPerSecond: number,
   tolerance: number,
   toleranceFloorSeconds = 0,
+  overheadSeconds = 0,
 ): LengthStats {
   const translated = segments.filter((segment) => segment.text_ru !== null);
   let within = 0;
@@ -293,6 +298,7 @@ export function lengthStats(
       charsPerSecond,
       tolerance,
       toleranceFloorSeconds,
+      overheadSeconds,
     );
     if (verdict.withinTolerance) within++;
     else if (verdict.ratio > 1) tooLong++;
@@ -409,7 +415,7 @@ export function collectMisfits(
   for (const segment of segments) {
     if (segment.text_ru === null) continue;
     const slot = slotOf(segment);
-    const verdict = lengthVerdict(segment.text_ru, slot, charsPerSecond, tolerance, toleranceFloorSeconds);
+    const verdict = lengthVerdict(segment.text_ru, slot, charsPerSecond, tolerance, toleranceFloorSeconds, overheadSeconds);
     if (verdict.withinTolerance) continue;
     const action = verdict.ratio > 1 ? 'shorten' : 'expand';
     const target = boundedTargetChars(segment.text_en, slot, charsPerSecond, expansionCap, overheadSeconds);
@@ -539,7 +545,7 @@ export async function translateSegments(
   if (segments.length === 0) {
     return {
       segments,
-      stats: lengthStats([], cps, tolerance, floor),
+      stats: lengthStats([], cps, tolerance, floor, overhead),
       glossary: {},
       usage,
       elapsedMs: 0,
@@ -626,7 +632,7 @@ export async function translateSegments(
 
   return {
     segments,
-    stats: lengthStats(segments, cps, tolerance, floor),
+    stats: lengthStats(segments, cps, tolerance, floor, overhead),
     glossary,
     usage,
     elapsedMs: Date.now() - started,
