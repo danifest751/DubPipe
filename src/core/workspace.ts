@@ -190,7 +190,14 @@ export function stageConfigSlice(stage: StageId, config: DubConfig): unknown {
     case 's2':
       return config.asr;
     case 's3':
-      return config.translate;
+      // Перевод заказывает длину по месту, отведённому реплике, а место
+      // зависит от того, сколько тишины разрешено занять укладке. Без этих
+      // полей изменение borrow_silence_ms не перевело бы файл заново.
+      return {
+        translate: config.translate,
+        borrow_silence_ms: config.alignment.borrow_silence_ms,
+        gap_ms: config.alignment.gap_ms,
+      };
     case 's4':
       return config.separation;
     case 's5':

@@ -45,6 +45,20 @@ describe('§7: ключи кэша стадий', () => {
     }
     expect(after['s7']).not.toBe(before['s7']);
   });
+
+  // Стадия перевода заказывает длину по месту, отведённому реплике, а место
+  // считается вместе с занимаемой паузой. Поэтому поле из раздела укладки
+  // обязано инвалидировать перевод, хотя лежит в чужом разделе.
+  it('изменение занимаемой паузы инвалидирует перевод', () => {
+    const before = computeFingerprints(baseConfig(), 'hash-1');
+    const after = computeFingerprints(parseConfig({ alignment: { borrow_silence_ms: 300 } }, 'test'), 'hash-1');
+
+    expect(after['s1']).toBe(before['s1']);
+    expect(after['s2']).toBe(before['s2']);
+    for (const stage of ['s3', 's4', 's5', 's6', 's7'] as const) {
+      expect(after[stage]).not.toBe(before[stage]);
+    }
+  });
 });
 
 describe('§2, §6: диапазон стадий', () => {
