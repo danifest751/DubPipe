@@ -525,6 +525,20 @@ body.col-resizing { cursor: col-resize; user-select: none; }
 .notice.error { border-color: var(--bad); border-style: solid; background: var(--bad-soft); color: var(--text); white-space: pre-wrap; }
 .notice.ok { border-color: var(--ok); border-style: solid; background: var(--ok-soft); color: var(--text); }
 
+/* Крестик закрытия: сообщений о прогоне бывает больше, чем нужно за раз. */
+.notice { display: flex; align-items: flex-start; gap: 10px; }
+.notice-close {
+  flex: none;
+  padding: 2px;
+  margin: -2px -2px 0 0;
+  border: none;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  line-height: 0;
+}
+.notice-close:hover { color: var(--text); background: none; }
+
 .workdir {
   display: flex;
   justify-content: space-between;

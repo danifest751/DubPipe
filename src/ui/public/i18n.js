@@ -99,6 +99,7 @@ const DICTIONARY = {
     en: 'Stopping: processes aborted, finished stages stay in the cache',
   },
   'job.nothingToStop': { ru: 'нечего останавливать', en: 'nothing to stop' },
+  'job.dismiss': { ru: 'Закрыть сообщение', en: 'Dismiss this message' },
   'job.result': { ru: 'Готово: {path} — смотрите и правьте ниже.', en: 'Done: {path} — watch and fix it below.' },
 
   // --- вкладки

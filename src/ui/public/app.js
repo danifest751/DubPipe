@@ -389,6 +389,8 @@ $('#toggleAdvanced').addEventListener('click', () => { $('#advanced').hidden = !
 
 async function startJob() {
   if (!state.project) return;
+  // Новый прогон — новые сообщения: закрытые в прошлый раз не должны молчать.
+  dismissedNotices.clear();
   const advanced = !$('#advanced').hidden;
   state.job = await post('/api/jobs', {
     input: state.project,
@@ -508,14 +510,33 @@ function renderJob() {
     })
     .join('');
 
-  const parts = [];
-  if (job.error) parts.push(`<div class="notice error">${escapeHtml(job.error)}</div>`);
-  if (job.output) {
-    parts.push(`<div class="notice ok">${escapeHtml(t('job.result', { path: job.output }))}</div>`);
-  }
-  for (const warning of job.warnings ?? []) parts.push(`<div class="notice warn">${escapeHtml(warning)}</div>`);
-  result.innerHTML = parts.join('');
+  // Сообщения о прогоне можно закрыть: на длинном материале их набирается
+  // столько, что за ними не видно ни плеера, ни таблицы. Закрытое помнится до
+  // следующего запуска, иначе оно возвращалось бы на каждой перерисовке.
+  const notices = [];
+  if (job.error) notices.push({ tone: 'error', text: job.error });
+  if (job.output) notices.push({ tone: 'ok', text: t('job.result', { path: job.output }) });
+  for (const warning of job.warnings ?? []) notices.push({ tone: 'warn', text: warning });
+
+  result.innerHTML = notices
+    .filter((notice) => !dismissedNotices.has(notice.text))
+    .map(
+      (notice) =>
+        `<div class="notice ${notice.tone}"><span class="grow">${escapeHtml(notice.text)}</span>` +
+        `<button class="notice-close" data-dismiss="${escapeAttr(notice.text)}" title="${escapeAttr(t('job.dismiss'))}" aria-label="${escapeAttr(t('job.dismiss'))}">${icon('x')}</button></div>`,
+    )
+    .join('');
+
+  result.querySelectorAll('[data-dismiss]').forEach((button) =>
+    button.addEventListener('click', () => {
+      dismissedNotices.add(button.dataset.dismiss);
+      renderJob();
+    }),
+  );
 }
+
+/** Закрытые сообщения прогона; сбрасываются при новом запуске. */
+const dismissedNotices = new Set();
 
 /** «1:23» — сколько стадия уже идёт; счётчик обновляется раз в секунду. */
 function formatElapsed(ms) {
