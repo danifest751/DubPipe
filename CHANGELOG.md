@@ -5,6 +5,48 @@
 All notable changes to this project are documented here. Versions follow
 [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Recognition quality
+
+- Whisper's invented subtitle boilerplate no longer reaches the dub. On a Korean episode
+  it had taken 68 replicas out of 412, and where it appeared, real dialogue was never
+  transcribed: 71 boilerplate replicas against 10 genuine ones between 1:02 and 4:31.
+  Known captioning formulas are matched by pattern; a looping decoder is caught by the one
+  property real speech never has — identical replicas that overlap in time.
+- Whisper is no longer fed its own previous text as a prompt, which is what turned one
+  invention into minutes of them. Measured on the same five minutes: 44 seconds of
+  boilerplate instead of 79.
+- `scripts/clean-hallucinations.mts` applies the same rules to a transcript that already
+  exists, so a file recognised before this change need not be recognised again.
+
+### Speed
+
+- The speaker embedding network, which is 96% of diarization, runs on any DirectX GPU
+  through DirectML: 2m14s instead of 17m32s on a 35-minute episode, with all 441 speaker
+  turns identical.
+- Voice/music separation runs its mask network on the GPU too: a minute of audio in 3
+  seconds instead of 17.
+- The speaker breakdown is cached against a fingerprint of the recording, so switching the
+  recognition model no longer recomputes it.
+- whisper.cpp can be run from a Vulkan build on AMD and Intel GPUs — twice as fast on a
+  Radeon 780M, chosen by hand because the archive comes from a third party.
+
+### Robustness
+
+- A batch the translation model refuses costs its own replicas, not the whole stage. An
+  untranslated replica keeps its original text only when a Russian voice can read it;
+  Hangul and Han characters stay silent instead of becoming noise.
+- A run can resume mid-pipeline when some replicas failed to translate: each stage is
+  judged by the replicas it was supposed to touch, not by all of them.
+
+### Configuration
+
+- `asr.backend` selects the whisper build: auto, cpu, blas, cuda, vulkan.
+- `asr.diarization.device` and `separation.device` select where each stage computes, with
+  one shared vocabulary: auto, cpu, gpu, igpu, dgpu, cuda.
+- `large-v3-turbo` is offered among the recognition models.
+
 ## [1.0.0] — 2026-09-14
 
 First public release. The full pipeline works end to end on real material.
