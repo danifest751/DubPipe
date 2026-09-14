@@ -70,6 +70,11 @@ const MIME: Record<string, string> = {
   '.json': 'application/json; charset=utf-8',
   '.wav': 'audio/wav',
   '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mkv': 'video/x-matroska',
+  '.mov': 'video/quicktime',
+  '.m4v': 'video/mp4',
+  '.mp3': 'audio/mpeg',
   '.m4a': 'audio/mp4',
   '.svg': 'image/svg+xml',
 };

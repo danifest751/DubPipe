@@ -969,43 +969,57 @@ function speakerCell(segment) {
  */
 let stopReviewAt = null;
 function playTranslated(segment) {
-  const clip = segment.aligned_file ?? segment.tts_file;
-  const video = $('#reviewVideo');
-  const duration = segment.aligned_duration ?? segment.tts_duration;
-
-  if (state.output && video.dataset.src) {
-    const where = spokenAt(segment);
-    stopReviewAt = duration ? where.end + 0.05 : null;
-    // Перемотка до готовности метаданных отбрасывается — видео остаётся на
-    // месте, и слышно не ту реплику, на которую нажали.
-    const seek = () => {
-      video.currentTime = where.start;
-      video.play().catch(() => {});
-    };
-    if (video.readyState >= 1) seek();
-    else video.addEventListener('loadedmetadata', seek, { once: true });
-    $('#review').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const where = spokenAt(segment);
+  // Готовый дубляж — там и картинка, и русская речь на своём месте.
+  if (state.output) {
+    playAt(state.output, where.start, where.end + 0.05);
     return;
   }
 
+  const clip = segment.aligned_file ?? segment.tts_file;
   if (!clip) return;
-  // Готового файла нет — показать место в фильме нечем. Играем клип синтеза,
-  // но молчать об этом нельзя: человек нажал «перевод» и ждёт фильм.
+  // Фильма ещё нет — играем отдельный клип синтеза, но говорим об этом: человек
+  // нажал «перевод» и ждёт кадры.
   toast(t('segments.noFilm'), 'warn', 5000);
-  const player = $('#player');
-  player.src = mediaUrl(clip);
-  player.dataset.source = '';
-  player.play();
+  playAt(clip, 0, null);
 }
 
 let stopAt = null;
-function playOriginal(start, end) {
-  if (!state.originalAudio) { toast(t('segments.noAudio'), 'warn'); return; }
+
+/**
+ * Показывает кусок в плеере под таблицей.
+ *
+ * Плеер здесь с картинкой: по кнопке в строке нужно увидеть, кто говорит в
+ * кадре. Пока он был звуковым, перемотка попадала в нужное место, а смотреть
+ * было не на что — ради чего кнопка и существует.
+ */
+function playAt(source, start, end) {
   const player = $('#player');
-  if (player.dataset.source !== state.originalAudio) { player.src = mediaUrl(state.originalAudio); player.dataset.source = state.originalAudio; }
-  stopAt = end;
-  player.currentTime = start;
-  player.play();
+  if (!source) { toast(t('segments.noAudio'), 'warn'); return; }
+  stopAt = end ?? null;
+  const go = () => {
+    player.currentTime = Math.max(0, start);
+    player.play().catch(() => {});
+  };
+  if (player.dataset.source !== source) {
+    player.dataset.source = source;
+    player.src = mediaUrl(source);
+    // Перемотка до загрузки метаданных отбрасывается, и видео остаётся в начале.
+    player.addEventListener('loadedmetadata', go, { once: true });
+    player.load();
+    return;
+  }
+  if (player.readyState >= 1) go();
+  else player.addEventListener('loadedmetadata', go, { once: true });
+}
+
+/**
+ * Оригинал: исходное видео со своим звуком — по нему и видно, кто говорит.
+ * У ссылки исходника на диске нет, там остаётся извлечённая дорожка.
+ */
+function playOriginal(start, end) {
+  const isUrl = /^https?:/i.test(state.project ?? '');
+  playAt(!isUrl && state.project ? state.project : state.originalAudio, start, end);
 }
 $('#player').addEventListener('timeupdate', () => {
   const player = $('#player');
