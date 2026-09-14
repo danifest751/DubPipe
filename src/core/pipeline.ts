@@ -55,6 +55,28 @@ export function disabledStages(config: DubConfig): Set<StageId> {
   return disabled;
 }
 
+/**
+ * Спикеры нужны только озвучке: по ним раздаются голоса на S5. Если прогон до
+ * неё не доходит (субтитры, распознавание, перевод), диаризация — это минуты
+ * работы впустую: на 12-минутном эпизоде 4.5 из 5.8 минут стадии S2.
+ */
+export function needsSpeakers(stages: StageId[]): boolean {
+  return stages.includes('s5');
+}
+
+/**
+ * Конфигурация, действующая в этом прогоне. Диаризация выключается, когда
+ * озвучки не будет; отпечаток S2 считается уже по ней, поэтому запуск с
+ * озвучкой не возьмёт из кэша распознавание без спикеров.
+ */
+export function effectiveConfig(config: DubConfig, stages: StageId[]): DubConfig {
+  if (!config.asr.diarization.enabled || needsSpeakers(stages)) return config;
+  return {
+    ...config,
+    asr: { ...config.asr, diarization: { ...config.asr.diarization, enabled: false } },
+  };
+}
+
 export function stageRange(from: StageId = 's1', to: StageId = 's7'): StageId[] {
   const start = STAGE_IDS.indexOf(from);
   const end = STAGE_IDS.indexOf(to);
@@ -102,7 +124,16 @@ async function artifactsPresent(stage: StageId, workspace: Workspace): Promise<b
 }
 
 export async function runPipeline(options: PipelineOptions): Promise<PipelineReport> {
-  const { input, config } = options;
+  const { input } = options;
+
+  // План прогона нужен раньше отпечатков: от него зависит, выполнять ли
+  // диаризацию, а она входит в отпечаток стадии распознавания.
+  const planned = stageRange(options.fromStage, options.toStage);
+  const skipped = disabledStages(options.config);
+  const active = planned.filter((stage) => !skipped.has(stage));
+  const config = effectiveConfig(options.config, active);
+  const diarizationDropped = options.config.asr.diarization.enabled && !config.asr.diarization.enabled;
+
   const workspace = await Workspace.open(input, config);
   const fingerprints = computeFingerprints(config, workspace.inputHash);
   const state = await workspace.readState();
@@ -122,9 +153,9 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRep
 
   try {
 
-  const planned = stageRange(options.fromStage, options.toStage);
-  const skipped = disabledStages(config);
-  const active = planned.filter((stage) => !skipped.has(stage));
+  if (diarizationDropped) {
+    log.info('Диаризация пропущена: в этом прогоне нет озвучки, спикеры не понадобятся');
+  }
 
   const outcomes: StageOutcome[] = [];
   const warnings: string[] = [];

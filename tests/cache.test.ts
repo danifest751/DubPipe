@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseConfig } from '../src/config/load.js';
 import { computeFingerprints } from '../src/core/workspace.js';
-import { stageRange, disabledStages } from '../src/core/pipeline.js';
+import { stageRange, disabledStages, effectiveConfig, needsSpeakers } from '../src/core/pipeline.js';
 import { STAGE_IDS } from '../src/core/types.js';
 
 const baseConfig = () => parseConfig({}, 'test');
@@ -61,5 +61,45 @@ describe('§2, §6: диапазон стадий', () => {
   it('не позволяет отключить обязательные стадии', () => {
     const disabled = disabledStages(parseConfig({ separation: { enabled: true }, alignment: { enabled: true } }, 'test'));
     expect(disabled.size).toBe(0);
+  });
+});
+
+describe('FR-8: диаризация только там, где нужны голоса', () => {
+  const stages = (...ids: string[]) => ids as Parameters<typeof needsSpeakers>[0];
+
+  it('спикеры нужны, только если в прогоне есть озвучка', () => {
+    expect(needsSpeakers(stages('s1', 's2', 's3'))).toBe(false);
+    expect(needsSpeakers(stages('s1', 's2', 's3', 's5', 's6', 's7'))).toBe(true);
+    expect(needsSpeakers(stages('s5'))).toBe(true);
+    expect(needsSpeakers(stages())).toBe(false);
+  });
+
+  it('без озвучки диаризация выключается, исходная конфигурация не меняется', () => {
+    const config = baseConfig();
+    expect(config.asr.diarization.enabled).toBe(true);
+
+    const forSubtitles = effectiveConfig(config, stages('s1', 's2', 's3'));
+    expect(forSubtitles.asr.diarization.enabled).toBe(false);
+    expect(config.asr.diarization.enabled).toBe(true);
+    // Остальные настройки распознавания не тронуты.
+    expect(forSubtitles.asr.model).toBe(config.asr.model);
+    expect(forSubtitles.asr.vad.enabled).toBe(config.asr.vad.enabled);
+  });
+
+  it('с озвучкой конфигурация остаётся прежней', () => {
+    const config = baseConfig();
+    expect(effectiveConfig(config, stages('s2', 's5'))).toBe(config);
+  });
+
+  it('выключенная пользователем диаризация не включается обратно', () => {
+    const config = parseConfig({ asr: { diarization: { enabled: false } } }, 'test');
+    expect(effectiveConfig(config, stages('s2', 's5'))).toBe(config);
+  });
+
+  it('отпечаток распознавания без спикеров отличается: кэш субтитров не подменит дубляж', () => {
+    const config = baseConfig();
+    const withSpeakers = computeFingerprints(config, 'hash-1');
+    const withoutSpeakers = computeFingerprints(effectiveConfig(config, stages('s1', 's2', 's3')), 'hash-1');
+    expect(withoutSpeakers['s2']).not.toBe(withSpeakers['s2']);
   });
 });

@@ -163,6 +163,12 @@ The **Subtitles** tab shows the cues of both languages with per-cue warnings (to
 read, overlap, line too long), lets you edit text and timecodes, and renders the cues over
 the video. All rules are configurable under `subtitles:` in `config.yaml`.
 
+A run without voicing — subtitles, or anything stopping at translation — skips speaker
+diarization, since speakers are only used to hand out voices. On a 15-minute episode that
+brings recognition down to about 1.5 minutes; with diarization the same stage takes five to
+six. The recognition cache keeps the two apart, so a later dubbing run does not pick up a
+transcript that has no speakers in it.
+
 ## Execution profiles
 
 | | `offline` | `hybrid` (default) |
