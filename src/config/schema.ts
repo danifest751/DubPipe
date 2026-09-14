@@ -137,6 +137,12 @@ const separationSchema = z.object({
   enabled: z.boolean().default(false),
   engine: z.enum(['mdx-onnx', 'demucs']).default('mdx-onnx'),
   model: z.string().min(1).default('UVR-MDX-NET-Inst_HQ_3'),
+  /**
+   * Где считать разделение. Сеть тяжёлая, и видеокарта даёт много: на Radeon
+   * 780M минута звука обрабатывается за 3 секунды вместо 17. Словарь тот же,
+   * что у диаризации; `auto` берёт видеокарту, если onnxruntime её видит.
+   */
+  device: z.enum(['auto', 'cpu', 'gpu', 'igpu', 'dgpu', 'cuda']).default('auto'),
   fallback_to_ducking: z.boolean().default(true),
 });
 

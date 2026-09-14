@@ -25,6 +25,8 @@ for stream in (sys.stdout, sys.stderr):
     if hasattr(stream, "reconfigure"):
         stream.reconfigure(encoding="utf-8")
 
+from compute import DEVICE_CHOICES, note, onnx_session
+
 try:
     import onnxruntime as ort
 except ImportError:
@@ -166,6 +168,7 @@ def main():
     parser.add_argument("--output-instrumental", required=True)
     parser.add_argument("--output-vocals")
     parser.add_argument("--threads", type=int, default=0)
+    parser.add_argument("--device", default="auto", choices=DEVICE_CHOICES)
     args = parser.parse_args()
 
     mix, rate = read_wav(args.input)
@@ -179,7 +182,11 @@ def main():
     options = ort.SessionOptions()
     if args.threads > 0:
         options.intra_op_num_threads = args.threads
-    session = ort.InferenceSession(args.model, options, providers=["CPUExecutionProvider"])
+    # Сеть здесь тяжёлая, и видеокарта даёт много: на Radeon 780M кусок в 5.9 с
+    # считается за 0.31 с вместо 1.65 — минута звука за три секунды вместо
+    # семнадцати. Преобразование Фурье остаётся в numpy: оно лёгкое, и пересылка
+    # данных на видеокарту стоила бы дороже самого счёта.
+    session = onnx_session(args.model, args.device, options, label="отделение голоса: ")
 
     primary = separate(session, mix)
     residual = mix - primary

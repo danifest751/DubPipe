@@ -327,9 +327,20 @@ the speaker label. The segmentation network stays on the CPU — it is tiny, and
 the GPU it is ten times slower, because the transfers cost more than the
 arithmetic saves.
 
+**Separating voice from music.** The same shape again: a heavy network next to
+light signal processing. The network moved to the GPU, the Fourier transform
+stayed in numpy. A minute of audio is processed in 3 seconds instead of 17 —
+five times faster — and the result matches the CPU one to within −94 dB, below
+the threshold of hearing.
+
 Nothing needs configuring: with `onnxruntime-directml` installed the embeddings
 run on the GPU, otherwise the old path is used. The ONNX export happens once and
 is kept next to the weights.
+
+The device is chosen per stage — `asr.diarization.device` and
+`separation.device`, sharing one vocabulary: `auto`, `cpu`, `gpu`, `igpu`,
+`dgpu`. There is deliberately no single "everything on the GPU" switch: the
+segmentation network is ten times slower there than on the CPU.
 
 The speaker breakdown is also not recomputed for nothing. It depends on the audio
 and on its own settings, never on which model transcribed the words, so the result

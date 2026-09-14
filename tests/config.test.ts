@@ -79,3 +79,37 @@ describe('§5.3: валидация конфигурации', () => {
     expect(() => parseConfig({ translate: { batch_size: 51 } }, 'test')).toThrow(ConfigError);
   });
 });
+
+describe('Где считать: один словарь на все стадии', () => {
+  // Стадии выбирают устройство независимо, потому что выгода у них разная:
+  // тяжёлую сеть видеокарта ускоряет, лёгкую — замедляет. Но слова должны быть
+  // одни и те же, иначе человеку приходится помнить, где как называется.
+  const DEVICES = ['auto', 'cpu', 'gpu', 'igpu', 'dgpu', 'cuda'] as const;
+
+  it('диаризация и разделение понимают одни и те же значения', () => {
+    for (const device of DEVICES) {
+      expect(parseConfig({ asr: { diarization: { device } } }, 'test').asr.diarization.device).toBe(device);
+      expect(parseConfig({ separation: { device } }, 'test').separation.device).toBe(device);
+    }
+  });
+
+  it('по умолчанию устройство выбирается само', () => {
+    const config = parseConfig({}, 'test');
+    expect(config.asr.diarization.device).toBe('auto');
+    expect(config.separation.device).toBe('auto');
+  });
+
+  it('выдуманное устройство отвергается с понятной ошибкой', () => {
+    expect(() => parseConfig({ separation: { device: 'opencl' } }, 'test')).toThrow(ConfigError);
+    expect(() => parseConfig({ asr: { diarization: { device: 'npu' } } }, 'test')).toThrow(ConfigError);
+  });
+
+  it('сборка whisper — отдельная настройка: это не «где», а «чем»', () => {
+    // asr.backend называет сборку программы распознавания, а не устройство:
+    // у процессорных сборок их две, и различаются они библиотекой матричных
+    // операций, а не наличием видеокарты.
+    expect(parseConfig({ asr: { backend: 'vulkan' } }, 'test').asr.backend).toBe('vulkan');
+    expect(parseConfig({ asr: { backend: 'blas' } }, 'test').asr.backend).toBe('blas');
+    expect(() => parseConfig({ asr: { backend: 'igpu' } }, 'test')).toThrow(ConfigError);
+  });
+});

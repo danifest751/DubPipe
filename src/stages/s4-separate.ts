@@ -151,7 +151,19 @@ export async function runS4(workspace: Workspace, config: DubConfig): Promise<S4
   try {
     await run(
       python.executable!,
-      [script, '--model', modelPath, '--input', modelInput, '--output-instrumental', instrumental, '--output-vocals', vocals],
+      [
+        script,
+        '--model',
+        modelPath,
+        '--input',
+        modelInput,
+        '--output-instrumental',
+        instrumental,
+        '--output-vocals',
+        vocals,
+        '--device',
+        config.separation.device,
+      ],
       {
         timeoutMs: 6 * 3_600_000,
         captureStdout: true,

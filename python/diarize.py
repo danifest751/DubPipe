@@ -26,16 +26,13 @@ import os
 import sys
 import wave
 
+from compute import DEVICE_CHOICES, note, onnx_session
+
 # Node читает потоки как UTF-8; без этого русские сообщения об ошибках
 # приходят в кодировке консоли Windows и превращаются в кракозябры.
 for stream in (sys.stdout, sys.stderr):
     if hasattr(stream, "reconfigure"):
         stream.reconfigure(encoding="utf-8")
-
-
-def note(message):
-    """Строка для журнала прогона: TS-сторона пишет такие в отладочный вывод."""
-    print(message, file=sys.stderr, flush=True)
 
 
 def fail(message, code=2):
@@ -53,9 +50,7 @@ def parse_args():
     parser.add_argument("--token-env", default="HF_TOKEN")
     parser.add_argument("--offline", action="store_true")
     # auto — видеокарта, если она есть и её видит torch; иначе процессор.
-    parser.add_argument(
-        "--device", default="auto", choices=("auto", "cpu", "gpu", "igpu", "dgpu", "cuda")
-    )
+    parser.add_argument("--device", default="auto", choices=DEVICE_CHOICES)
     parser.add_argument("--warmup", action="store_true")
     parser.add_argument("--probe", action="store_true")
     return parser.parse_args()
@@ -171,7 +166,7 @@ def load_pipeline(args):
     # 0.20 с на пакет против 1.89 с у torch. Остальные шаги трогать не надо —
     # сеть сегментации крошечная, и на видеокарте она вдесятеро медленнее, чем
     # на процессоре, из-за пересылок.
-    if args.device != "cpu" and use_onnx_embedding(pipeline, args.cache_dir, True, torch):
+    if args.device != "cpu" and use_onnx_embedding(pipeline, args.cache_dir, args.device, torch):
         note(f"остальные шаги: процессор, потоков {max(1, os.cpu_count() or 1)}")
         return pipeline, torch
 
@@ -276,28 +271,7 @@ def export_embedding_onnx(model, path, torch):
     os.replace(temporary, path)
 
 
-def embedding_session(path, prefer_gpu):
-    """
-    Сессия onnxruntime для отпечатков: видеокарта через DirectML, если она есть.
-
-    DirectML здесь выгоден именно на этой сети: 0.20 с на пакет против 1.13 с у
-    onnxruntime на процессоре и 1.89 с у torch. На маленькой сети сегментации
-    всё наоборот, поэтому её мы не трогаем.
-    """
-    import onnxruntime as ort
-
-    providers = list(ort.get_available_providers())
-    order = []
-    if prefer_gpu:
-        for name in ("DmlExecutionProvider", "CUDAExecutionProvider", "ROCMExecutionProvider"):
-            if name in providers:
-                order.append(name)
-    order.append("CPUExecutionProvider")
-    session = ort.InferenceSession(path, providers=order)
-    return session, session.get_providers()[0]
-
-
-def use_onnx_embedding(pipeline, cache_dir, prefer_gpu, torch):
+def use_onnx_embedding(pipeline, cache_dir, device, torch):
     """
     Переводит шаг голосовых отпечатков на onnxruntime.
 
@@ -317,7 +291,9 @@ def use_onnx_embedding(pipeline, cache_dir, prefer_gpu, torch):
         if not os.path.exists(path):
             note("выгружаю сеть отпечатков в ONNX (один раз)")
             export_embedding_onnx(model, path, torch)
-        session, provider = embedding_session(path, prefer_gpu)
+        # DirectML выгоден именно на этой сети: 0.20 с на пакет против 1.13 с
+        # у onnxruntime на процессоре и 1.89 с у torch.
+        session = onnx_session(path, device, label="отпечатки голосов: ")
 
         if not getattr(PyannoteAudioPretrainedSpeakerEmbedding, "_dubpipe_patched", False):
             original = PyannoteAudioPretrainedSpeakerEmbedding.__call__
@@ -338,7 +314,6 @@ def use_onnx_embedding(pipeline, cache_dir, prefer_gpu, torch):
             PyannoteAudioPretrainedSpeakerEmbedding._dubpipe_patched = True
 
         holder._dubpipe_session = session
-        note(f"отпечатки голосов: onnxruntime, {provider}")
         return True
     except Exception as error:  # noqa: BLE001 — причина в журнал, прогон продолжается
         note(f"ONNX для отпечатков не задействован ({type(error).__name__}: {str(error)[:70]})")
