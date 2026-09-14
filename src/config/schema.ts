@@ -109,7 +109,18 @@ const translateSchema = z.object({
    * for S3, and S6 is what actually guarantees the fit. S5 records the measured
    * rate in calibration.json after every run.
    */
-  chars_per_second: z.number().min(5).max(30).default(11.5),
+  chars_per_second: z.number().min(5).max(30).default(17.8),
+  /**
+   * Постоянная надбавка на реплику, секунды: подход к фразе и хвост после неё,
+   * которые синтезатор добавляет всегда.
+   *
+   * Без неё одним темпом не описать и короткую реплику, и длинную: замер на 255
+   * репликах одного голоса дал 10.2 знака в секунду на репликах короче 15
+   * знаков и 16.6 на длиннее 80. Разницу создаёт именно надбавка — на короткой
+   * она съедает половину времени. Значения по умолчанию получены линейной
+   * подгонкой: длительность = 0.51 с + знаки / 17.8.
+   */
+  speech_overhead_seconds: z.number().min(0).max(2).default(0.51),
   /** Share of replicas that must fit the ±15% slot tolerance (SPEC M2). */
   length_tolerance: z.number().min(0).max(1).default(0.15),
   /**

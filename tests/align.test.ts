@@ -7,7 +7,7 @@ import {
   shortenTargetChars,
   type AlignmentOptions,
 } from '../src/stages/s6-align.js';
-import { measureCharsPerSecond } from '../src/stages/s5-tts.js';
+import { measureSpeechRate } from '../src/stages/s5-tts.js';
 import { envelopeValueAt } from '../src/util/pcm.js';
 import { speechWindows, defaultOutputName, defaultOutputPath, resolveOutputPath } from '../src/stages/s7-mix.js';
 import { voiceForSpeaker, voiceUrlPath } from '../src/providers/tts/voices.js';
@@ -152,17 +152,44 @@ describe('S6 отключена: размещение по исходным та
 });
 
 describe('FR-5: калибровка темпа речи', () => {
-  it('считает символы в секунду по фактическим синтезам', () => {
-    const segments = [
-      makeSegment({ id: 0, start: 0, end: 2, text_en: 'a', text_ru: 'а'.repeat(20), tts_duration: 2 }),
-      makeSegment({ id: 1, start: 3, end: 5, text_en: 'b', text_ru: 'а'.repeat(10), tts_duration: 1 }),
-      makeSegment({ id: 2, start: 6, end: 8, text_en: 'c', text_ru: 'а'.repeat(30), tts_duration: 3 }),
-    ];
-    expect(measureCharsPerSecond(segments)).toBe(10);
+  // Длительность реплики — это надбавка плюс знаки, делённые на темп.
+  // Синтезируем данные по этому закону и проверяем, что подгонка его находит.
+  const made = (rate: number, overhead: number, lengths: number[]) =>
+    lengths.map((chars, id) =>
+      makeSegment({
+        id,
+        start: id * 10,
+        end: id * 10 + 5,
+        text_en: 'line',
+        text_ru: 'а'.repeat(chars),
+        tts_duration: Number((overhead + chars / rate).toFixed(4)),
+      }),
+    );
+
+  it('находит и темп, и надбавку', () => {
+    const shape = measureSpeechRate(made(17.8, 0.51, [5, 10, 20, 30, 40, 60, 80, 120]));
+    expect(shape!.charsPerSecond).toBeCloseTo(17.8, 1);
+    expect(shape!.overheadSeconds).toBeCloseTo(0.51, 2);
   });
 
-  it('не делает выводов по двум репликам', () => {
-    expect(measureCharsPerSecond([])).toBeNull();
+  it('без надбавки возвращает чистый темп', () => {
+    const shape = measureSpeechRate(made(10, 0, [10, 20, 30, 40, 50, 60, 70, 80]));
+    expect(shape!.charsPerSecond).toBeCloseTo(10, 1);
+    expect(shape!.overheadSeconds).toBeCloseTo(0, 2);
+  });
+
+  it('не делает выводов по нескольким репликам', () => {
+    // Подгонка прямой по трём точкам — самообман: разброс темпа у одного
+    // голоса больше, чем разница между голосами.
+    expect(measureSpeechRate([])).toBeNull();
+    expect(measureSpeechRate(made(12, 0.4, [10, 20, 30]))).toBeNull();
+  });
+
+  it('однообразный материал не ломает замер', () => {
+    // Все реплики одной длины: наклон не определить, но средний темп честен.
+    const shape = measureSpeechRate(made(12, 0, [20, 20, 20, 20, 20, 20, 20, 20]));
+    expect(shape!.charsPerSecond).toBeCloseTo(12, 1);
+    expect(shape!.overheadSeconds).toBe(0);
   });
 });
 

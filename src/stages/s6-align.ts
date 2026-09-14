@@ -15,7 +15,7 @@ import { run } from '../util/exec.js';
 import { requireTool } from '../util/tools.js';
 import { wavDuration } from '../util/wav.js';
 import { estimateSpeechSeconds, profanityRule } from './s3-translate.js';
-import { effectiveCharsPerSecond } from '../core/calibration.js';
+import { effectiveSpeechShape } from '../core/calibration.js';
 
 /**
  * S6 — fitting synthesis to the timeline (SPEC FR-6).
@@ -173,9 +173,22 @@ export function alignmentStats(plan: AlignmentPlanItem[], toleranceMs = 250): Al
   };
 }
 
-/** Character budget that fits the slot at maximum tempo (SPEC FR-6.3). */
-export function shortenTargetChars(slotSeconds: number, charsPerSecond: number, maxTempo: number): number {
-  return Math.max(4, Math.round(slotSeconds * charsPerSecond * maxTempo));
+/**
+ * Сколько знаков влезет в слот на максимальном темпе (ТЗ FR-6.3).
+ *
+ * Длительность реплики — надбавка плюс знаки, делённые на темп; ускорение
+ * сжимает и то, и другое. Отсюда `(слот · темп_ускорения − надбавка) · темп`.
+ * Без вычитания надбавки у коротких реплик просили больше, чем в них влезает,
+ * и сокращение не помогало — реплика всё равно не укладывалась.
+ */
+export function shortenTargetChars(
+  slotSeconds: number,
+  charsPerSecond: number,
+  maxTempo: number,
+  overheadSeconds = 0,
+): number {
+  const speaking = Math.max(0, slotSeconds * maxTempo - overheadSeconds);
+  return Math.max(4, Math.round(speaking * charsPerSecond));
 }
 
 async function shortenReplica(
@@ -217,7 +230,7 @@ export interface S6Result {
 export async function runS6(workspace: Workspace, baseConfig: DubConfig, segments: Segment[]): Promise<S6Result> {
   const config = applyOverrides(baseConfig, await workspace.readOverrides(), await workspace.readSpeakers());
   const warnings: string[] = [];
-  const charsPerSecond = await effectiveCharsPerSecond(workspace, config);
+  const { charsPerSecond, overheadSeconds } = await effectiveSpeechShape(workspace, config);
   const options: AlignmentOptions = {
     minTempo: config.alignment.min_tempo,
     maxTempo: config.alignment.max_tempo,
@@ -248,7 +261,7 @@ export async function runS6(workspace: Workspace, baseConfig: DubConfig, segment
         const segment = byId.get(item.id);
         if (!segment?.text_ru) continue;
 
-        const target = shortenTargetChars(item.slot, charsPerSecond, options.maxTempo);
+        const target = shortenTargetChars(item.slot, charsPerSecond, options.maxTempo, overheadSeconds);
         const shortened = await shortenReplica(
           selection.client,
           template,

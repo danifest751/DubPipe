@@ -10,7 +10,7 @@ import { slotOf, type Segment } from '../core/types.js';
 import type { Workspace } from '../core/workspace.js';
 import { selectChatClient, type ChatClient, type ChatUsage } from '../providers/llm/index.js';
 import { formatCost } from '../providers/llm/catalog.js';
-import { effectiveCharsPerSecond } from '../core/calibration.js';
+import { effectiveSpeechShape } from '../core/calibration.js';
 
 /**
  * S3 — batched EN→RU translation with length control (SPEC FR-3, §3.4).
@@ -64,8 +64,26 @@ export function lengthVerdict(
 }
 
 /** Character budget that fits the slot at the configured rate. */
-export function targetChars(slotSeconds: number, charsPerSecond: number, tolerance = 0): number {
-  return Math.max(1, Math.round(slotSeconds * charsPerSecond * (1 + tolerance)));
+export function targetChars(
+  slotSeconds: number,
+  charsPerSecond: number,
+  tolerance = 0,
+  overheadSeconds = 0,
+): number {
+  /*
+   * У каждой реплики есть постоянная надбавка — подход к фразе и хвост после
+   * неё, которые синтезатор добавляет всегда. Замер на 255 репликах: реплики
+   * короче 15 знаков идут со скоростью 10.2 знака в секунду, длиннее 80 — со
+   * скоростью 16.6, хотя голос один и тот же. Разницу создаёт именно надбавка:
+   * на короткой реплике она съедает половину времени.
+   *
+   * Одним числом это описать нельзя: целясь в средний темп, мы всегда просим у
+   * длинных реплик меньше, чем влезет, а у коротких больше. Поэтому из слота
+   * сначала вычитается надбавка, а темп берётся настоящий — 17.8 знака в
+   * секунду вместо кажущихся 12.5.
+   */
+  const speaking = Math.max(0, slotSeconds - overheadSeconds);
+  return Math.max(1, Math.round(speaking * charsPerSecond * (1 + tolerance)));
 }
 
 /**
@@ -82,8 +100,9 @@ export function boundedTargetChars(
   slotSeconds: number,
   charsPerSecond: number,
   expansionCap: number = MAX_EXPANSION,
+  overheadSeconds = 0,
 ): number {
-  const bySlot = targetChars(slotSeconds, charsPerSecond);
+  const bySlot = targetChars(slotSeconds, charsPerSecond, 0, overheadSeconds);
   const bySource = Math.max(8, Math.round(source.trim().length * expansionCap));
   return Math.min(bySlot, bySource);
 }
@@ -232,13 +251,14 @@ export function buildBatchRequest(
   batch: Segment[],
   charsPerSecond: number,
   expansionCap: number = MAX_EXPANSION,
+  overheadSeconds = 0,
 ): string {
   const lines = batch.map((segment) => {
     const slot = slotOf(segment);
     return JSON.stringify({
       id: segment.id,
       slot_seconds: Number(slot.toFixed(2)),
-      target_chars: boundedTargetChars(segment.text_en, slot, charsPerSecond, expansionCap),
+      target_chars: boundedTargetChars(segment.text_en, slot, charsPerSecond, expansionCap, overheadSeconds),
       text_en: segment.text_en,
     });
   });
@@ -342,9 +362,10 @@ async function translateBatch(
   charsPerSecond: number,
   usage: RunUsage,
   expansionCap: number,
+  overheadSeconds: number,
 ): Promise<TranslationPayload> {
   const ids = batch.map((segment) => segment.id);
-  const request = buildBatchRequest(batch, charsPerSecond, expansionCap);
+  const request = buildBatchRequest(batch, charsPerSecond, expansionCap, overheadSeconds);
   let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -382,6 +403,7 @@ export function collectMisfits(
   tolerance: number,
   toleranceFloorSeconds: number,
   expansionCap: number = MAX_EXPANSION,
+  overheadSeconds = 0,
 ): Array<{ segment: Segment; action: 'shorten' | 'expand'; targetChars: number }> {
   const misfits: Array<{ segment: Segment; action: 'shorten' | 'expand'; targetChars: number }> = [];
   for (const segment of segments) {
@@ -390,7 +412,7 @@ export function collectMisfits(
     const verdict = lengthVerdict(segment.text_ru, slot, charsPerSecond, tolerance, toleranceFloorSeconds);
     if (verdict.withinTolerance) continue;
     const action = verdict.ratio > 1 ? 'shorten' : 'expand';
-    const target = boundedTargetChars(segment.text_en, slot, charsPerSecond, expansionCap);
+    const target = boundedTargetChars(segment.text_en, slot, charsPerSecond, expansionCap, overheadSeconds);
     // Удлинять есть смысл, только пока оригинал это оправдывает: если перевод
     // уже исчерпал исходный текст, недобор до слота закроет тишина на S6.
     if (action === 'expand' && segment.text_ru.trim().length >= target) continue;
@@ -416,9 +438,9 @@ async function fitLengths(
   segments: Segment[],
   usage: RunUsage,
 ): Promise<number> {
-  const { chars_per_second: cps, length_tolerance: tolerance } = config.translate;
+  const { chars_per_second: cps, length_tolerance: tolerance, speech_overhead_seconds: overhead } = config.translate;
   const floor = config.translate.length_tolerance_floor_ms / 1000;
-  const misfits = collectMisfits(segments, cps, tolerance, floor, languageProfile(config.asr.language).expansionCap);
+  const misfits = collectMisfits(segments, cps, tolerance, floor, languageProfile(config.asr.language).expansionCap, overhead);
   if (misfits.length === 0) return 0;
   log.progress(`подгонка длины: реплик вне допуска ${misfits.length}`, null);
 
@@ -506,7 +528,12 @@ export async function translateSegments(
   const usage: RunUsage = { promptTokens: 0, completionTokens: 0, cost: 0, requests: 0 };
   const segments = input.map((segment) => ({ ...segment, flags: [...segment.flags] }));
 
-  const { chars_per_second: cps, length_tolerance: tolerance, context_segments: contextSize } = config.translate;
+  const {
+    chars_per_second: cps,
+    length_tolerance: tolerance,
+    context_segments: contextSize,
+    speech_overhead_seconds: overhead,
+  } = config.translate;
   const floor = config.translate.length_tolerance_floor_ms / 1000;
 
   if (segments.length === 0) {
@@ -543,7 +570,7 @@ export async function translateSegments(
 
     let payload: TranslationPayload;
     try {
-      payload = await translateBatch(client, systemPrompt, batch, cps, usage, sourceLanguage.expansionCap);
+      payload = await translateBatch(client, systemPrompt, batch, cps, usage, sourceLanguage.expansionCap, overhead);
     } catch (error) {
       // Один упрямый пакет не должен обнулять час работы: на 99 пакетах модель
       // почти наверняка где-нибудь нарушит формат ответа или не уложится в
@@ -628,13 +655,20 @@ export async function runS3(workspace: Workspace, baseConfig: DubConfig, segment
   // Длину перевода заказываем по измеренному темпу голоса, а не по умолчанию:
   // на ru_RU-irina-medium это 13.2 знака в секунду против 11.5 в настройках,
   // то есть в слот влезает на 15% больше текста, чем мы просим.
-  const charsPerSecond = await effectiveCharsPerSecond(workspace, baseConfig);
-  if (Math.abs(charsPerSecond - baseConfig.translate.chars_per_second) > 0.05) {
-    log.step(`темп речи по замеру: ${charsPerSecond} симв/с (в настройках ${baseConfig.translate.chars_per_second})`);
+  const shape = await effectiveSpeechShape(workspace, baseConfig);
+  if (Math.abs(shape.charsPerSecond - baseConfig.translate.chars_per_second) > 0.05) {
+    log.step(
+      `темп речи по замеру: ${shape.charsPerSecond} симв/с плюс ${shape.overheadSeconds} с на реплику ` +
+        `(в настройках ${baseConfig.translate.chars_per_second} и ${baseConfig.translate.speech_overhead_seconds})`,
+    );
   }
   const config: DubConfig = {
     ...baseConfig,
-    translate: { ...baseConfig.translate, chars_per_second: charsPerSecond },
+    translate: {
+      ...baseConfig.translate,
+      chars_per_second: shape.charsPerSecond,
+      speech_overhead_seconds: shape.overheadSeconds,
+    },
   };
 
   const run = await translateSegments(client, config, segments, {
