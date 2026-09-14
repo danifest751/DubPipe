@@ -353,6 +353,9 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
             'Content-Range': `bytes ${start}-${end}/${info.size}`,
             'Accept-Ranges': 'bytes',
             'Content-Length': end - start + 1,
+            // Файл по этому пути переписывается пересведением: закэшированный
+            // кусок был бы из прежнего дубляжа.
+            'Cache-Control': 'no-store',
           });
           createReadStream(filePath, { start, end }).pipe(response);
           return;
@@ -360,7 +363,12 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       }
     }
 
-    response.writeHead(200, { 'Content-Type': type, 'Content-Length': info.size, 'Accept-Ranges': 'bytes' });
+    response.writeHead(200, {
+      'Content-Type': type,
+      'Content-Length': info.size,
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'no-store',
+    });
     createReadStream(filePath).pipe(response);
   };
 

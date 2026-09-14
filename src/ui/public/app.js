@@ -49,7 +49,16 @@ async function api(path, options = {}) {
 const post = (path, body) => api(path, { method: 'POST', body: JSON.stringify(body ?? {}) });
 const put = (path, body) => api(path, { method: 'PUT', body: JSON.stringify(body ?? {}) });
 
-const mediaUrl = (filePath) => `/api/media?path=${encodeURIComponent(filePath)}&token=${TOKEN}`;
+/*
+ * Адрес файла для плеера — с меткой версии.
+ *
+ * Пересведение переписывает фильм по тому же пути, и адрес остаётся прежним:
+ * плеер держит уже загруженный файл и нового не запрашивает. Слышно прежнюю
+ * озвучку, хотя на диске новая. Метка меняется при каждой перезагрузке реплик —
+ * то есть после любого прогона.
+ */
+let mediaVersion = Date.now();
+const mediaUrl = (filePath) => `/api/media?path=${encodeURIComponent(filePath)}&token=${TOKEN}&v=${mediaVersion}`;
 const icon = (name, cls = 'ico') => `<svg class="${cls}"><use href="#i-${name}" /></svg>`;
 
 function escapeHtml(value) {
@@ -1184,6 +1193,7 @@ async function loadSegments() {
   // просмотра: по нему видно, тем ли голосом озвучен персонаж.
   state.speakers = data.speakers ?? {};
   state.output = data.output ?? null;
+  mediaVersion = Date.now();
   // Голоса нужны таблице, а не только режиму просмотра: пол переключают прямо
   // в строке. Хранилище правок одно на страницу — карточка просмотра пишет
   // в него же, иначе две половины интерфейса меняли бы разные копии.
