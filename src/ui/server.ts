@@ -45,6 +45,7 @@ import { ensureWhisperModel, whisperModelPath } from '../providers/asr/whispercp
 import { ensureVadModel as ensureSileroVad } from '../providers/vad/silero.js';
 import { ensureVoice } from '../providers/tts/voices.js';
 import { findTool, provisionTool, TOOLS, type ToolName } from '../util/tools.js';
+import { sha256 } from '../util/hash.js';
 
 /**
  * Local HTTP API behind the web interface (SPEC §16).
@@ -919,14 +920,12 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       try {
         const workspace = await Workspace.open('voice-preview', config);
         const provider = createTtsProvider(workspace, config);
-        const target = workspace.file(`preview-${voice}.wav`);
+        const text = body.text?.trim() || 'Так будет звучать дубляж этим голосом.';
+        // Имя пробы включает и текст: иначе проба чужой реплики звучала бы
+        // прежней — файл для этого голоса уже лежит.
+        const target = workspace.file(`preview-${voice}-${sha256(text).slice(0, 12)}.wav`);
         if (!existsSync(target)) {
-          await provider.synthesize({
-            id: -1,
-            voice,
-            text: body.text?.trim() || 'Так будет звучать дубляж этим голосом.',
-            outputPath: target,
-          });
+          await provider.synthesize({ id: -1, voice, text, outputPath: target });
         }
         sendJson(response, 200, { path: target });
       } catch (error) {

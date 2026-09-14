@@ -431,6 +431,8 @@ body.col-resizing { cursor: col-resize; user-select: none; }
 .cast-who { display: flex; align-items: center; gap: 5px; }
 .cast-who .mono { font-size: 12px; color: var(--text-faint); }
 .cast-name { font-weight: 600; }
+.cast-voice { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.cast-voice select { min-width: 0; flex: 1; }
 @media (max-width: 900px) {
   .cast-row { grid-template-columns: 1fr 1fr; }
 }

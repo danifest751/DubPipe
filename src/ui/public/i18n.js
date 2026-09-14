@@ -210,6 +210,8 @@ const DICTIONARY = {
   'cast.clash': { ru: 'по записи {gender}, {hz} Гц — голос выбран другого пола', en: 'measured {gender}, {hz} Hz — the chosen voice is of the other sex' },
   'cast.namePlaceholder': { ru: 'имя героя', en: 'character name' },
   'cast.replicas': { ru: '{count} реплик', en: '{count} replicas' },
+  'cast.try': { ru: 'Проба', en: 'Try' },
+  'cast.tryHint': { ru: 'Озвучить первую реплику героя выбранным голосом прямо сейчас', en: 'Voice the character’s first line in the chosen voice right now' },
   'cast.listen': { ru: 'Послушать', en: 'Listen' },
   'segments.columns': { ru: 'Колонки', en: 'Columns' },
   'segments.columnsHint': { ru: 'Потяните, чтобы изменить ширину; двойной щелчок вернёт исходную', en: 'Drag to resize; double-click restores the default' },

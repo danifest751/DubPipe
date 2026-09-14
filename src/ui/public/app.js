@@ -833,7 +833,10 @@ function renderCast() {
       return `<div class="cast-row">
         <div class="cast-who">${genderMark(speaker)}<span class="mono">${escapeHtml(speaker)}</span></div>
         <input class="cast-name" data-cast-name="${escapeAttr(speaker)}" value="${escapeAttr(state.overrides?.names?.[speaker] ?? '')}" placeholder="${escapeAttr(t('cast.namePlaceholder'))}" />
-        <select data-cast-voice="${escapeAttr(speaker)}">${voices}</select>
+        <span class="cast-voice">
+          <select data-cast-voice="${escapeAttr(speaker)}">${voices}</select>
+          <button class="ghost small" data-cast-try="${escapeAttr(speaker)}" title="${escapeAttr(t('cast.tryHint'))}">${icon('play')} ${t('cast.try')}</button>
+        </span>
         <span class="meta">${t('cast.replicas', { count: counts[speaker] ?? 0 })}${
           genderClash(speaker) ? `<br><span class="clash-note">${t('cast.clash', { gender: state.speakers[speaker].gender, hz: state.speakers[speaker].f0 ?? '?' })}</span>` : ''
         }</span>
@@ -847,6 +850,20 @@ function renderCast() {
   );
   list.querySelectorAll('[data-cast-voice]').forEach((select) =>
     select.addEventListener('change', () => setVoice(select.dataset.castVoice, select.value)),
+  );
+  // Проба голоса: синтезируем первую реплику героя выбранным голосом и играем.
+  // Без неё выбор голоса — это ставка вслепую до конца переозвучки.
+  list.querySelectorAll('[data-cast-try]').forEach((button) =>
+    button.addEventListener('click', () =>
+      withBusy(button, async () => {
+        const speaker = button.dataset.castTry;
+        const index = first.get(speaker);
+        const text = index === undefined ? '' : (state.segments[index].text_ru ?? '');
+        const result = await post('/api/voices/preview', { voice: voiceOf(speaker), text });
+        $('#reviewVideo').pause();
+        playAt(result.path, 0, null);
+      }).catch(showError),
+    ),
   );
   list.querySelectorAll('[data-cast-play]').forEach((button) =>
     button.addEventListener('click', () => {
