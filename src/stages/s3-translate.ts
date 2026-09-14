@@ -509,9 +509,12 @@ async function fitLengths(
       for (const item of batch) {
         const rewritten = payload.items.get(item.segment.id);
         if (!rewritten) continue;
-        const slot = slotOf(item.segment);
-        const before = Math.abs(estimateSpeechSeconds(item.segment.text_ru!, cps) - slot);
-        const after = Math.abs(estimateSpeechSeconds(rewritten, cps) - slot);
+        // Принимать правку надо той же меркой, какой её заказывали: и место,
+        // и надбавка на реплику. По голому слоту без надбавки переписанный
+        // текст, попавший ровно в заказанную длину, мог быть отвергнут.
+        const slot = room(item.segment);
+        const before = Math.abs(estimateSpeechSeconds(item.segment.text_ru!, cps, overhead) - slot);
+        const after = Math.abs(estimateSpeechSeconds(rewritten, cps, overhead) - slot);
         if (after < before) {
           item.segment.text_ru = rewritten;
           improved++;

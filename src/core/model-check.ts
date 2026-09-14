@@ -1,6 +1,6 @@
 import type { DubConfig } from '../config/schema.js';
 import { estimateCost, loadCatalog, type CatalogModel } from '../providers/llm/catalog.js';
-import { lengthVerdict, translateSegments, type RunUsage } from '../stages/s3-translate.js';
+import { lengthVerdict, roomFor, translateSegments, type RunUsage } from '../stages/s3-translate.js';
 import { clientFor, comparisonConfig } from './compare.js';
 import { makeSegment } from './types.js';
 
@@ -12,8 +12,9 @@ import { makeSegment } from './types.js';
  * в нём есть модели без инструкций, с фильтрами и просто мёртвые.
  */
 
-// Слоты — как в обычной речи (~11 символов в секунду): хорошая модель укладывается
-// без сокращений, а многословная сразу видна по оранжевым строкам.
+// Слоты — как в обычной речи: хорошая модель укладывается без сокращений,
+// а многословная сразу видна по оранжевым строкам. Конкретный запас считается
+// по настройкам темпа, а не зашит здесь числом.
 export const CHECK_SAMPLE: ReadonlyArray<{ start: number; end: number; text_en: string }> = [
   { start: 0, end: 3.2, text_en: 'So what do you think about the new plan?' },
   { start: 3.6, end: 6.6, text_en: 'Honestly, it looks better than the last one.' },
@@ -110,13 +111,20 @@ export async function checkModel(config: DubConfig, modelId: string, timeoutMs =
       translateSegments(client, runConfig, segments),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`нет ответа за ${Math.round(timeoutMs / 1000)} с`)), timeoutMs)),
     ]);
-    const cps = config.translate.chars_per_second;
-    const tolerance = config.translate.length_tolerance;
-    const floor = config.translate.length_tolerance_floor_ms / 1000;
+    const cps = runConfig.translate.chars_per_second;
+    const tolerance = runConfig.translate.length_tolerance;
+    const floor = runConfig.translate.length_tolerance_floor_ms / 1000;
+    const overhead = runConfig.translate.speech_overhead_seconds;
+    // Судить перевод надо тем же, чем стадия его заказывала: место реплики
+    // вместе с занимаемой паузой и надбавка на каждую реплику. По голому слоту
+    // проверка занижала любую модель — в том числе заведомо годную.
+    const room = roomFor(runConfig, run.segments);
     const lines: ModelCheckLine[] = run.segments.map((segment) => ({
       text_en: segment.text_en,
       text_ru: segment.text_ru,
-      fits: segment.text_ru ? lengthVerdict(segment.text_ru, segment.end - segment.start, cps, tolerance, floor).withinTolerance : false,
+      fits: segment.text_ru
+        ? lengthVerdict(segment.text_ru, room(segment), cps, tolerance, floor, overhead).withinTolerance
+        : false,
     }));
     const verdict = judgeTranslation(lines);
     const entry = catalog.find((item) => item.id === modelId);
