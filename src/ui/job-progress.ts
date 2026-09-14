@@ -12,6 +12,8 @@ export interface JobStage {
   title: string;
   state: 'pending' | 'running' | 'done';
   provider?: string;
+  /** Стадия не выполнялась: её результат взят из кэша. */
+  cached?: boolean;
   startedAt?: string;
   finishedAt?: string;
   durationMs?: number;

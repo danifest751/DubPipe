@@ -1271,7 +1271,12 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
           finishStages(current.stages, new Date().toISOString(), 'done');
           for (const outcome of report.outcomes) {
             const stage = current.stages.find((item) => item.id === outcome.stage);
-            if (stage) stage.provider = outcome.cached ? 'кэш' : outcome.provider;
+            if (stage) {
+              // Признак «из кэша» — полем, а не подписью: интерфейс переводит
+              // её сам, и сравнивать перевод со строкой ему незачем.
+              stage.cached = outcome.cached;
+              stage.provider = outcome.cached ? undefined : outcome.provider;
+            }
           }
           current.warnings = report.warnings;
           current.output = report.output;

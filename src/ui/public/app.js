@@ -494,7 +494,7 @@ function renderJob() {
         : item.progress?.detail;
       const sub =
         item.state === 'done'
-          ? (item.provider === 'кэш' ? t('work.cached') : (item.provider ?? t('stage.state.done')))
+          ? (item.cached ? t('work.cached') : (item.provider ?? t('stage.state.done')))
           : item.state === 'running'
             ? (doing ?? t('stage.state.running'))
             : t('stage.state.pending');
@@ -507,7 +507,7 @@ function renderJob() {
       const time =
         item.state === 'running' && item.startedAt
           ? `<span class="time" data-started="${escapeAttr(item.startedAt)}">${formatElapsed(Date.now() - Date.parse(item.startedAt))}</span>`
-          : item.state === 'done' && item.durationMs != null && item.provider !== 'кэш'
+          : item.state === 'done' && item.durationMs != null && !item.cached
             ? `<span class="time">${formatElapsed(item.durationMs)}</span>`
             : '';
       const pct = item.state === 'running' && percent != null ? `<span class="pct">${percent}%</span>` : '';
