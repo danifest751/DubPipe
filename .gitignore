@@ -21,6 +21,7 @@ scripts/screens/
 # Внутренние документы, не для публикации
 tz-DubPipe.md
 PROJECT_AUDIT.md
+HANDOFF.md
 
 # Python
 __pycache__/
