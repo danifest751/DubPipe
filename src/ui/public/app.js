@@ -1047,10 +1047,10 @@ function showInReview(start, end, muted = false, scroll = true) {
  * У ссылки исходника на диске нет, там остаётся извлечённая дорожка.
  */
 function playOriginal(start, end) {
-  const shown = showInReview(start, end, true);
-  const isUrl = /^https?:/i.test(state.project ?? '');
-  const source = !isUrl && state.project && !shown ? state.project : state.originalAudio;
-  playAt(source, start, end);
+  // Кадры — в плеере просмотра, звук — исходная дорожка снизу. Картинка идёт
+  // без своего звука, иначе слышно было бы две дорожки сразу.
+  showInReview(start, end, true);
+  playAt(state.originalAudio, start, end);
 }
 $('#player').addEventListener('timeupdate', () => {
   const player = $('#player');

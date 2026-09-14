@@ -413,10 +413,11 @@ td.num input { width: 78px; min-width: 0; font-variant-numeric: tabular-nums; }
 body.col-resizing { cursor: col-resize; user-select: none; }
 
 /*
- * Плеер под таблицей реплик показывает картинку, а не только звук: по кнопке
- * в строке нужно видеть, кто говорит в кадре, — ради этого кнопка и нужна.
+ * Плеер под таблицей — звуковой: кадры показывает плеер просмотра сверху,
+ * а здесь звучит исходная дорожка. Видеоэлементом он давал чёрный прямоугольник
+ * во всю ширину — картинки в звуковом файле нет.
  */
-.row-player { width: 100%; max-height: 320px; background: #000; border-radius: var(--radius); }
+.row-player { width: 100%; }
 
 /* Скрытые колонки: ячейки убираются из раскладки целиком. */
 #segmentsTable th[hidden], #segmentsTable td[hidden] { display: none; }
