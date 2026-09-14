@@ -1424,6 +1424,21 @@ $('#settingsModelRefresh').addEventListener('click', (event) =>
   }).catch(showError),
 );
 
+/** Список языков оригинала: профили приходят с сервера, порядок — по названию. */
+function fillSourceLanguages(selected) {
+  const select = $('#sourceLanguage');
+  const languages = [...(state.languages ?? [])];
+  if (selected && !languages.some((item) => item.code === selected)) {
+    languages.push({ code: selected, name: selected, nameEn: selected });
+  }
+  const label = (item) => (window.i18n.language() === 'en' ? item.nameEn : item.name);
+  languages.sort((a, b) => label(a).localeCompare(label(b)));
+  select.innerHTML = languages
+    .map((item) => `<option value="${escapeAttr(item.code)}">${escapeHtml(label(item))} (${escapeHtml(item.code)})</option>`)
+    .join('');
+  if (selected) select.value = selected;
+}
+
 async function loadSettings() {
   const [configData, voices, key, hfToken, stateData] = await Promise.all([
     api('/api/config'), api('/api/voices'), api('/api/key'), api('/api/hf-token'), api('/api/state'), loadSettingsCatalog(),
@@ -1434,6 +1449,7 @@ async function loadSettings() {
   $('#configText').value = configData.text;
   $('#cacheDir').textContent = stateData.cacheDir;
   state.yamlDirty = false;
+  fillSourceLanguages(configData.parsed.asr.language);
   fillForm(configData.parsed);
   renderModelList();
   renderKey(key);
@@ -1594,6 +1610,7 @@ async function refreshState() {
   const data = await api('/api/state');
   state.projects = data.projects;
   state.stages = data.stages;
+  state.languages = data.languages ?? state.languages;
   state.job = data.job;
   state.workingDir = data.workingDir ?? state.workingDir;
   $('#version').textContent = `v${data.version}`;

@@ -33,7 +33,7 @@ import {
   subtitleOptionsFrom,
   type Cue,
 } from '../stages/subtitles.js';
-import { languageProfile } from '../core/languages.js';
+import { languageProfile, LANGUAGE_PROFILES } from '../core/languages.js';
 import { message, normalizeLanguage, type UiLanguage } from '../core/i18n.js';
 import { cancellation, isCancelled } from '../core/cancel.js';
 import { applyOverrides, normalizeOverrides, planReview } from '../core/overrides.js';
@@ -605,6 +605,13 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
         cacheDir: cacheRoot,
         workingDir,
         stages: STAGE_IDS.map((id) => ({ id, title: STAGE_TITLES[id] })),
+        // Языки оригинала с описанным профилем: остальные тоже работают,
+        // но по латинским правилам.
+        languages: Object.values(LANGUAGE_PROFILES).map((item) => ({
+          code: item.code,
+          name: item.name,
+          nameEn: item.nameEn,
+        })),
         job,
         projects: await listProjects(),
       });
