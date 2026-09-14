@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { applyOverrides, autoVoiceMap, EMPTY_OVERRIDES, effectiveVoice, normalizeOverrides, planReview } from '../src/core/overrides.js';
 import { parseConfig } from '../src/config/load.js';
 import { makeSegment } from '../src/core/types.js';
+import { ttsKey } from '../src/stages/s5-tts.js';
 import { stageConfigSlice } from '../src/core/workspace.js';
 
 const config = parseConfig(
@@ -9,8 +10,26 @@ const config = parseConfig(
   'тест',
 );
 
+/**
+ * Озвученная реплика — с подписью клипа, как её оставляет синтез: без неё
+ * нельзя спросить у клипа, тем ли голосом он сделан.
+ */
 const voiced = (id: number, speaker: string, ru: string) =>
-  makeSegment({ id, start: id, end: id + 1, text_en: 'x', text_ru: ru, speaker, tts_file: `${id}.wav`, tts_duration: 0.8, aligned_file: `${id}a.wav`, tempo: 1.1, shift_ms: 0 });
+  makeSegment({
+    id,
+    start: id,
+    end: id + 1,
+    text_en: 'x',
+    text_ru: ru,
+    speaker,
+    tts_file: `${id}.wav`,
+    tts_duration: 0.8,
+    tts_key: ttsKey(effectiveVoice(config, EMPTY_OVERRIDES, speaker), ru, ''),
+    aligned_file: `${id}a.wav`,
+    aligned_duration: 0.8,
+    tempo: 1.1,
+    shift_ms: 0,
+  });
 
 describe('§16.4: правки видео поверх настроек', () => {
   it('нормализует сырой JSON: мусор отбрасывается', () => {
@@ -160,5 +179,65 @@ describe('Имена персонажей', () => {
       { voices: {}, names: { speaker_0: 'Джек' }, mix: {} },
     );
     expect(plan.fromStage).toBeNull();
+  });
+});
+
+describe('§16.4: правка судит по клипу, а не по намерениям', () => {
+  it('клип, сделанный голосом из прежних настроек, переозвучивается', () => {
+    /*
+     * Случай из жизни: в настройках стояла привязка speaker_1 к мужскому
+     * голосу, её убрали. Сравнение двух снимков правок отвечало «менять
+     * нечего» — в обоих голос один, — а на диске лежал клип, сделанный
+     * Дмитрием. Клип подписан тем, из чего сделан, у него и надо спрашивать.
+     */
+    const stale = makeSegment({
+      id: 0,
+      start: 0,
+      end: 2,
+      text_en: 'x',
+      text_ru: 'Привет.',
+      speaker: 'speaker_0',
+      tts_file: '0.wav',
+      tts_duration: 0.8,
+      tts_key: ttsKey('ru_RU-dmitri-medium', 'Привет.', ''),
+      aligned_file: '0a.wav',
+    });
+    const plan = planReview(config, [stale], [stale], EMPTY_OVERRIDES, EMPTY_OVERRIDES);
+    expect(plan.affected).toEqual([0]);
+    expect(plan.fromStage).toBe('s5');
+  });
+
+  it('клип, сделанный тем же голосом, не трогают', () => {
+    const fresh = makeSegment({
+      id: 0,
+      start: 0,
+      end: 2,
+      text_en: 'x',
+      text_ru: 'Привет.',
+      speaker: 'speaker_0',
+      tts_file: '0.wav',
+      tts_duration: 0.8,
+      tts_key: ttsKey(effectiveVoice(config, EMPTY_OVERRIDES, 'speaker_0'), 'Привет.', ''),
+      aligned_file: '0a.wav',
+    });
+    expect(planReview(config, [fresh], [fresh], EMPTY_OVERRIDES, EMPTY_OVERRIDES).fromStage).toBeNull();
+  });
+
+  it('отпечаток движка входит в проверку', () => {
+    const clip = makeSegment({
+      id: 0,
+      start: 0,
+      end: 2,
+      text_en: 'x',
+      text_ru: 'Привет.',
+      speaker: 'speaker_0',
+      tts_file: '0.wav',
+      tts_duration: 0.8,
+      tts_key: ttsKey(effectiveVoice(config, EMPTY_OVERRIDES, 'speaker_0'), 'Привет.', 'piper:22050'),
+      aligned_file: '0a.wav',
+    });
+    // Частота дискретизации сменилась — клип сделан по-старому.
+    const plan = planReview(config, [clip], [clip], EMPTY_OVERRIDES, EMPTY_OVERRIDES, {}, 'piper:48000');
+    expect(plan.affected).toEqual([0]);
   });
 });

@@ -2,6 +2,7 @@ import type { DubConfig } from '../config/schema.js';
 import { RUSSIAN_VOICES, type VoiceInfo } from '../providers/tts/voices.js';
 import type { SpeakerProfile } from '../providers/diarization/gender.js';
 import type { Segment } from './types.js';
+import { ttsKey } from '../stages/s5-tts.js';
 
 export type SpeakerProfiles = Record<string, SpeakerProfile>;
 
@@ -150,15 +151,26 @@ export function planReview(
   previousOverrides: ProjectOverrides,
   nextOverrides: ProjectOverrides,
   speakers: SpeakerProfiles = {},
+  engine = '',
 ): ReviewPlan {
   const before = new Map(previous.map((segment) => [segment.id, segment]));
   const affected: number[] = [];
   const segments = next.map((segment) => {
     const old = before.get(segment.id);
-    const voiceBefore = old ? effectiveVoice(config, previousOverrides, old.speaker, speakers) : null;
     const voiceAfter = effectiveVoice(config, nextOverrides, segment.speaker, speakers);
-    // Смена спикера сама по себе синтеза не требует — только если у нового спикера другой голос.
-    const changed = !old || (old.text_ru ?? '') !== (segment.text_ru ?? '') || voiceBefore !== voiceAfter;
+    /*
+     * Нужен ли синтез — спрашиваем у самого клипа, а не у двух снимков правок.
+     *
+     * Клип подписан тем, из чего сделан: движок, голос, текст. Сравнение
+     * «было / стало» знает только о намерениях и слепо к тому, что лежит на
+     * диске: голос, вписанный когда-то в настройки, а потом убранный оттуда,
+     * оставлял клип чужим голосом, а правка отвечала «менять нечего».
+     */
+    const expected = segment.text_ru ? ttsKey(voiceAfter, segment.text_ru, engine) : null;
+    // Реплика, которую ещё не озвучивали, правкой не затронута: её сделает
+    // обычный прогон, и записывать её в «пересчитать» незачем.
+    const voiced = segment.tts_key !== null || (old?.tts_key ?? null) !== null;
+    const changed = !old || (voiced && expected !== segment.tts_key);
     if (!changed) return segment;
     affected.push(segment.id);
     return {

@@ -1064,7 +1064,17 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       const previous = (await workspace.readSegments()) ?? [];
       const previousOverrides = await workspace.readOverrides();
       const nextOverrides = normalizeOverrides(body.overrides);
-      const plan = planReview(config, previous, body.segments, previousOverrides, nextOverrides, await workspace.readSpeakers());
+      // Отпечаток движка — часть подписи клипа: по ней и видно, надо ли его
+      // переделывать.
+      const plan = planReview(
+        config,
+        previous,
+        body.segments,
+        previousOverrides,
+        nextOverrides,
+        await workspace.readSpeakers(),
+        createTtsProvider(workspace, config).fingerprint,
+      );
       await workspace.writeSegments(plan.segments);
       await workspace.writeOverrides(nextOverrides);
       sendJson(response, 200, { ok: true, affected: plan.affected, fromStage: plan.fromStage });

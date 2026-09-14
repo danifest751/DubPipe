@@ -402,12 +402,17 @@ async function startJob() {
   if (!state.project) return;
   // Новый прогон — новые сообщения: закрытые в прошлый раз не должны молчать.
   dismissedNotices.clear();
-  const advanced = !$('#advanced').hidden;
+  // Выбор из «Дополнительно» действует независимо от того, раскрыта ли панель.
+  // Пока он читался по признаку «панель открыта», выбранная стадия молча
+  // пропадала, стоило панель свернуть, — и запуск шёл с начала.
+  const fromStage = $('#fromStage').value;
+  const toStage = $('#toStage').value;
+  const model = $('#modelOverride').value.trim();
   state.job = await post('/api/jobs', {
     input: state.project,
-    fromStage: advanced ? $('#fromStage').value : undefined,
-    toStage: advanced ? $('#toStage').value : undefined,
-    model: advanced ? $('#modelOverride').value.trim() || undefined : undefined,
+    fromStage: fromStage && fromStage !== 's1' ? fromStage : undefined,
+    toStage: toStage && toStage !== 's7' ? toStage : undefined,
+    model: model || undefined,
     // Папка итога — не «на этот раз»: выбранная, она действует независимо
     // от того, раскрыта ли панель «Дополнительно».
     outDir: outMode() === 'folder' && state.outDir ? state.outDir : undefined,
