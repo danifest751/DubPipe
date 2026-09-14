@@ -1831,12 +1831,51 @@ async function refreshState() {
   if (!state.legalAccepted && !safeStorageGet('dubpipe-legal-accepted')) $('#legal').hidden = false;
 }
 
+/*
+ * Таблица реплик заполняется по ходу прогона, а не в конце.
+ *
+ * Стадии пишут `segments.json` по мере работы: распознавание — реплики с
+ * таймкодами и оригиналом, перевод — после каждого пакета, синтез и укладка —
+ * длительности и клипы. Ждать конца всего прогона, чтобы показать хоть что-то,
+ * незачем: на получасовом фильме это двадцать минут пустого экрана.
+ */
+const FILLING_STAGES = new Set(['s2', 's3', 's5', 's6']);
+const filled = { job: null, stages: new Set(), at: 0 };
+
+function fillSegmentsDuringRun(job) {
+  if (!job || job.input !== state.project) return;
+  if (filled.job !== job.id) {
+    filled.job = job.id;
+    filled.stages = new Set();
+    filled.at = 0;
+  }
+
+  let due = false;
+  for (const stage of job.stages ?? []) {
+    if (stage.state === 'done' && FILLING_STAGES.has(stage.id) && !filled.stages.has(stage.id)) {
+      filled.stages.add(stage.id);
+      due = true;
+    }
+  }
+  // Перевод пишет реплики после каждого пакета — показываем их по мере
+  // появления, но не чаще раза в две секунды: пакет бывает и по три секунды.
+  const translating = (job.stages ?? []).find((stage) => stage.id === 's3' && stage.state === 'running');
+  if (translating?.progress?.done && Date.now() - filled.at > 2000) due = true;
+  if (!due) return;
+
+  // Правка в таблице важнее обновления: перерисовка увела бы курсор из поля.
+  if (document.activeElement?.closest?.('#segmentsTable')) return;
+  filled.at = Date.now();
+  loadSegments().catch(() => {});
+}
+
 function connectEvents() {
   const source = new EventSource(`/api/events?token=${TOKEN}`);
   source.addEventListener('hello', (event) => {
     const data = JSON.parse(event.data);
     state.job = data.job;
     renderJob();
+    fillSegmentsDuringRun(state.job);
     for (const record of data.history) appendLog(record);
     for (const item of data.progress ?? []) state.progress.set(item.id, item);
     renderProgress();
@@ -1848,6 +1887,7 @@ function connectEvents() {
     const previous = state.job?.status;
     state.job = JSON.parse(event.data);
     renderJob();
+    fillSegmentsDuringRun(state.job);
     if (state.job.status !== 'running' && previous === 'running') {
       toast(state.job.status === 'done' ? t('job.finishedOk') : t('job.finishedOther', { status: state.job.status }), state.job.status === 'done' ? 'ok' : 'error', 8000);
       refreshState().catch(() => {});
