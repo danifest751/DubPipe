@@ -148,9 +148,11 @@ describe('Отчёт сравнения моделей', () => {
     expect(summary).toContain('$0.00100');
   });
 
-  it('построчное сравнение помечает укладку в слот', () => {
+  it('построчное сравнение помечает укладку в отведённое место', () => {
     const side = formatSideBySide(report());
-    expect(side).toContain('[0] слот 2.00 с — Hello');
+    // Место, а не слот: перевод заказан по слоту вместе с занимаемой паузой,
+    // и судить строку надо по нему же.
+    expect(side).toContain('[0] место 2.00 с — Hello');
     expect(side).toContain('✓ good/model');
     expect(side).toContain('✗ good/model');
   });

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { markLines } from '../src/core/compare.js';
 import {
   buildBatchRequest,
   collectMisfits,
@@ -13,9 +14,11 @@ import {
   planBatches,
   profanityRule,
   renderSystemPrompt,
+  roomFor,
   targetChars,
 } from '../src/stages/s3-translate.js';
 import { makeSegment, type Segment } from '../src/core/types.js';
+import { parseConfig } from '../src/config/load.js';
 
 const seg = (id: number, start: number, end: number, en: string, ru: string | null = null): Segment =>
   makeSegment({ id, start, end, text_en: en, text_ru: ru });
@@ -280,5 +283,40 @@ describe('FR-3: реплика осталась без перевода', () => 
     markUntranslated(segment, warnings);
     markUntranslated(segment, warnings);
     expect(segment.flags.filter((flag) => flag === 'translation_failed')).toHaveLength(1);
+  });
+});
+
+describe('Сравнение моделей: сводка и строки судят одинаково', () => {
+  const config = () =>
+    parseConfig({ alignment: { borrow_silence_ms: 1200, gap_ms: 50 } }, 'test');
+
+  const line = (id: number, start: number, end: number, chars: number) =>
+    makeSegment({ id, start, end, text_en: `line ${id}`, text_ru: 'а'.repeat(chars) });
+
+  it('крестиков в строках ровно столько, сколько недобора в сводке', () => {
+    // Своя мерка в построчной пометке делала отчёт противоречивым: сводка
+    // сообщала долю в допуске, а строки под ней были помечены иначе.
+    const settings = config();
+    const segments = [line(0, 0, 2, 12), line(1, 10, 12, 60), line(2, 20, 23, 40), line(3, 30, 30.8, 4)];
+    const { chars_per_second: cps, length_tolerance: tolerance, speech_overhead_seconds: overhead } = settings.translate;
+    const floor = settings.translate.length_tolerance_floor_ms / 1000;
+
+    const marks = markLines(segments, settings);
+    const stats = lengthStats(segments, cps, tolerance, floor, overhead, roomFor(settings, segments));
+
+    expect(marks.filter((mark) => mark.fits)).toHaveLength(stats.withinTolerance);
+  });
+
+  it('в отчёт идёт место реплики, а не голый слот', () => {
+    const settings = config();
+    const segments = [line(0, 0, 2, 12), line(1, 10, 12, 12)];
+    // После первой реплики пауза, занять из неё разрешено 1.2 с.
+    expect(markLines(segments, settings)[0]!.slot).toBeCloseTo(3.2, 2);
+  });
+
+  it('непереведённая реплика не считается уложившейся', () => {
+    const settings = config();
+    const segments = [makeSegment({ id: 0, start: 0, end: 2, text_en: 'line' })];
+    expect(markLines(segments, settings)[0]!.fits).toBe(false);
   });
 });

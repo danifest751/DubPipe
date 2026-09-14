@@ -1,9 +1,9 @@
 import type { DubConfig } from '../config/schema.js';
 import { KiloGatewayClient, OllamaClient, type ChatClient } from '../providers/llm/index.js';
 import { estimateCost, formatCost, loadCatalog, type CatalogModel } from '../providers/llm/catalog.js';
-import { translateSegments, type LengthStats, type RunUsage } from '../stages/s3-translate.js';
+import { lengthVerdict, roomFor, translateSegments, type LengthStats, type RunUsage } from '../stages/s3-translate.js';
 import { log } from './logger.js';
-import { slotOf, type Segment } from './types.js';
+import type { Segment } from './types.js';
 import { StageError } from './errors.js';
 
 /**
@@ -23,6 +23,7 @@ export interface ModelComparison {
   costUsd: number;
   elapsedMs: number;
   glossary: Record<string, string>;
+  /** `slot` — место реплики: её слот плюс пауза, которую займёт укладка. */
   lines: Array<{ id: number; slot: number; text_en: string; text_ru: string; fits: boolean }>;
 }
 
@@ -75,6 +76,38 @@ export function comparisonConfig(config: DubConfig, budgetMs: number): DubConfig
   };
 }
 
+/**
+ * Построчная пометка «влезает / не влезает» — той же меркой, какой посчитана
+ * сводка над ней: место реплики с занимаемой паузой, надбавка на реплику и
+ * допуск из настроек.
+ *
+ * Своя мерка здесь занижала любую модель. Сводка говорила «в допуске 92%», а
+ * строки рядом были помечены крестиками: выбирать модель по такому отчёту
+ * значит выбирать по шуму.
+ */
+export function markLines(segments: Segment[], config: DubConfig): ModelComparison['lines'] {
+  const room = roomFor(config, segments);
+  const {
+    chars_per_second: cps,
+    length_tolerance: tolerance,
+    speech_overhead_seconds: overhead,
+  } = config.translate;
+  const floor = config.translate.length_tolerance_floor_ms / 1000;
+
+  return segments.map((segment) => {
+    const slot = room(segment);
+    return {
+      id: segment.id,
+      slot: Number(slot.toFixed(2)),
+      text_en: segment.text_en,
+      text_ru: segment.text_ru ?? '',
+      fits:
+        segment.text_ru !== null &&
+        lengthVerdict(segment.text_ru, slot, cps, tolerance, floor, overhead).withinTolerance,
+    };
+  });
+}
+
 export async function compareModels(
   config: DubConfig,
   segments: Segment[],
@@ -120,22 +153,8 @@ export async function compareModels(
         costUsd: estimateCost(catalogEntry, run.usage),
         elapsedMs: run.elapsedMs,
         glossary: run.glossary,
-        lines: run.segments.map((segment) => ({
-          id: segment.id,
-          slot: Number(slotOf(segment).toFixed(2)),
-          text_en: segment.text_en,
-          text_ru: segment.text_ru ?? '',
-          fits: true,
-        })),
+        lines: markLines(run.segments, runConfig),
       });
-
-      // Mark which lines fit their slot, reusing the stats rule.
-      const last = results[results.length - 1]!;
-      const floor = config.translate.length_tolerance_floor_ms / 1000;
-      for (const line of last.lines) {
-        const estimated = line.text_ru.length / config.translate.chars_per_second;
-        line.fits = Math.abs(estimated - line.slot) <= Math.max(line.slot * config.translate.length_tolerance, floor);
-      }
 
       log.step(
         `${modelId}: в допуске ${run.stats.withinTolerance}/${run.stats.total}, ` +
@@ -206,7 +225,7 @@ export function formatSideBySide(report: ComparisonReport): string {
   const lines: string[] = [];
 
   for (const [index, line] of reference.lines.entries()) {
-    lines.push(`[${line.id}] слот ${line.slot.toFixed(2)} с — ${line.text_en}`);
+    lines.push(`[${line.id}] место ${line.slot.toFixed(2)} с — ${line.text_en}`);
     for (const model of usable) {
       const candidate = model.lines[index];
       if (!candidate) continue;

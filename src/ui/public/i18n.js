@@ -346,7 +346,7 @@ const DICTIONARY = {
   'compare.col.time': { ru: 'Время', en: 'Time' },
   'compare.col.tokens': { ru: 'Токены', en: 'Tokens' },
   'compare.col.cost': { ru: 'Стоимость', en: 'Cost' },
-  'compare.slot': { ru: '[{id}] слот {slot} с — {text}', en: '[{id}] slot {slot} s — {text}' },
+  'compare.slot': { ru: '[{id}] место {slot} с — {text}', en: '[{id}] room {slot} s — {text}' },
   'compare.applied': { ru: 'Перевод {model} применён. Переозвучьте со стадии «Синтез».', en: 'The {model} translation is applied. Re-voice from the Synthesis stage.' },
   'settings.dirtyCount': { ru: 'Изменено настроек: {count}', en: 'Changed settings: {count}' },
   'settings.yamlDirty': { ru: 'Файл YAML изменён', en: 'The YAML file has changed' },
