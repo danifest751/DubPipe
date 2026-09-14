@@ -175,13 +175,18 @@ film. It removes the original voice everywhere, and strips songs of their vocals
 ### The speech rate is measured, not guessed
 
 How many characters the synthesizer speaks per second decides how long a
-translation to ask for. The setting is an approximation, and every voice differs:
-on `ru_RU-irina-medium` the measurement came out at 13.2 characters per second
-against the default 11.5 — the slot held 15% more text than the model was asked
-for.
+translation to ask for, and one number cannot describe it. Every replica carries
+a fixed cost — the approach to the phrase and the tail after it. Measured on 255
+replicas of one voice: lines under 15 characters come out at 10.2 characters per
+second, lines over 80 at 16.6, with the voice unchanged.
 
-So the rate is measured on every run and remembered, both for that recording and
-for the voice itself, so the first run of the next video aims correctly. A
+So a straight line is fitted — `duration = overhead + characters / rate` — and on
+that material it gave 0.51 seconds and 17.8 characters per second. The real
+speaking rate is nearly twice the apparent one, and long lines used to be asked
+for a third less text than they could hold.
+
+Both numbers are measured on every run and remembered, for the recording and for
+the voice itself, so the first run of the next video aims correctly. A
 measurement taken on a different voice is never used: it is worse than an honest
 default.
 
@@ -394,19 +399,26 @@ supported cards too ([ROCm#6150](https://github.com/ROCm/ROCm/issues/6150)).
 
 ## Performance
 
-Measured on a Ryzen 7 8745HS (8 cores, no GPU) with `whisper-small`:
+Measured on a Ryzen 7 8745HS with a Radeon 780M integrated GPU, on a 29-minute episode with
+Korean speech, `large-v3` for recognition and Sonnet 4.5 for translation:
 
-| Operation | Time |
-|---|---|
-| Full cycle on a 12-second clip (6 stages) | 16–27 s |
-| Recognition of a 12-second clip | 4.3 s (≈3× faster than real time) |
-| Translation of 5 replicas through the gateway | 7.3 s |
-| Synthesis of 5 replicas (piper) | 8 s |
-| A whole run served from cache | 5 ms |
+| Stage | Time | Where |
+|---|---|---|
+| Recognition, `large-v3` | 13 min 15 s | GPU (Vulkan) |
+| Recognition, `small` | 2 min 18 s | GPU (Vulkan) |
+| Working out who speaks | 2 min 14 s | GPU (DirectML) |
+| the same on the CPU | 17 min 32 s | CPU |
+| Translation, 257 lines | 6 min 47 s | the gateway, $0.70 |
+| the same on a cheap model | 4 min 5 s | the gateway, $0.017 |
+| Separating voice from music | 2 min 21 s | GPU (DirectML) |
+| Synthesis | 1 min 9 s | CPU (piper) |
+| Fitting | 39 s | CPU (ffmpeg) |
+| Mixing and muxing | 1 min 38 s | CPU (ffmpeg) |
+| **Whole run** | **23 min 9 s** | |
 
-On a real 12-minute episode: recognition with diarization about 5 minutes, translation about
-2.5 minutes (~$0.25 through the gateway on Sonnet 4.5), synthesis 20 s, fitting and mixing
-about 2 minutes. Subtitles for an already processed file are written in milliseconds.
+The speaker breakdown is cached against the recording, so a second run of the same file skips
+it entirely. A whole run served from cache takes milliseconds. Subtitles for an already
+processed file are written just as fast.
 
 ## Downloaded components and their licenses
 
@@ -447,7 +459,7 @@ is local piper; edge-tts has to be enabled explicitly.
 ## Development
 
 ```bash
-npm test              # 284 tests; no ffmpeg, no network and no keys required
+npm test              # 362 tests; no ffmpeg, no network and no keys required
 npm run typecheck
 npm run build
 npx electron scripts/screenshot-ui.cjs     # screenshots of every screen
@@ -465,11 +477,16 @@ measurements and the reasoning behind them are recorded in [SPEC.md](SPEC.md) (i
 
 1. Diarization does not separate overlapping voices: a replica goes to whoever speaks longer.
 2. On-screen text and captions are not translated.
-3. With separation enabled, songs lose their vocals along with the speech.
-4. No GPU acceleration: on AMD integrated graphics under Windows neither CUDA nor ROCm is
-   available, and no Vulkan builds of whisper.cpp are published.
-5. Estimating a line's duration from its character count is approximate; exact fitting is done
-   by stage S6 through tempo and shortening, not by the estimate at translation time.
+3. With `separation.apply: everywhere`, songs lose their vocals along with the speech. The
+   default — removing the voice only under our own speech — leaves an undubbed song intact.
+4. The GPU is used where it pays and only there: recognition through a Vulkan build of
+   whisper.cpp (twice as fast, chosen by hand because the project publishes no AMD builds),
+   speaker embeddings and voice separation through DirectML. Synthesis, fitting and mixing
+   stay on the CPU. ROCm under Windows is not used — MIOpen fails to build its kernels, an
+   open AMD defect.
+5. Estimating a line's duration is a fitted model — a fixed cost per replica plus characters
+   over a rate — measured per voice, not a constant. It is still an estimate: the exact fit is
+   done by stage S6 through tempo, borrowed silence and, last of all, shortening.
 6. Source languages other than English do run (whisper is multilingual), but several defaults
    assume Latin script: the translation length cap, word joining for languages written without
    spaces, and the subtitle line width.

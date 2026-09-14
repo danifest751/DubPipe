@@ -25,12 +25,26 @@ All notable changes to this project are documented here. Versions follow
 
 ### Sound
 
+- A quiet trace of the original voice is left under the Russian speech, -12 dB by default,
+  chosen by ear: removing it completely made the scene sterile, because breath and the room
+  go with the voice.
+
 - The original voice is removed only where the Russian speech plays, instead of ducking the
   whole original track: the music no longer dips under every line, and a song that is not
   dubbed keeps its vocals.
 - Fitting borrows the silence that follows a replica instead of asking the model to rewrite
   it shorter. On a 35-minute Korean episode: 52 rewritten replicas became 1, 114 sped-up
   became 9, the largest drift fell from 1357 ms to 330 ms.
+
+### Length control
+
+- A line's duration is modelled as a fixed cost per replica plus characters over a rate,
+  fitted per voice instead of assumed. On one voice: 0.51 s and 17.8 characters per second,
+  against the 11.5 the pipeline had been aiming at — long lines were being asked for a third
+  less text than they could hold.
+- The measurement is remembered per voice, so the first run of the next video aims correctly.
+- Re-translating a file now re-voices it. Cache freshness was decided by settings alone, so a
+  second translation left the audio of the first while the subtitles were rewritten.
 
 ### Speed
 
