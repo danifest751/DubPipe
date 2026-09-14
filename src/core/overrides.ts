@@ -23,10 +23,19 @@ export interface MixOverrides {
 export interface ProjectOverrides {
   /** Голос на спикера для этого видео; перекрывает tts.voice_map. */
   voices: Record<string, string>;
+  /**
+   * Имя персонажа вместо `speaker_0`.
+   *
+   * Диаризация даёт номера, а смотрящий имеет дело с людьми: разобрав, кто
+   * есть кто, он подписывает голос один раз, и дальше в репликах видно «Джек»,
+   * а не «speaker_2». На озвучку это не влияет — только на то, читаемо ли то,
+   * что человек правит.
+   */
+  names: Record<string, string>;
   mix: MixOverrides;
 }
 
-export const EMPTY_OVERRIDES: ProjectOverrides = { voices: {}, mix: {} };
+export const EMPTY_OVERRIDES: ProjectOverrides = { voices: {}, names: {}, mix: {} };
 
 export function normalizeOverrides(raw: unknown): ProjectOverrides {
   const source = (raw && typeof raw === 'object' ? raw : {}) as Partial<ProjectOverrides>;
@@ -34,13 +43,19 @@ export function normalizeOverrides(raw: unknown): ProjectOverrides {
   for (const [speaker, voice] of Object.entries(source.voices ?? {})) {
     if (typeof voice === 'string' && voice.trim()) voices[speaker] = voice.trim();
   }
+  const names: Record<string, string> = {};
+  for (const [speaker, name] of Object.entries(source.names ?? {})) {
+    // Имя — подпись в интерфейсе, а не путь и не команда: длину ограничиваем,
+    // переводы строк убираем.
+    if (typeof name === 'string' && name.trim()) names[speaker] = name.trim().replace(/\s+/g, ' ').slice(0, 60);
+  }
   const mix: MixOverrides = {};
   const mixSource = (source.mix ?? {}) as Record<string, unknown>;
   for (const key of ['background_gain_db', 'voice_gain_db', 'duck_db'] as const) {
     const value = mixSource[key];
     if (typeof value === 'number' && Number.isFinite(value)) mix[key] = value;
   }
-  return { voices, mix };
+  return { voices, names, mix };
 }
 
 /**

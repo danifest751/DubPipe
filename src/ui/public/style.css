@@ -419,6 +419,22 @@ body.col-resizing { cursor: col-resize; user-select: none; }
  */
 .row-player { width: 100%; }
 
+/* Голоса и персонажи: одна строка на героя. */
+.cast { gap: 10px; }
+.cast-list { display: flex; flex-direction: column; gap: 6px; }
+.cast-row {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) minmax(140px, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+}
+.cast-who { display: flex; align-items: center; gap: 5px; }
+.cast-who .mono { font-size: 12px; color: var(--text-faint); }
+.cast-name { font-weight: 600; }
+@media (max-width: 900px) {
+  .cast-row { grid-template-columns: 1fr 1fr; }
+}
+
 /* Скрытые колонки: ячейки убираются из раскладки целиком. */
 #segmentsTable th[hidden], #segmentsTable td[hidden] { display: none; }
 

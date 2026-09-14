@@ -166,11 +166,18 @@
                 </div>
                 <span class="meta" id="editorInfo"></span>
               </div>
+              <div class="card cast" id="cast" hidden>
+                <div class="row between">
+                  <b data-i18n="cast.title">Голоса и персонажи</b>
+                  <span class="meta" data-i18n="cast.lead">Послушайте реплику и подпишите, кто это. Имя появится во всех строках этого героя.</span>
+                </div>
+                <div class="cast-list" id="castList"></div>
+              </div>
               <audio id="player" class="row-player" controls preload="none"></audio>
               <div class="table-wrap" style="margin-top: 10px">
                 <table id="segmentsTable">
                   <colgroup></colgroup>
-                  <thead><tr><th data-i18n="segments.index">#</th><th data-i18n="segments.start">Начало</th><th data-i18n="segments.end">Конец</th><th data-i18n="segments.slot">Слот</th><th data-i18n="segments.speaker">Спикер</th><th data-i18n="segments.source">Оригинал</th><th data-i18n="segments.target">Перевод</th><th data-i18n="segments.fit">Укладка</th><th data-i18n="segments.flags">Флаги</th><th data-i18n="segments.listen">Прослушать</th></tr></thead>
+                  <thead><tr><th data-i18n="segments.index">#</th><th data-i18n="segments.start">Начало</th><th data-i18n="segments.end">Конец</th><th data-i18n="segments.slot">Слот</th><th data-i18n="segments.speaker">Спикер</th><th data-i18n="segments.character">Персонаж</th><th data-i18n="segments.source">Оригинал</th><th data-i18n="segments.target">Перевод</th><th data-i18n="segments.fit">Укладка</th><th data-i18n="segments.flags">Флаги</th><th data-i18n="segments.listen">Прослушать</th></tr></thead>
                   <tbody></tbody>
                 </table>
               </div>

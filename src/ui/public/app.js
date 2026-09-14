@@ -653,6 +653,7 @@ const SEGMENT_COLUMNS = [
   { key: 'end', width: 92, min: 68 },
   { key: 'slot', width: 60, min: 48 },
   { key: 'speaker', width: 150, min: 96 },
+  { key: 'character', width: 120, min: 80 },
   // Оригинал и перевод ширины не задают: они забирают остаток строки. Задай им
   // ширину в пикселях — и сумма колонок перестанет помещаться в узкое окно,
   // таблица уедет вправо, а кнопки прослушивания окажутся за краем карточки.
@@ -798,12 +799,68 @@ function startColumnDrag(event, index, grip) {
   grip.addEventListener('pointercancel', stop);
 }
 
+/**
+ * Голоса и персонажи: кто говорит в этом видео, каким голосом и как его звать.
+ *
+ * Собрано в одном месте, потому что решение принимается один раз на героя, а не
+ * на каждую из трёхсот реплик: послушал первую его фразу, выбрал голос,
+ * подписал именем — и дальше в таблице стоит «Джек», а не `speaker_2`.
+ */
+function renderCast() {
+  const card = $('#cast');
+  const list = $('#castList');
+  if (!card || !list) return;
+
+  const speakers = [...new Set(state.segments.map((segment) => segment.speaker))].sort();
+  card.hidden = speakers.length === 0;
+  if (card.hidden) return;
+
+  const first = new Map();
+  state.segments.forEach((segment, index) => {
+    if (!first.has(segment.speaker)) first.set(segment.speaker, index);
+  });
+  const counts = state.segments.reduce((acc, segment) => {
+    acc[segment.speaker] = (acc[segment.speaker] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  list.innerHTML = speakers
+    .map((speaker) => {
+      const voice = voiceOf(speaker);
+      const voices = (state.voices ?? [])
+        .map((item) => `<option value="${escapeAttr(item.name)}" ${item.name === voice ? 'selected' : ''}>${escapeHtml(item.speaker ?? item.name)} — ${item.gender}</option>`)
+        .join('');
+      return `<div class="cast-row">
+        <div class="cast-who">${genderMark(speaker)}<span class="mono">${escapeHtml(speaker)}</span></div>
+        <input class="cast-name" data-cast-name="${escapeAttr(speaker)}" value="${escapeAttr(state.overrides?.names?.[speaker] ?? '')}" placeholder="${escapeAttr(t('cast.namePlaceholder'))}" />
+        <select data-cast-voice="${escapeAttr(speaker)}">${voices}</select>
+        <span class="meta">${t('cast.replicas', { count: counts[speaker] ?? 0 })}</span>
+        <button class="ghost small" data-cast-play="${escapeAttr(speaker)}">${icon('play')} ${t('cast.listen')}</button>
+      </div>`;
+    })
+    .join('');
+
+  list.querySelectorAll('[data-cast-name]').forEach((input) =>
+    input.addEventListener('change', () => setSpeakerName(input.dataset.castName, input.value)),
+  );
+  list.querySelectorAll('[data-cast-voice]').forEach((select) =>
+    select.addEventListener('change', () => setVoice(select.dataset.castVoice, select.value)),
+  );
+  list.querySelectorAll('[data-cast-play]').forEach((button) =>
+    button.addEventListener('click', () => {
+      const index = first.get(button.dataset.castPlay);
+      if (index !== undefined) playTranslated(state.segments[index]);
+    }),
+  );
+}
+
 function renderSegments() {
   renderColumns();
   renderColumnPicker();
+  renderCast();
   const body = $('#segmentsTable tbody');
   if (state.segments.length === 0) {
-    body.innerHTML = `<tr><td colspan="10"><span class="meta">${t('segments.empty')}</span></td></tr>`;
+    body.innerHTML = `<tr><td colspan="11"><span class="meta">${t('segments.empty')}</span></td></tr>`;
     return;
   }
   body.innerHTML = state.segments
@@ -816,6 +873,7 @@ function renderSegments() {
         <td class="num"><input type="text" data-field="end" value="${segment.end.toFixed(2)}" /></td>
         <td>${(segment.end - segment.start).toFixed(2)}</td>
         <td class="speaker">${speakerCell(segment)}</td>
+        <td class="character">${escapeHtml(speakerLabel(segment.speaker))}</td>
         <td><textarea data-field="text_en">${escapeHtml(segment.text_en)}</textarea></td>
         <td><textarea data-field="text_ru">${escapeHtml(segment.text_ru ?? '')}</textarea></td>
         <td class="fit ${fit.cls}">${fit.label}${segment.tts_duration ? `<br><span class="meta">${t('segments.synth', { value: segment.tts_duration.toFixed(2) })}</span>` : ''}</td>
@@ -874,6 +932,27 @@ function nextSpeakerName() {
   let n = 0;
   while (taken.has(`speaker_${n}`)) n++;
   return `speaker_${n}`;
+}
+
+/**
+ * Как звать этого говорящего.
+ *
+ * Диаризация даёт `speaker_2`, а человек правит реплики героев. Подписал один
+ * раз — и дальше во всех строках стоит «Джек».
+ */
+function speakerLabel(speaker) {
+  return state.overrides?.names?.[speaker] || speaker;
+}
+
+function setSpeakerName(speaker, name) {
+  const clean = String(name ?? '').trim().replace(/\s+/g, ' ').slice(0, 60);
+  if ((state.overrides.names[speaker] ?? '') === clean) return;
+  if (clean) state.overrides.names[speaker] = clean;
+  else delete state.overrides.names[speaker];
+  state.namesDirty = true;
+  renderSegments();
+  renderCast();
+  if (review.data) { renderReviewNow(); renderReviewMarks(); }
 }
 
 /** Голос, которым озвучен этот говорящий сейчас. */
@@ -949,7 +1028,7 @@ function speakerCell(segment) {
   const index = state.segments.indexOf(segment);
   const known = [...new Set([...state.segments.map((item) => item.speaker), segment.speaker])].sort();
   const options = known
-    .map((name) => `<option value="${escapeAttr(name)}" ${name === segment.speaker ? 'selected' : ''}>${escapeHtml(name)}</option>`)
+    .map((name) => `<option value="${escapeAttr(name)}" ${name === segment.speaker ? 'selected' : ''}>${escapeHtml(speakerLabel(name))}</option>`)
     .join('');
   const voice = voiceOf(segment.speaker);
   const voices = (state.voices ?? [])
@@ -1072,8 +1151,13 @@ async function loadSegments() {
   state.voices = data.voices ?? [];
   state.voiceMap = data.voiceMap ?? {};
   state.defaultVoice = data.defaultVoice ?? null;
-  state.overrides = { voices: { ...(data.overrides?.voices ?? {}) }, mix: { ...(data.overrides?.mix ?? {}) } };
+  state.overrides = {
+    voices: { ...(data.overrides?.voices ?? {}) },
+    names: { ...(data.overrides?.names ?? {}) },
+    mix: { ...(data.overrides?.mix ?? {}) },
+  };
   state.voicesDirty = false;
+  state.namesDirty = false;
   if (data.fit) state.fit = data.fit;
   $('#editorInfo').textContent = data.segments.length ? t('segments.count', { count: data.segments.length }) : '';
   state.defaultOutputDir = data.defaultOutputDir ?? null;
@@ -1308,6 +1392,7 @@ $('#reviewDiscard').addEventListener('click', () => {
   state.overrides = JSON.parse(JSON.stringify(review.baseline.overrides));
   review.overrides = state.overrides;
   state.voicesDirty = false;
+  state.namesDirty = false;
   for (const [id, key] of Object.entries(MIX_KEYS)) $(`#${id}`).value = review.overrides.mix[key] ?? review.data.mix[key];
   renderMixLabels();
   renderSegments();
@@ -1360,13 +1445,15 @@ $('#saveSegments').addEventListener('click', (event) =>
     // Правка голоса без переозвучки бессмысленна, поэтому такие правки идут тем
     // же путём, что и из режима просмотра: он сам считает, что пересчитать, и
     // трогает только затронутые реплики.
-    if (state.voicesDirty) {
+    if (state.voicesDirty || state.namesDirty) {
       const plan = await post('/api/project/review', {
         input: state.project,
         segments: state.segments,
         overrides: state.overrides,
       });
       state.voicesDirty = false;
+      state.namesDirty = false;
+      // Имена на озвучку не влияют: переозвучивать нечего, и это не ошибка.
       if (!plan.fromStage) { toast(t('segments.saved', { count: state.segments.length }), 'ok', 6000); return; }
       if (!window.confirm(t('segments.revoiceConfirm', { count: plan.affected.length }))) {
         toast(t('segments.savedNoRun'), 'ok', 8000);

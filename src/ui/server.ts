@@ -38,7 +38,7 @@ import {
 import { languageProfile, LANGUAGE_PROFILES } from '../core/languages.js';
 import { message, normalizeLanguage, type UiLanguage } from '../core/i18n.js';
 import { cancellation, isCancelled } from '../core/cancel.js';
-import { applyOverrides, normalizeOverrides, planReview } from '../core/overrides.js';
+import { applyOverrides, EMPTY_OVERRIDES, normalizeOverrides, planReview } from '../core/overrides.js';
 import { defaultOutputName, isDubbedName, resolveOutputPath } from '../stages/s7-mix.js';
 import { fitRuler } from '../stages/s3-translate.js';
 import { ensureWhisperModel, whisperModelPath } from '../providers/asr/whispercpp.js';
@@ -1037,7 +1037,7 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
         voices: RUSSIAN_VOICES,
         defaultVoice: config.tts.default_voice,
         // Карта голосов с учётом пола, определённого на S2; правки видео поверх неё — в overrides.
-        voiceMap: applyOverrides(config, { voices: {}, mix: {} }, await workspace.readSpeakers()).tts.voice_map,
+        voiceMap: applyOverrides(config, EMPTY_OVERRIDES, await workspace.readSpeakers()).tts.voice_map,
         speakers: await workspace.readSpeakers(),
         mix: {
           background_gain_db: config.mix.background_gain_db,
