@@ -2,6 +2,7 @@ node_modules/
 dist/
 .dubpipe/
 config.yaml
+config.yaml.bak-*
 *.log
 key/
 .env
