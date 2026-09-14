@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   assignSpeakers,
+  cachedTurns,
+  diarizationFingerprint,
   speakerFor,
   speakerNames,
   weightsMarker,
@@ -131,5 +133,35 @@ describe('Настройки диаризации', () => {
     // Настоящий токен HF состоит из букв и цифр и проходит проверку «похоже на имя переменной».
     expect(() => parseConfig({ asr: { diarization: { hf_token_env: 'hf_' + 'Ab1'.repeat(12) } } }, 'тест')).toThrow(/имя переменной/);
     expect(() => parseConfig({ asr: { diarization: { hf_token_env: 'hf_abc-def' } } }, 'тест')).toThrow(/имя переменной/);
+  });
+});
+
+describe('Кэш разбора по говорящим', () => {
+  const fingerprint = diarizationFingerprint('hash-1', 'speaker-diarization-community-1', 8);
+  const turns = [{ start: 0, end: 2, speaker: 'SPEAKER_00' }];
+
+  it('отпечаток не зависит от модели распознавания, но зависит от звука и настроек', () => {
+    // Смысл кэша: сменили модель распознавания — разбор по голосам переиспользуется.
+    expect(diarizationFingerprint('hash-1', 'speaker-diarization-community-1', 8)).toBe(fingerprint);
+    expect(diarizationFingerprint('hash-2', 'speaker-diarization-community-1', 8)).not.toBe(fingerprint);
+    expect(diarizationFingerprint('hash-1', 'speaker-diarization-3.1', 8)).not.toBe(fingerprint);
+    expect(diarizationFingerprint('hash-1', 'speaker-diarization-community-1', 4)).not.toBe(fingerprint);
+  });
+
+  it('берёт реплики из файла с тем же отпечатком', () => {
+    expect(cachedTurns({ fingerprint, turns }, fingerprint)).toEqual(turns);
+  });
+
+  it('чужой или отсутствующий отпечаток не принимается', () => {
+    expect(cachedTurns({ fingerprint: 'другой', turns }, fingerprint)).toBeNull();
+    // Файл от старой версии: отпечатка нет, доказать происхождение нечем.
+    expect(cachedTurns({ turns }, fingerprint)).toBeNull();
+    expect(cachedTurns(null, fingerprint)).toBeNull();
+  });
+
+  it('пустой и испорченный разбор считается отсутствующим', () => {
+    expect(cachedTurns({ fingerprint, turns: [] }, fingerprint)).toBeNull();
+    expect(cachedTurns({ fingerprint, turns: [{ start: 2, end: 1, speaker: 'A' }] }, fingerprint)).toBeNull();
+    expect(cachedTurns({ fingerprint, turns: [{ start: 0, end: 1 }] }, fingerprint)).toBeNull();
   });
 });

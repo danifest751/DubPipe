@@ -1,11 +1,18 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import type { DubConfig } from '../config/schema.js';
 import { log } from '../core/logger.js';
 import type { Segment } from '../core/types.js';
 import type { Workspace } from '../core/workspace.js';
 import { createAsrProvider } from '../providers/asr/index.js';
-import { assignSpeakers, diarize, probeDiarization, speakerNames } from '../providers/diarization/pyannote.js';
+import {
+  assignSpeakers,
+  cachedTurns,
+  diarize,
+  diarizationFingerprint,
+  probeDiarization,
+  speakerNames,
+} from '../providers/diarization/pyannote.js';
 import { profileSpeakers, type SpeechInterval } from '../providers/diarization/gender.js';
 import { message } from '../core/i18n.js';
 import { detectSpeech, snapToSpeech, type SpeechRegion } from '../providers/vad/silero.js';
@@ -76,12 +83,27 @@ export async function runS2(workspace: Workspace, config: DubConfig, audioPath: 
       log.progress('диаризация: загрузка модели', null);
       try {
         const diarizationInput = workspace.file('audio16k.wav');
-        const turns = await diarize(
-          config,
-          workspace.modelsDir,
-          existsSync(diarizationInput) ? diarizationInput : audioPath,
-          workspace.file('diarization.json'),
+        const diarizationFile = workspace.file('diarization.json');
+        const fingerprint = diarizationFingerprint(
+          workspace.inputHash,
+          config.asr.diarization.model,
+          config.asr.diarization.max_speakers,
         );
+        // Готовый разбор по говорящим годится, если он от этой же записи:
+        // распознавание могли перезапустить другой моделью, а звук не менялся.
+        const reused = existsSync(diarizationFile)
+          ? cachedTurns(JSON.parse(readFileSync(diarizationFile, 'utf8')), fingerprint)
+          : null;
+        if (reused) log.step('диаризация взята из кэша: звук и настройки те же');
+        const turns =
+          reused ??
+          (await diarize(
+            config,
+            workspace.modelsDir,
+            existsSync(diarizationInput) ? diarizationInput : audioPath,
+            diarizationFile,
+            fingerprint,
+          ));
         const before = segments.length;
         segments = assignSpeakers(segments, turns);
         const names = speakerNames(turns);

@@ -223,11 +223,43 @@ function sidecarError(error: unknown): string {
 }
 
 /** Запускает диаризацию; результат сохраняется в `outputPath` и возвращается. */
+/**
+ * Диаризация зависит только от звука и своих настроек — не от того, какой
+ * моделью распознан текст. Пересчитывать её при смене модели распознавания
+ * незачем: на 35-минутном эпизоде это тринадцать минут работы ради того же
+ * самого результата.
+ */
+export function diarizationFingerprint(inputHash: string, model: string, maxSpeakers: number): string {
+  return [inputHash, model, String(maxSpeakers)].join('|');
+}
+
+/**
+ * Реплики спикеров из сохранённого файла — если он посчитан для этого же звука
+ * и этих же настроек. Файл без отпечатка (посчитанный старой версией) не
+ * принимается: нет доказательства, что он от этой записи.
+ */
+export function cachedTurns(raw: unknown, fingerprint: string): DiarizationTurn[] | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const file = raw as { fingerprint?: unknown; turns?: unknown };
+  if (file.fingerprint !== fingerprint || !Array.isArray(file.turns)) return null;
+  const turns = file.turns.filter(
+    (turn): turn is DiarizationTurn =>
+      !!turn &&
+      typeof turn === 'object' &&
+      typeof (turn as DiarizationTurn).start === 'number' &&
+      typeof (turn as DiarizationTurn).end === 'number' &&
+      typeof (turn as DiarizationTurn).speaker === 'string' &&
+      (turn as DiarizationTurn).end > (turn as DiarizationTurn).start,
+  );
+  return turns.length > 0 ? turns : null;
+}
+
 export async function diarize(
   config: DubConfig,
   modelsDir: string,
   audioPath: string,
   outputPath: string,
+  fingerprint = '',
 ): Promise<DiarizationTurn[]> {
   const probe = await probeDiarization(config, modelsDir);
   if (!probe.available || !probe.python) {
@@ -276,7 +308,11 @@ export async function diarize(
   }
 
   const parsed = JSON.parse(await readFile(outputPath, 'utf8')) as { turns?: DiarizationTurn[] };
-  return (parsed.turns ?? []).filter((turn) => turn.end > turn.start);
+  const turns = (parsed.turns ?? []).filter((turn) => turn.end > turn.start);
+  // Отпечаток дописывается к результату: по нему следующий прогон поймёт,
+  // что файл посчитан для этой же записи, и не станет считать заново.
+  if (fingerprint) await writeFile(outputPath, JSON.stringify({ ...parsed, fingerprint, turns }, null, 1), 'utf8');
+  return turns;
 }
 
 function overlap(a: { start: number; end: number }, b: { start: number; end: number }): number {
