@@ -310,6 +310,20 @@ async function resolveSource(workspace: Workspace, meta: Meta): Promise<string> 
   });
 }
 
+/**
+ * Это уже дубляж, сделанный программой?
+ *
+ * Итог ложится рядом с исходником и называется `<имя>.ru.<расширение>` — то
+ * есть попадает в ту же папку, которую программа показывает списком видео, и
+ * ничем от исходников не отличается. Продублировать дубляж ничего не мешает, а
+ * результат выглядит как поломка: диаризация делит один синтетический голос на
+ * несколько «говорящих», и пол у всех выходит женским — потому что голос по
+ * умолчанию женский.
+ */
+export function isDubbedName(fileName: string): boolean {
+  return path.extname(path.basename(fileName, path.extname(fileName))).toLowerCase() === '.ru';
+}
+
 export function defaultOutputName(input: string, extension: string): string {
   const base = /^https?:\/\//i.test(input)
     ? 'dubbed'

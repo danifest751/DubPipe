@@ -9,7 +9,7 @@ import {
 } from '../src/stages/s6-align.js';
 import { measureSpeechRate, recordClip, ttsKey } from '../src/stages/s5-tts.js';
 import { envelopeValueAt, mergeCloseWindows } from '../src/util/pcm.js';
-import { speechWindows, spokenWindows, defaultOutputName, defaultOutputPath, resolveOutputPath } from '../src/stages/s7-mix.js';
+import { speechWindows, spokenWindows, defaultOutputName, defaultOutputPath, isDubbedName, resolveOutputPath } from '../src/stages/s7-mix.js';
 import { voiceForSpeaker, voiceUrlPath } from '../src/providers/tts/voices.js';
 import { makeSegment, type Segment } from '../src/core/types.js';
 import type { StageError } from '../src/core/errors.js';
@@ -468,5 +468,23 @@ describe('FR-7: речь звучит ровно столько, сколько 
 
   it('реплика без клипа окна не даёт', () => {
     expect(spokenWindows([seg(1, 10, 12, 2.4)])).toEqual([]);
+  });
+});
+
+describe('FR-7: готовый дубляж узнаётся по имени', () => {
+  it('имя, которое даёт сам конвейер, опознаётся', () => {
+    // Итог ложится рядом с исходником, в ту же папку, которую программа
+    // показывает списком видео, — и внешне от исходников не отличается.
+    expect(isDubbedName(defaultOutputName('Episode 5.mp4', '.mp4'))).toBe(true);
+    expect(isDubbedName('Episode 5.ru.mp4')).toBe(true);
+    expect(isDubbedName('C:/видео/Episode 5.ru.m4a')).toBe(true);
+  });
+
+  it('исходник дубляжем не считается', () => {
+    expect(isDubbedName('Episode 5.mp4')).toBe(false);
+    expect(isDubbedName('Episode 5.en.mp4')).toBe(false);
+    // Имя, где «ru» — часть слова, а не отдельная часть имени.
+    expect(isDubbedName('Peru.mp4')).toBe(false);
+    expect(isDubbedName('kangaru.mkv')).toBe(false);
   });
 });

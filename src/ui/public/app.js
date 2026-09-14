@@ -294,7 +294,12 @@ $('#otherOpen').addEventListener('click', () => {
 
 // --- библиотека ------------------------------------------------------------
 
-function statusPill(stages) {
+function statusPill(stages, dubbed = false) {
+  // Готовый дубляж лежит в той же папке, что и исходники, и внешне от них не
+  // отличается. Продублировать его — значит озвучить синтетический голос:
+  // диаризация делит его на несколько «говорящих», и пол у всех выходит
+  // женским, потому что голос по умолчанию женский.
+  if (dubbed) return `<span class="pill accent" title="${escapeAttr(t('library.isDubHint'))}">${t('library.isDub')}</span>`;
   if (stages.includes('s7')) return `<span class="pill ok">${t('library.state.dubbed')}</span>`;
   if (stages.length > 0) return `<span class="pill accent">${t('library.state.partial', { stages: stages.join(', ') })}</span>`;
   return `<span class="pill">${t('library.state.fresh')}</span>`;
@@ -322,14 +327,20 @@ async function loadLibrary() {
           <div class="name">${escapeHtml(file.name)}</div>
           <div class="meta">${formatBytes(file.size)}${file.processedAt ? ` · ${t('library.dubbedAt', { date: new Date(file.processedAt).toLocaleString() })}` : ''}</div>
         </div>
-        ${statusPill(file.stages)}
-        <button data-dub="${escapeAttr(file.path)}" class="primary small">${icon('play')} ${t('library.dub')}</button>
+        ${statusPill(file.stages, file.dubbed)}
+        <button data-dub="${escapeAttr(file.path)}" data-dubbed="${file.dubbed ? '1' : '0'}" class="primary small">${icon('play')} ${t('library.dub')}</button>
         <button data-subs="${escapeAttr(file.path)}" class="small" title="${escapeAttr(t('library.subtitlesHint'))}">${t('library.subtitles')}</button>
         <button data-open="${escapeAttr(file.path)}" class="small">${t('common.open')}</button>
       </div>`)
     .join('');
 
-  list.querySelectorAll('[data-dub]').forEach((button) => button.addEventListener('click', () => openProject(button.dataset.dub, { start: true })));
+  list.querySelectorAll('[data-dub]').forEach((button) =>
+    button.addEventListener('click', () => {
+      // Дубляж дубляжа — почти всегда промах по кнопке, а стоит он часа работы.
+      if (button.dataset.dubbed === '1' && !window.confirm(t('library.isDubConfirm'))) return;
+      openProject(button.dataset.dub, { start: true });
+    }),
+  );
   list.querySelectorAll('[data-subs]').forEach((button) => button.addEventListener('click', () => openProject(button.dataset.subs, { subtitles: true })));
   list.querySelectorAll('[data-open]').forEach((button) => button.addEventListener('click', () => openProject(button.dataset.open)));
 }
