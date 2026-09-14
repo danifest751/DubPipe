@@ -411,6 +411,14 @@ const DICTIONARY = {
     ru: 'На видеокарте вчетверо быстрее, если установлен onnxruntime-directml. Результат тот же.',
     en: 'Four times faster on the GPU when onnxruntime-directml is installed. The result is the same.',
   },
+  'settings.separationApply': { ru: 'Что делать с оригиналом', en: 'What to do with the original' },
+  'settings.separationApplyNote': {
+    ru: 'Убирать исходный голос только под русской речью — тогда музыка не приседает, а песня без дубляжа сохраняет вокал. Либо заменить оригинал фоном на весь фильм: голос уйдёт везде, но песни лишатся вокала.',
+    en: 'Remove the original voice only under the Russian speech — the music then does not dip, and a song left undubbed keeps its vocals. Or replace the original with the background for the whole film: the voice goes everywhere, and songs lose their vocals.',
+  },
+  'settings.apply.underSpeech': { ru: 'Только под нашей речью', en: 'Only under our speech' },
+  'settings.apply.everywhere': { ru: 'Во всём фильме', en: 'Across the whole film' },
+
   'settings.separationDevice': { ru: 'Где считать отделение', en: 'Where to separate the voice' },
   'settings.separationDeviceNote': {
     ru: 'На видеокарте впятеро быстрее: минута звука за три секунды вместо семнадцати.',

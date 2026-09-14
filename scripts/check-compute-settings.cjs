@@ -36,7 +36,7 @@ async function main() {
   await sleep(500);
 
   // Каждое поле проверяем в своём разделе: соседние разделы честно скрыты.
-  const keys = ['asr.backend', 'asr.diarization.device', 'separation.device'];
+  const keys = ['asr.backend', 'asr.diarization.device', 'separation.apply', 'separation.device'];
   const fields = [];
   for (const key of keys) {
     const group = await run(`document.querySelector('#settingsForm [data-key="${key}"]')?.closest('fieldset')?.dataset.group ?? null`);
@@ -81,9 +81,10 @@ async function main() {
 
   console.log(JSON.stringify({ fields, dirty, english }, null, 1));
   const ok =
-    fields.every((f) => f.found && f.visible && f.options.length >= 4 && f.label.length > 0) &&
+    fields.every((f) => f.found && f.visible && f.options.length >= 2 && f.label.length > 0) &&
     fields[0].options.includes('vulkan') &&
     fields[1].options.includes('igpu') &&
+    fields[2].options.includes('under_speech') &&
     dirty === true &&
     /[A-Za-z]/.test(english) &&
     !/[А-Яа-я]/.test(english);

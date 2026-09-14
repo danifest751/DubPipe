@@ -417,6 +417,15 @@
                     <div class="opt-ctl"><label class="switch"><input data-key="separation.enabled" type="checkbox" /><i></i></label></div>
                   </div>
                   <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.separationApply">Что делать с оригиналом</b><span data-i18n="settings.separationApplyNote">Убирать исходный голос только под русской речью — тогда музыка не приседает, а песня без дубляжа сохраняет вокал. Либо заменить оригинал фоном на весь фильм: голос уйдёт везде, но песни лишатся вокала.</span></div>
+                    <div class="opt-ctl">
+                      <select data-key="separation.apply">
+                        <option value="under_speech" data-i18n="settings.apply.underSpeech">Только под нашей речью</option>
+                        <option value="everywhere" data-i18n="settings.apply.everywhere">Во всём фильме</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="opt">
                     <div class="opt-text"><b data-i18n="settings.separationDevice">Где считать отделение</b><span data-i18n="settings.separationDeviceNote">На видеокарте впятеро быстрее: минута звука за три секунды вместо семнадцати.</span></div>
                     <div class="opt-ctl">
                       <select data-key="separation.device">
