@@ -850,6 +850,14 @@ function renderSegments() {
   body.querySelectorAll('[data-play-target]').forEach((button) =>
     button.addEventListener('click', () => playTranslated(state.segments[Number(button.dataset.playTarget)])),
   );
+  body.querySelectorAll('[data-set-gender]').forEach((button) =>
+    button.addEventListener('click', () =>
+      setVoice(button.dataset.speaker, voiceForGender(button.dataset.speaker, button.dataset.setGender)),
+    ),
+  );
+  body.querySelectorAll('[data-voice-pick]').forEach((select) =>
+    select.addEventListener('change', () => setVoice(select.dataset.voicePick, select.value)),
+  );
   body.querySelectorAll('[data-speaker-pick]').forEach((select) =>
     select.addEventListener('change', () => {
       const segment = state.segments[Number(select.dataset.speakerPick)];
@@ -868,16 +876,64 @@ function nextSpeakerName() {
   return `speaker_${n}`;
 }
 
-/** Пол голоса, определённый на S2: буква и подсказка с частотой основного тона. */
+/** Голос, которым озвучен этот говорящий сейчас. */
+function voiceOf(speaker) {
+  return state.overrides?.voices?.[speaker] ?? state.voiceMap?.[speaker] ?? state.defaultVoice ?? '';
+}
+
+function voiceGender(name) {
+  return (state.voices ?? []).find((voice) => voice.name === name)?.gender ?? '—';
+}
+
+/**
+ * Два значка пола: подсвечен тот, которым реплика звучит, второй переключает.
+ *
+ * Показывать один — значит не дать поправить: пол определяется по записи и
+ * ошибается на пограничных голосах. Клик выбирает первый голос нужного пола,
+ * дальше человек уточняет конкретный в списке рядом. В подсказке — что намерено
+ * по записи, чтобы видно было, спорит ли выбор с замером.
+ */
 function genderMark(speaker) {
   const profile = state.speakers?.[speaker];
-  const gender = profile?.gender === 'м' || profile?.gender === 'ж' ? profile.gender : '—';
-  const title = profile
-    ? t(gender === '—' ? 'review.byRecordUnknown' : gender === 'м' ? 'review.byRecordMale' : 'review.byRecordFemale', {
+  const measured = profile?.gender === 'м' || profile?.gender === 'ж' ? profile.gender : '—';
+  const note = profile
+    ? t(measured === '—' ? 'review.byRecordUnknown' : measured === 'м' ? 'review.byRecordMale' : 'review.byRecordFemale', {
         hz: profile.f0 ?? '?',
       }).replace(/^ · /, '')
     : t('segments.genderUnknown');
-  return `<span class="gender ${gender === 'м' ? 'male' : gender === 'ж' ? 'female' : ''}" title="${escapeAttr(title)}">${gender}</span>`;
+  const active = voiceGender(voiceOf(speaker));
+
+  return ['м', 'ж']
+    .map(
+      (gender) =>
+        `<button type="button" class="gender ${gender === 'м' ? 'male' : 'female'}${gender === active ? ' on' : ''}" ` +
+        `data-set-gender="${gender}" data-speaker="${escapeAttr(speaker)}" ` +
+        `title="${escapeAttr(`${t(gender === 'м' ? 'segments.setMale' : 'segments.setFemale')} · ${note}`)}">${gender}</button>`,
+    )
+    .join('');
+}
+
+/** Первый голос нужного пола; уже выбранный того же пола остаётся. */
+function voiceForGender(speaker, gender) {
+  const current = voiceOf(speaker);
+  if (voiceGender(current) === gender) return current;
+  const pool = (state.voices ?? []).filter((voice) => voice.gender === gender);
+  if (pool.length === 0) return current;
+  // Голоса одного пола раздаются по кругу, чтобы двое не зазвучали одинаково.
+  const taken = new Set(
+    Object.entries(state.overrides?.voices ?? {})
+      .filter(([name]) => name !== speaker)
+      .map(([, voice]) => voice),
+  );
+  return (pool.find((voice) => !taken.has(voice.name)) ?? pool[0]).name;
+}
+
+function setVoice(speaker, voice) {
+  if (!voice || voiceOf(speaker) === voice) return;
+  state.overrides.voices[speaker] = voice;
+  state.voicesDirty = true;
+  renderSegments();
+  if (review.data) { renderReviewNow(); renderReviewMarks(); }
 }
 
 /**
@@ -892,7 +948,15 @@ function speakerCell(segment) {
   const options = known
     .map((name) => `<option value="${escapeAttr(name)}" ${name === segment.speaker ? 'selected' : ''}>${escapeHtml(name)}</option>`)
     .join('');
-  return `${genderMark(segment.speaker)}<select data-speaker-pick="${index}">${options}<option value="__new">${t('review.newSpeaker')}</option></select>`;
+  const voice = voiceOf(segment.speaker);
+  const voices = (state.voices ?? [])
+    .map((item) => `<option value="${escapeAttr(item.name)}" ${item.name === voice ? 'selected' : ''}>${escapeHtml(item.speaker ?? item.name)}</option>`)
+    .join('');
+  return (
+    `<div class="speaker-row">${genderMark(segment.speaker)}` +
+    `<select data-speaker-pick="${index}">${options}<option value="__new">${t('review.newSpeaker')}</option></select></div>` +
+    `<select class="voice-pick" data-voice-pick="${escapeAttr(segment.speaker)}" title="${escapeAttr(t('segments.voicePick'))}">${voices}</select>`
+  );
 }
 
 /**
@@ -957,6 +1021,14 @@ async function loadSegments() {
   // просмотра: по нему видно, тем ли голосом озвучен персонаж.
   state.speakers = data.speakers ?? {};
   state.output = data.output ?? null;
+  // Голоса нужны таблице, а не только режиму просмотра: пол переключают прямо
+  // в строке. Хранилище правок одно на страницу — карточка просмотра пишет
+  // в него же, иначе две половины интерфейса меняли бы разные копии.
+  state.voices = data.voices ?? [];
+  state.voiceMap = data.voiceMap ?? {};
+  state.defaultVoice = data.defaultVoice ?? null;
+  state.overrides = { voices: { ...(data.overrides?.voices ?? {}) }, mix: { ...(data.overrides?.mix ?? {}) } };
+  state.voicesDirty = false;
   if (data.fit) state.fit = data.fit;
   $('#editorInfo').textContent = data.segments.length ? t('segments.count', { count: data.segments.length }) : '';
   state.defaultOutputDir = data.defaultOutputDir ?? null;
@@ -986,7 +1058,7 @@ function setupReview(data) {
     return;
   }
   review.data = data;
-  review.overrides = { voices: { ...(data.overrides?.voices ?? {}) }, mix: { ...(data.overrides?.mix ?? {}) } };
+  review.overrides = state.overrides;
   review.baseline = {
     segments: state.segments.map((segment) => ({ speaker: segment.speaker, text_ru: segment.text_ru })),
     overrides: JSON.parse(JSON.stringify(review.overrides)),
@@ -1187,7 +1259,9 @@ $('#reviewDiscard').addEventListener('click', () => {
     const base = review.baseline.segments[index];
     if (base) { segment.speaker = base.speaker; segment.text_ru = base.text_ru; }
   });
-  review.overrides = JSON.parse(JSON.stringify(review.baseline.overrides));
+  state.overrides = JSON.parse(JSON.stringify(review.baseline.overrides));
+  review.overrides = state.overrides;
+  state.voicesDirty = false;
   for (const [id, key] of Object.entries(MIX_KEYS)) $(`#${id}`).value = review.overrides.mix[key] ?? review.data.mix[key];
   renderMixLabels();
   renderSegments();
@@ -1236,6 +1310,28 @@ $('#reloadSegments').addEventListener('click', (event) => withBusy(event.current
 $('#saveSegments').addEventListener('click', (event) =>
   withBusy(event.currentTarget, async () => {
     if (!state.segments.length) { toast(t('segments.nothingToSave'), 'warn'); return; }
+
+    // Правка голоса без переозвучки бессмысленна, поэтому такие правки идут тем
+    // же путём, что и из режима просмотра: он сам считает, что пересчитать, и
+    // трогает только затронутые реплики.
+    if (state.voicesDirty) {
+      const plan = await post('/api/project/review', {
+        input: state.project,
+        segments: state.segments,
+        overrides: state.overrides,
+      });
+      state.voicesDirty = false;
+      if (!plan.fromStage) { toast(t('segments.saved', { count: state.segments.length }), 'ok', 6000); return; }
+      if (!window.confirm(t('segments.revoiceConfirm', { count: plan.affected.length }))) {
+        toast(t('segments.savedNoRun'), 'ok', 8000);
+        return;
+      }
+      state.job = await post('/api/jobs', { input: state.project, fromStage: plan.fromStage });
+      renderJob();
+      toast(t('review.applied', { count: plan.affected.length }), 'ok', 6000);
+      return;
+    }
+
     const result = await put('/api/segments', { input: state.project, segments: state.segments });
     toast(t('segments.saved', { count: result.count }), 'ok', 8000);
   }).catch(showError),

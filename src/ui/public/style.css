@@ -436,23 +436,31 @@ body.col-resizing { cursor: col-resize; user-select: none; }
 .menu .check:hover { background: var(--surface-2); }
 
 /* Спикер: пол голоса слева от выбора — сразу видно, тем ли голосом озвучен. */
-#segmentsTable td.speaker { display: flex; align-items: center; gap: 6px; }
-#segmentsTable td.speaker select { min-width: 0; flex: 1; }
+#segmentsTable td.speaker { display: flex; flex-direction: column; gap: 5px; }
+.speaker-row { display: flex; align-items: center; gap: 4px; }
+.speaker-row select, .voice-pick { min-width: 0; width: 100%; }
+.speaker-row select { flex: 1; }
+.voice-pick { font-size: 12px; color: var(--text-dim); }
+
+/* Два значка пола: подсвечен тот, которым реплика звучит; второй переключает. */
 .gender {
   flex: none;
-  width: 18px;
-  height: 18px;
-  line-height: 18px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  line-height: 1;
   text-align: center;
   border-radius: 50%;
   font-size: 11px;
   font-weight: 700;
+  cursor: pointer;
   color: var(--text-faint);
   background: var(--surface-2);
   border: 1px solid var(--line);
 }
-.gender.male { color: #1d6fd0; border-color: #9cc4ee; background: #eaf2fc; }
-.gender.female { color: #c0398b; border-color: #e7a6cf; background: #fceaf5; }
+.gender:hover { border-color: var(--text-dim); background: var(--surface-2); }
+.gender.male.on { color: #1d6fd0; border-color: #1d6fd0; background: #eaf2fc; }
+.gender.female.on { color: #c0398b; border-color: #c0398b; background: #fceaf5; }
 
 /* --- обозреватель и окна -------------------------------------------------- */
 
