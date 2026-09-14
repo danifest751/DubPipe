@@ -426,6 +426,17 @@
                     </div>
                   </div>
                   <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.voiceResidual">Подложка исходного голоса</b><span data-i18n="settings.voiceResidualNote">Сколько исходного голоса оставить под русской речью. Полная тишина звучит стерильно: вместе с голосом уходят дыхание и отзвук комнаты.</span></div>
+                    <div class="opt-ctl">
+                      <select data-key="separation.voice_residual_db">
+                        <option value="-6" data-i18n="settings.residual.loud">Заметная (−6 дБ)</option>
+                        <option value="-12" data-i18n="settings.residual.normal">Обычная (−12 дБ)</option>
+                        <option value="-18" data-i18n="settings.residual.quiet">Тихая (−18 дБ)</option>
+                        <option value="-60" data-i18n="settings.residual.none">Без подложки</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="opt">
                     <div class="opt-text"><b data-i18n="settings.separationDevice">Где считать отделение</b><span data-i18n="settings.separationDeviceNote">На видеокарте впятеро быстрее: минута звука за три секунды вместо семнадцати.</span></div>
                     <div class="opt-ctl">
                       <select data-key="separation.device">

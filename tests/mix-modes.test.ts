@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { mixFilters } from '../src/stages/s7-mix.js';
-import { envelopeValueAt } from '../src/util/pcm.js';
+import { buildSpeechPresenceEnvelope, envelopeValueAt } from '../src/util/pcm.js';
 
 describe('Сведение: что делать с оригиналом', () => {
   const graph = (mode: Parameters<typeof mixFilters>[0]) => mixFilters(mode, -6, 0).join(';');
@@ -61,5 +61,26 @@ describe('Огибающая присутствия речи', () => {
     const duck = (t: number) => envelopeValueAt(t, windows, 0.125, 0.1);
     expect(duck(5)).toBe(1);
     expect(duck(11)).toBe(0.125);
+  });
+});
+
+describe('Подложка из исходного голоса', () => {
+  // Разделение уносит вместе с голосом дыхание и отзвук комнаты, и сцена
+  // звучит мёртво. Поэтому под репликой убирается не весь голос, а столько,
+  // чтобы осталась тихая подложка заданной громкости.
+  const alphaFor = (residualDb: number) => 1 - 10 ** (residualDb / 20);
+
+  it('подложка −12 дБ оставляет четверть исходного голоса', () => {
+    expect(alphaFor(-12)).toBeCloseTo(0.749, 3);
+  });
+
+  it('чем тише подложка, тем полнее убирается голос', () => {
+    expect(alphaFor(-24)).toBeGreaterThan(alphaFor(-12));
+    expect(alphaFor(-60)).toBeGreaterThan(alphaFor(-24));
+    expect(alphaFor(-60)).toBeCloseTo(0.999, 3);
+  });
+
+  it('нулевая подложка означает «не трогать оригинал»', () => {
+    expect(alphaFor(0)).toBe(0);
   });
 });

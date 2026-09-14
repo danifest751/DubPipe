@@ -419,6 +419,16 @@ const DICTIONARY = {
   'settings.apply.underSpeech': { ru: 'Только под нашей речью', en: 'Only under our speech' },
   'settings.apply.everywhere': { ru: 'Во всём фильме', en: 'Across the whole film' },
 
+  'settings.voiceResidual': { ru: 'Подложка исходного голоса', en: 'Trace of the original voice' },
+  'settings.voiceResidualNote': {
+    ru: 'Сколько исходного голоса оставить под русской речью. Полная тишина звучит стерильно: вместе с голосом уходят дыхание и отзвук комнаты.',
+    en: 'How much of the original voice to leave under the Russian speech. Removing all of it sounds sterile: the breath and the room go with the voice.',
+  },
+  'settings.residual.loud': { ru: 'Заметная (−6 дБ)', en: 'Noticeable (−6 dB)' },
+  'settings.residual.normal': { ru: 'Обычная (−12 дБ)', en: 'Normal (−12 dB)' },
+  'settings.residual.quiet': { ru: 'Тихая (−18 дБ)', en: 'Quiet (−18 dB)' },
+  'settings.residual.none': { ru: 'Без подложки', en: 'None' },
+
   'settings.separationDevice': { ru: 'Где считать отделение', en: 'Where to separate the voice' },
   'settings.separationDeviceNote': {
     ru: 'На видеокарте впятеро быстрее: минута звука за три секунды вместо семнадцати.',

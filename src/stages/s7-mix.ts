@@ -202,13 +202,20 @@ export async function runS7(
       const windows = spokenWindows(segments);
       // Огибающая присутствия речи: единица под репликами, ноль вне их. Между
       // репликами оригинал остаётся нетронутым, поэтому вокал песен не страдает.
-      log.step(`убираю исходный голос под речью в ${windows.length} окнах, музыку оставляю`);
+      log.step(
+        `убираю исходный голос под речью в ${windows.length} окнах, музыку оставляю` +
+          ` (подложка ${config.separation.voice_residual_db} дБ)`,
+      );
       log.progress('вычитание исходного голоса', 35);
       const presence = await buildSpeechPresenceEnvelope(
         windows,
         duration,
         backgroundFormat.sampleRate,
-        { fadeMs: config.mix.duck_fade_ms, channels: backgroundFormat.channels },
+        {
+          fadeMs: config.mix.duck_fade_ms,
+          channels: backgroundFormat.channels,
+          residualDb: config.separation.voice_residual_db,
+        },
         workspace.file('presence.wav'),
       );
       inputs.push('-i', vocals, '-i', presence);

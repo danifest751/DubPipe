@@ -249,14 +249,18 @@ export function buildSpeechPresenceEnvelope(
   windows: SpeechWindow[],
   totalSeconds: number,
   sampleRate: number,
-  options: { fadeMs: number; channels: number },
+  options: { fadeMs: number; channels: number; residualDb?: number },
   outputPath: string,
 ): Promise<string> {
+  // Под репликой убирается не весь голос, а столько, чтобы от него осталась
+  // подложка заданной громкости: полностью стерильная сцена звучит мёртво.
+  const residual = 10 ** ((options.residualDb ?? -60) / 20);
+  const inside = Math.max(0, 1 - residual);
   return buildDuckEnvelope(
     windows,
     totalSeconds,
     sampleRate,
-    { duckDb: 0, fadeMs: options.fadeMs, channels: options.channels, outsideGain: 0 },
+    { duckDb: 20 * Math.log10(inside || 1e-6), fadeMs: options.fadeMs, channels: options.channels, outsideGain: 0 },
     outputPath,
   );
 }
