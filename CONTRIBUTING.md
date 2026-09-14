@@ -57,11 +57,12 @@ caching, progress bars and cancellation for free.
 
 ## Commit messages
 
-A commit message explains a change to someone reading the history a year from now.
-The diff already says *what* changed, so the message says *why*.
+Commits follow [Conventional Commits](https://www.conventionalcommits.org/): a type, an
+optional scope, and a subject that says what the change does. The diff already says *what*
+changed line by line, so the body says *why*.
 
 ```
-Skip diarization when a run has no voicing stage
+perf(asr): skip diarization when a run has no voicing stage
 
 Speakers are only used to hand out voices on S5, so a subtitles run paid for
 them with minutes of work it could not use: on a 12-minute episode diarization
@@ -74,11 +75,30 @@ a transcript that has no speakers in it.
 Fixes #123
 ```
 
+**Types:**
+
+| type | when |
+|---|---|
+| `feat` | a new capability a user can reach |
+| `fix` | a defect in existing behaviour |
+| `perf` | same behaviour, measurably faster or cheaper |
+| `refactor` | code shape only, behaviour unchanged |
+| `docs` | documentation only |
+| `test` | tests only |
+| `build` | dependencies, packaging, the desktop build |
+| `ci` | workflows and automation |
+| `chore` | housekeeping that fits nowhere above |
+| `revert` | undoing an earlier commit |
+
+**Scopes** name the part of the pipeline or the program: `asr`, `translate`, `tts`,
+`align`, `mix`, `subtitles`, `diarization`, `ui`, `cli`, `config`, `core`, `scripts`.
+Leave the scope out when a change spans too much to name.
+
 The rules:
 
-- **Subject line:** up to 72 characters, imperative mood (`Add`, `Fix`, `Skip` — not
-  `Added` or `Adds`), capitalized, no trailing period. It completes the sentence
-  “Applied, this commit will …”.
+- **Subject line:** up to 72 characters including the type, imperative mood (`add`, `fix`,
+  `skip` — not `added` or `adds`), lower case after the colon, no trailing period. It
+  completes the sentence “Applied, this commit will …”.
 - **Blank line** between the subject and the body. Without it, tools treat the whole
   message as one paragraph.
 - **Body:** the reason, the defect you found, the decision you made and what you rejected.
@@ -89,9 +109,11 @@ The rules:
 - **One change per commit.** A fix and a refactor belong in two commits.
 - **English**, to match the code and the primary README.
 - **Trailers last**, after a blank line: `Fixes #123`, `Co-Authored-By: Name <email>`.
+  A breaking change is announced with a `!` after the type (`feat(cli)!: …`) and explained
+  in a `BREAKING CHANGE:` trailer.
 
-Do not write `Update files`, `Fixes`, `wip` or a bare file list — a year later such a
-message costs someone an hour of digging.
+Do not write `chore: update files`, `fix: fixes`, `wip` or a bare file list — a year later
+such a message costs someone an hour of digging.
 
 To get these hints in your editor:
 
