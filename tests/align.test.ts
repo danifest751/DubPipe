@@ -7,7 +7,7 @@ import {
   shortenTargetChars,
   type AlignmentOptions,
 } from '../src/stages/s6-align.js';
-import { measureSpeechRate, ttsKey } from '../src/stages/s5-tts.js';
+import { measureSpeechRate, recordClip, ttsKey } from '../src/stages/s5-tts.js';
 import { envelopeValueAt } from '../src/util/pcm.js';
 import { speechWindows, defaultOutputName, defaultOutputPath, resolveOutputPath } from '../src/stages/s7-mix.js';
 import { voiceForSpeaker, voiceUrlPath } from '../src/providers/tts/voices.js';
@@ -340,5 +340,25 @@ describe('FR-5: что уже озвучено, тем же и остаётся'
 
   it('пробелы по краям текста ничего не значат', () => {
     expect(ttsKey('ru_RU-irina-medium', '  Привет  ')).toBe(ttsKey('ru_RU-irina-medium', 'Привет'));
+  });
+
+  it('запись клипа подписывает его текстом, который в нём звучит', () => {
+    // Укладка переозвучивает сокращённые реплики. Пока она обновляла файл, но
+    // не отпечаток, клип оставался подписан прежним, длинным текстом: вернись
+    // тот текст обратно — и синтез выдал бы запись, в которой сказано другое.
+    const segment = makeSegment({ id: 1, start: 0, end: 2, text_en: 'a long line' });
+    recordClip(segment, { path: 'tts/0001.wav', durationSeconds: 1.2345 }, 'ru_RU-irina-medium', 'Длинная реплика');
+    const afterFirst = segment.tts_key;
+
+    recordClip(segment, { path: 'tts/0001.wav', durationSeconds: 0.9 }, 'ru_RU-irina-medium', 'Короче');
+    expect(segment.tts_key).not.toBe(afterFirst);
+    expect(segment.tts_key).toBe(ttsKey('ru_RU-irina-medium', 'Короче'));
+    expect(segment.tts_duration).toBe(0.9);
+  });
+
+  it('длительность клипа округляется до миллисекунд', () => {
+    const segment = makeSegment({ id: 1, start: 0, end: 2, text_en: 'a line' });
+    recordClip(segment, { path: 'tts/0001.wav', durationSeconds: 1.23456 }, 'ru_RU-irina-medium', 'Реплика');
+    expect(segment.tts_duration).toBe(1.235);
   });
 });

@@ -10,6 +10,7 @@ import type { Workspace } from '../core/workspace.js';
 import { applyOverrides } from '../core/overrides.js';
 import { selectChatClient, type ChatClient } from '../providers/llm/index.js';
 import { createTtsProvider, voiceForSpeaker } from '../providers/tts/index.js';
+import { recordClip } from './s5-tts.js';
 import { buildAtempoChain } from '../util/ffmpeg.js';
 import { run } from '../util/exec.js';
 import { requireTool } from '../util/tools.js';
@@ -285,8 +286,7 @@ export async function runS6(workspace: Workspace, baseConfig: DubConfig, segment
           voice,
           outputPath: segment.tts_file ?? path.join(await workspace.subdir('tts'), `${String(segment.id).padStart(4, '0')}.wav`),
         });
-        segment.tts_file = result.path;
-        segment.tts_duration = Number(result.durationSeconds.toFixed(3));
+        recordClip(segment, result, voice, shortened);
         fixed++;
         log.step(`сокращено ${counter(index + 1, current.length)} (итерация ${iteration})`);
         log.progress(`сокращено реплик ${counter(index + 1, current.length)}, итерация ${iteration}`, null, {

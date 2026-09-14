@@ -77,6 +77,25 @@ export function ttsKey(voice: string, text: string): string {
   return sha256(`${voice}\u0000${text.trim()}`).slice(0, 16);
 }
 
+/**
+ * Записывает реплике, что за клип у неё теперь: файл, длительность и отпечаток
+ * того, из чего он сделан.
+ *
+ * Одной функцией, потому что клип пишут две стадии — синтез и укладка,
+ * переозвучивающая сокращённые реплики. Укладка однажды забыла обновить
+ * отпечаток, и клип с сокращённым текстом остался подписан прежним.
+ */
+export function recordClip(
+  segment: Segment,
+  clip: { path: string; durationSeconds: number },
+  voice: string,
+  text: string,
+): void {
+  segment.tts_file = clip.path;
+  segment.tts_duration = Number(clip.durationSeconds.toFixed(3));
+  segment.tts_key = ttsKey(voice, text);
+}
+
 /** Runs tasks with a bounded number in flight (SPEC §5.3: tts.concurrency). */
 async function withConcurrency<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
   let cursor = 0;
@@ -128,9 +147,7 @@ export async function runS5(workspace: Workspace, baseConfig: DubConfig, segment
     }
 
     const result = await provider.synthesize({ id: segment.id, text: segment.text_ru!, voice, outputPath });
-    segment.tts_file = result.path;
-    segment.tts_duration = Number(result.durationSeconds.toFixed(3));
-    segment.tts_key = key;
+    recordClip(segment, result, voice, segment.text_ru!);
 
     done++;
     log.progress(`синтезировано реплик ${counter(done, pending.length)}`, null, { done, total: pending.length });
