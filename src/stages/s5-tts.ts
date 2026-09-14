@@ -7,7 +7,7 @@ import { slotOf, type Segment } from '../core/types.js';
 import type { Workspace } from '../core/workspace.js';
 import { applyOverrides } from '../core/overrides.js';
 import { createTtsProvider, voiceForSpeaker } from '../providers/tts/index.js';
-import { rememberCalibration } from '../core/calibration.js';
+import { effectiveSpeechShape, rememberCalibration } from '../core/calibration.js';
 
 /**
  * S5 — speech synthesis, one clip per replica (SPEC FR-5).
@@ -149,15 +149,18 @@ export async function runS5(workspace: Workspace, baseConfig: DubConfig, segment
       samples: pending.length,
     });
     const configured = config.translate.chars_per_second;
-    const drift = Math.abs(measuredCps - configured) / configured;
+    // Сравнивать надо с тем, чем стадия перевода пользовалась на самом деле:
+    // замер применяется сам, и советовать «уточните настройку» бессмысленно.
+    const used = (await effectiveSpeechShape(workspace, config)).charsPerSecond;
+    const drift = Math.abs(measuredCps - used) / used;
     log.step(
       `фактический темп речи: ${measuredCps} симв/с плюс ${measured.overheadSeconds} с на реплику ` +
-        `(в конфиге ${configured} и ${config.translate.speech_overhead_seconds})`,
+        `(перевод целился в ${used}, в настройках ${configured})`,
     );
     if (drift > 0.12) {
       warnings.push(
-        `Фактический темп синтеза ${measuredCps} симв/с заметно отличается от настройки ` +
-          `translate.chars_per_second = ${configured}. Уточните её, чтобы S3 точнее попадал в слот`,
+        `Фактический темп синтеза ${measuredCps} симв/с отличается от того, в который целился перевод ` +
+          `(${used}). Замер запомнен — следующий прогон этого голоса попадёт точнее`,
       );
     }
   }
