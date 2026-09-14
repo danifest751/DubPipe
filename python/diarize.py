@@ -26,7 +26,7 @@ import os
 import sys
 import wave
 
-from compute import DEVICE_CHOICES, note, onnx_session
+from compute import DEVICE_CHOICES, note, onnx_session, pick_torch_gpu
 
 # Node читает потоки как UTF-8; без этого русские сообщения об ошибках
 # приходят в кодировке консоли Windows и превращаются в кракозябры.
@@ -68,62 +68,6 @@ def configure_environment(args):
     # Телеметрию и напоминания об обновлениях — выключить: работаем офлайн.
     os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
     os.environ.setdefault("PYANNOTE_DATABASE_CONFIG", "")
-
-
-DISCRETE_MARKERS = ("rtx", "gtx", "geforce", "quadro", "tesla", "radeon pro", " rx ")
-INTEGRATED_MARKERS = ("graphics", "uhd", "iris", "vega", "apple m")
-
-
-def gpu_kind(name):
-    """Встроенная видеокарта или отдельная — по названию, как его отдаёт torch."""
-    text = f" {name.lower()} "
-    if any(marker in text for marker in DISCRETE_MARKERS):
-        return "discrete"
-    # «Radeon 780M Graphics», «Intel UHD Graphics» — графика внутри процессора.
-    if any(marker in text for marker in INTEGRATED_MARKERS):
-        return "integrated"
-    return "discrete"
-
-
-def pick_gpu(torch, preference):
-    """
-    Номер видеокарты для расчёта или None, если считать на процессоре.
-
-    Выбор мягкий: нет подходящего устройства — работаем на процессоре и
-    говорим об этом. Прогон важнее, чем настройка, которую нельзя выполнить.
-    """
-    if preference == "cpu":
-        return None
-    if not torch.cuda.is_available():
-        if preference != "auto":
-            note("видеокарта недоступна для torch, считаю на процессоре")
-        return None
-
-    names = [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())]
-    if not names:
-        return None
-    if preference == "auto" and getattr(torch.version, "hip", None):
-        # ROCm под Windows пока незрелый: MIOpen роняет часть операций, а обход
-        # отключает его ядра, и выигрыш падает до 1.2 раза (1 мин 41 с против
-        # 2 мин 02 с на пяти минутах записи). Двадцать процентов не стоят риска
-        # уронить работающий прогон, поэтому сам он видеокарту AMD не берёт —
-        # только по прямому указанию. С CUDA выигрыш совсем другого порядка.
-        note("видеокарта AMD (ROCm) сама не выбирается: укажите device явно")
-        return None
-    if preference in ("auto", "gpu", "cuda"):
-        # При выборе «просто видеокарта» отдельная предпочтительнее встроенной:
-        # у встроенной память общая с процессором и полоса у́же.
-        for index, name in enumerate(names):
-            if gpu_kind(name) == "discrete":
-                return index
-        return 0
-
-    wanted = "integrated" if preference == "igpu" else "discrete"
-    for index, name in enumerate(names):
-        if gpu_kind(name) == wanted:
-            return index
-    note(f"подходящей видеокарты ({preference}) нет среди: {', '.join(names)}; беру первую")
-    return 0
 
 
 def load_pipeline(args):
@@ -171,7 +115,7 @@ def load_pipeline(args):
         return pipeline, torch
 
     # Запасной путь: считать всё сетями torch, по возможности на видеокарте.
-    index = pick_gpu(torch, args.device)
+    index = pick_torch_gpu(torch, args.device)
     if index is None:
         note(f"устройство: процессор, потоков {max(1, os.cpu_count() or 1)}")
         return pipeline, torch

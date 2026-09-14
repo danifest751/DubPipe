@@ -75,3 +75,65 @@ def onnx_session(model_path, preference, options=None, label=""):
         session = ort.InferenceSession(model_path, options, providers=["CPUExecutionProvider"])
     note(f"{label}исполнитель: {session.get_providers()[0]}")
     return session
+
+# Ниже — тот же выбор устройства, но для torch. Он нужен отдельно от
+# onnxruntime: у каждого свой список устройств, и сопоставить их по номеру
+# нельзя — torch видит только карты своего производителя, а onnxruntime через
+# DirectML видит любые. Правило «встроенная или отдельная» повторяет
+# `gpuKind` из src/providers/asr/accel.ts: там классифицируются адаптеры,
+# которые называет Windows, здесь — те, что называет torch.
+
+DISCRETE_MARKERS = ("rtx", "gtx", "geforce", "quadro", "tesla", "radeon pro", " rx ")
+INTEGRATED_MARKERS = ("graphics", "uhd", "iris", "vega", "apple m")
+
+
+def gpu_kind(name):
+    """Встроенная видеокарта или отдельная — по названию, как его отдаёт torch."""
+    text = f" {name.lower()} "
+    if any(marker in text for marker in DISCRETE_MARKERS):
+        return "discrete"
+    # «Radeon 780M Graphics», «Intel UHD Graphics» — графика внутри процессора.
+    if any(marker in text for marker in INTEGRATED_MARKERS):
+        return "integrated"
+    return "discrete"
+
+
+def pick_torch_gpu(torch, preference):
+    """
+    Номер видеокарты для расчёта или None, если считать на процессоре.
+
+    Выбор мягкий: нет подходящего устройства — работаем на процессоре и
+    говорим об этом. Прогон важнее, чем настройка, которую нельзя выполнить.
+    """
+    if preference == "cpu":
+        return None
+    if not torch.cuda.is_available():
+        if preference != "auto":
+            note("видеокарта недоступна для torch, считаю на процессоре")
+        return None
+
+    names = [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())]
+    if not names:
+        return None
+    if preference == "auto" and getattr(torch.version, "hip", None):
+        # ROCm под Windows пока незрелый: MIOpen роняет часть операций, а обход
+        # отключает его ядра, и выигрыш падает до 1.2 раза (1 мин 41 с против
+        # 2 мин 02 с на пяти минутах записи). Двадцать процентов не стоят риска
+        # уронить работающий прогон, поэтому сам он видеокарту AMD не берёт —
+        # только по прямому указанию. С CUDA выигрыш совсем другого порядка.
+        note("видеокарта AMD (ROCm) сама не выбирается: укажите device явно")
+        return None
+    if preference in ("auto", "gpu", "cuda"):
+        # При выборе «просто видеокарта» отдельная предпочтительнее встроенной:
+        # у встроенной память общая с процессором и полоса у́же.
+        for index, name in enumerate(names):
+            if gpu_kind(name) == "discrete":
+                return index
+        return 0
+
+    wanted = "integrated" if preference == "igpu" else "discrete"
+    for index, name in enumerate(names):
+        if gpu_kind(name) == wanted:
+            return index
+    note(f"подходящей видеокарты ({preference}) нет среди: {', '.join(names)}; беру первую")
+    return 0

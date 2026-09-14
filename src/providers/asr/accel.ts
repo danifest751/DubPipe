@@ -131,6 +131,10 @@ export type GpuKind = 'integrated' | 'discrete';
  *
  * Признаки отдельной проверяются первыми: в «Radeon RX 7800 XT» есть слово
  * Radeon, как и во встроенной «Radeon 780M Graphics».
+ *
+ * То же правило есть в python/compute.py. Это не случайное раздвоение: здесь
+ * разбираются имена адаптеров, которые называет Windows, а там — те, что
+ * называет torch, и списки эти не совпадают.
  */
 export function gpuKind(name: string): GpuKind {
   // «AMD Radeon(TM) 760M Graphics» → «amd radeon 760m graphics». Значки
