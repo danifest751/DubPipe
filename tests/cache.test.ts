@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { parseConfig } from '../src/config/load.js';
 import { computeFingerprints } from '../src/core/workspace.js';
-import { stageRange, disabledStages, effectiveConfig, needsSpeakers } from '../src/core/pipeline.js';
-import { STAGE_IDS } from '../src/core/types.js';
+import { stageRange, disabledStages, effectiveConfig, needsSpeakers, stageComplete } from '../src/core/pipeline.js';
+import { makeSegment, STAGE_IDS, type Segment } from '../src/core/types.js';
 
 const baseConfig = () => parseConfig({}, 'test');
 
@@ -101,5 +101,50 @@ describe('FR-8: диаризация только там, где нужны го
     const withSpeakers = computeFingerprints(config, 'hash-1');
     const withoutSpeakers = computeFingerprints(effectiveConfig(config, stages('s1', 's2', 's3')), 'hash-1');
     expect(withoutSpeakers['s2']).not.toBe(withSpeakers['s2']);
+  });
+});
+
+describe('§6: продолжение прогона с середины', () => {
+  const always = () => true;
+  const segment = (id: number, fields: Partial<Segment> = {}): Segment =>
+    makeSegment({ id, start: id, end: id + 1, text_en: 'line', ...fields });
+
+  it('перевод считается сделанным, даже если отдельная реплика не переведена', () => {
+    // Междометие, на котором сорвался перевод: русского текста у него нет и не
+    // будет. Остальные триста реплик переведены — работа стадии сделана.
+    const segments = [segment(0, { text_ru: 'первая' }), segment(1, { text_ru: null })];
+    expect(stageComplete('s3', segments, always)).toBe(true);
+  });
+
+  it('без единого перевода стадия не сделана', () => {
+    expect(stageComplete('s3', [segment(0), segment(1)], always)).toBe(false);
+    expect(stageComplete('s3', [], always)).toBe(false);
+  });
+
+  it('синтез спрашивают только с переведённых реплик', () => {
+    const segments = [
+      segment(0, { text_ru: 'первая', tts_file: 'tts/0000.wav' }),
+      segment(1, { text_ru: null }),
+    ];
+    expect(stageComplete('s5', segments, always)).toBe(true);
+
+    segments[0]!.tts_file = null;
+    expect(stageComplete('s5', segments, always)).toBe(false);
+  });
+
+  it('пропавший на диске файл синтеза возвращает стадию в работу', () => {
+    const segments = [segment(0, { text_ru: 'первая', tts_file: 'tts/0000.wav' })];
+    expect(stageComplete('s5', segments, () => false)).toBe(false);
+  });
+
+  it('подгонку спрашивают только с озвученных реплик', () => {
+    const segments = [
+      segment(0, { text_ru: 'первая', tts_file: 'tts/0000.wav', aligned_file: 'aligned/0000.wav' }),
+      segment(1, { text_ru: null }),
+    ];
+    expect(stageComplete('s6', segments, always)).toBe(true);
+
+    segments[0]!.aligned_file = null;
+    expect(stageComplete('s6', segments, always)).toBe(false);
   });
 });

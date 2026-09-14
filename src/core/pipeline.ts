@@ -86,33 +86,54 @@ export function stageRange(from: StageId = 's1', to: StageId = 's7'): StageId[] 
   return STAGE_IDS.slice(start, end + 1);
 }
 
+/**
+ * Отработала ли стадия, судя по репликам.
+ *
+ * Требовать файл от каждой реплики нельзя: перевод одной реплики может
+ * сорваться, и тогда у неё нет ни русского текста, ни синтеза, ни подгонки —
+ * это штатный исход, а не незаконченная стадия. Одно непереведённое «а-а»
+ * иначе закрывает продолжение прогона с середины и заставляет переводить
+ * заново все триста реплик.
+ *
+ * Поэтому стадия считается сделанной, когда её работа есть у тех реплик,
+ * которым она вообще полагалась, и хотя бы у одной реплики она есть.
+ */
+export function stageComplete(
+  stage: 's3' | 's5' | 's6',
+  segments: Segment[],
+  exists: (file: string) => boolean = existsSync,
+): boolean {
+  switch (stage) {
+    case 's3':
+      return segments.some((segment) => segment.text_ru !== null);
+    case 's5':
+      return (
+        segments.some((segment) => segment.tts_file !== null) &&
+        segments.every((segment) => !segment.text_ru || (segment.tts_file !== null && exists(segment.tts_file)))
+      );
+    case 's6':
+      return (
+        segments.some((segment) => segment.aligned_file !== null) &&
+        segments.every(
+          (segment) => !segment.tts_file || (segment.aligned_file !== null && exists(segment.aligned_file)),
+        )
+      );
+  }
+}
+
 async function artifactsPresent(stage: StageId, workspace: Workspace): Promise<boolean> {
   switch (stage) {
     case 's1':
       return existsSync(workspace.metaPath) && existsSync(workspace.file('audio.wav'));
     case 's2':
       return existsSync(workspace.segmentsPath);
-    case 's3': {
-      const segments = await workspace.readSegments();
-      return segments !== null && segments.length > 0 && segments.every((s) => s.text_ru !== null);
-    }
     case 's4':
       return existsSync(workspace.file('background.wav'));
-    case 's5': {
-      const segments = await workspace.readSegments();
-      return (
-        segments !== null &&
-        segments.length > 0 &&
-        segments.every((s) => s.tts_file !== null && existsSync(s.tts_file))
-      );
-    }
+    case 's3':
+    case 's5':
     case 's6': {
       const segments = await workspace.readSegments();
-      return (
-        segments !== null &&
-        segments.length > 0 &&
-        segments.every((s) => s.aligned_file !== null && existsSync(s.aligned_file))
-      );
+      return segments !== null && stageComplete(stage, segments);
     }
     case 's7':
       // The final file lives outside the workspace, so freshness is decided by
