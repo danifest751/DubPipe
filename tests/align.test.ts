@@ -8,7 +8,7 @@ import {
   type AlignmentOptions,
 } from '../src/stages/s6-align.js';
 import { measureSpeechRate, recordClip, ttsKey } from '../src/stages/s5-tts.js';
-import { envelopeValueAt } from '../src/util/pcm.js';
+import { envelopeValueAt, mergeCloseWindows } from '../src/util/pcm.js';
 import { speechWindows, spokenWindows, defaultOutputName, defaultOutputPath, resolveOutputPath } from '../src/stages/s7-mix.js';
 import { voiceForSpeaker, voiceUrlPath } from '../src/providers/tts/voices.js';
 import { makeSegment, type Segment } from '../src/core/types.js';
@@ -214,6 +214,21 @@ describe('FR-4: огибающая приглушения', () => {
     const after = envelopeValueAt(4.06, windows, duckGain, 0.12);
     expect(after).toBeLessThan(1);
     expect(after).toBeGreaterThan(duckGain);
+  });
+
+  it('между соседними окнами приглушение держится', () => {
+    // Окна речевого детектора бывают ближе друг к другу, чем длина перехода:
+    // отпустить в такой промежуток оригинал и снова прижать его — это слышно
+    // как качание громкости под непрерывной речью.
+    const pair = mergeCloseWindows(
+      [
+        { start: 2, end: 4 },
+        { start: 4.05, end: 6 },
+      ],
+      0.12,
+    );
+    expect(envelopeValueAt(4.02, pair, duckGain, 0.12)).toBeCloseTo(duckGain, 6);
+    expect(envelopeValueAt(4.05, pair, duckGain, 0.12)).toBeCloseTo(duckGain, 6);
   });
 });
 

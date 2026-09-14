@@ -177,21 +177,56 @@ export function envelopeValueAt(
   duckGain: number,
   fadeSeconds: number,
   outsideGain = 1,
+  from = 0,
 ): number {
-  for (const window of windows) {
-    if (timeSeconds < window.start - fadeSeconds || timeSeconds > window.end + fadeSeconds) continue;
+  /*
+   * Из всех окон, до которых достаёт этот момент, берётся самое глубокое.
+   *
+   * Раньше бралось первое подходящее, и на соседних репликах это выдавало
+   * оригинал наружу: при умолчаниях между ними 50 мс, а переход длится 120,
+   * поэтому затухание предыдущей реплики успевало вернуть усиление к единице
+   * прежде, чем начнётся нарастание следующей. В дубляже это слышно как
+   * всплеск чужого голоса в каждом промежутке между фразами.
+   *
+   * Окна отсортированы по началу, поэтому перебор можно начать с `from` и
+   * оборвать, как только окно оказалось правее этого момента.
+   */
+  let depth = 0;
+  for (let index = Math.max(0, from); index < windows.length; index++) {
+    const window = windows[index]!;
+    if (timeSeconds < window.start - fadeSeconds) break;
+    if (timeSeconds > window.end + fadeSeconds) continue;
 
-    if (timeSeconds < window.start) {
-      const progress = (timeSeconds - (window.start - fadeSeconds)) / fadeSeconds;
-      return outsideGain - (outsideGain - duckGain) * progress;
-    }
-    if (timeSeconds > window.end) {
-      const progress = (timeSeconds - window.end) / fadeSeconds;
-      return duckGain + (outsideGain - duckGain) * progress;
-    }
-    return duckGain;
+    let own = 1;
+    if (timeSeconds < window.start) own = (timeSeconds - (window.start - fadeSeconds)) / fadeSeconds;
+    else if (timeSeconds > window.end) own = 1 - (timeSeconds - window.end) / fadeSeconds;
+
+    if (own > depth) depth = own;
+    if (depth >= 1) break;
   }
-  return outsideGain;
+  return outsideGain + (duckGain - outsideGain) * depth;
+}
+
+/**
+ * Сводит окна, между которыми нет места на переход, в одно.
+ *
+ * Между двумя репликами по умолчанию 50 мс, а переход длится 120: развести их
+ * нечем, и любая попытка отпустить оригинал в такой промежуток слышна как
+ * всплеск чужого голоса. Промежуток шире двух переходов оставляется как есть —
+ * там оригинал успевает вернуться и снова уйти, и это как раз то, что нужно.
+ */
+export function mergeCloseWindows(windows: SpeechWindow[], fadeSeconds: number): SpeechWindow[] {
+  const sorted = [...windows].sort((a, b) => a.start - b.start);
+  const merged: SpeechWindow[] = [];
+  for (const window of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && window.start - last.end < 2 * fadeSeconds) {
+      if (window.end > last.end) last.end = window.end;
+      continue;
+    }
+    merged.push({ ...window });
+  }
+  return merged;
 }
 
 export async function buildDuckEnvelope(
@@ -210,7 +245,7 @@ export async function buildDuckEnvelope(
   const duckGain = 10 ** (options.duckDb / 20);
   const outside = options.outsideGain ?? 1;
   const fadeSeconds = Math.max(options.fadeMs / 1000, 1 / sampleRate);
-  const sorted = [...windows].sort((a, b) => a.start - b.start);
+  const sorted = mergeCloseWindows(windows, fadeSeconds);
 
   const chunkSamples = 48_000;
   const chunk = Buffer.alloc(chunkSamples * channels * BYTES_PER_SAMPLE);
@@ -223,7 +258,7 @@ export async function buildDuckEnvelope(
       const time = (cursor + i) / sampleRate;
       // Windows are sorted, so the search only ever moves forward.
       while (windowIndex < sorted.length && time > sorted[windowIndex]!.end + fadeSeconds) windowIndex++;
-      const value = envelopeValueAt(time, sorted.slice(windowIndex, windowIndex + 2), duckGain, fadeSeconds, outside);
+      const value = envelopeValueAt(time, sorted, duckGain, fadeSeconds, outside, windowIndex);
       const sample = Math.max(-32768, Math.min(32767, Math.round(value * 32767)));
       for (let channel = 0; channel < channels; channel++) {
         chunk.writeInt16LE(sample, (i * channels + channel) * BYTES_PER_SAMPLE);

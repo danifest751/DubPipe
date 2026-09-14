@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { mixFilters } from '../src/stages/s7-mix.js';
-import { buildSpeechPresenceEnvelope, envelopeValueAt } from '../src/util/pcm.js';
+import { buildSpeechPresenceEnvelope, envelopeValueAt, mergeCloseWindows } from '../src/util/pcm.js';
 
 describe('Сведение: что делать с оригиналом', () => {
   const graph = (mode: Parameters<typeof mixFilters>[0]) => mixFilters(mode, -6, 0).join(';');
@@ -61,6 +61,47 @@ describe('Огибающая присутствия речи', () => {
     const duck = (t: number) => envelopeValueAt(t, windows, 0.125, 0.1);
     expect(duck(5)).toBe(1);
     expect(duck(11)).toBe(0.125);
+  });
+
+  it('в промежутке между соседними репликами исходный голос не возвращается', () => {
+    // Умолчания: между репликами 50 мс, переход длится 120. Пока бралось первое
+    // подходящее окно, затухание предыдущей реплики успевало отпустить оригинал
+    // на полную громкость раньше, чем начнётся нарастание следующей, — в каждом
+    // промежутке между фразами был слышен всплеск чужого голоса.
+    const pair = [
+      { start: 1, end: 2 },
+      { start: 2.05, end: 3 },
+    ];
+    const merged = mergeCloseWindows(pair, 0.12);
+    expect(merged).toEqual([{ start: 1, end: 3 }]);
+    for (const t of [2.0, 2.02, 2.05, 2.08, 2.1]) {
+      expect(envelopeValueAt(t, merged, 1, 0.12, 0)).toBeCloseTo(1, 6);
+    }
+  });
+
+  it('даже без сведения окон берётся самое глубокое, а не первое', () => {
+    const pair = [
+      { start: 1, end: 2 },
+      { start: 2.05, end: 3 },
+    ];
+    // Прежний порядок давал здесь единицу — оригинал в полную громкость.
+    expect(envelopeValueAt(2.1, pair, 1, 0.12, 0)).toBeCloseTo(1, 6);
+    expect(envelopeValueAt(2.02, pair, 1, 0.12, 0)).toBeGreaterThan(0.75);
+  });
+
+  it('промежуток, в который переход помещается, остаётся промежутком', () => {
+    const apart = [
+      { start: 1, end: 2 },
+      { start: 2.5, end: 3 },
+    ];
+    expect(mergeCloseWindows(apart, 0.12)).toEqual(apart);
+    expect(envelopeValueAt(2.25, apart, 1, 0.12, 0)).toBe(0);
+  });
+
+  it('одиночное окно отпускает оригинал как прежде', () => {
+    const single = [{ start: 1, end: 2 }];
+    expect(envelopeValueAt(2.06, single, 1, 0.12, 0)).toBeCloseTo(0.5, 2);
+    expect(envelopeValueAt(2.12, single, 1, 0.12, 0)).toBeCloseTo(0, 6);
   });
 });
 
