@@ -9,6 +9,15 @@ tests/fixtures/.build/
 release/
 scripts/screens/
 
+# Материал для проверок, положенный в корень проекта: видео весит гигабайты
+# и попадает в индекс одним рассеянным `git add .`
+/*.avi
+/*.mkv
+/*.mp4
+/*.m4a
+/*.wav
+/*.srt
+
 # Внутренние документы, не для публикации
 tz-DubPipe.md
 PROJECT_AUDIT.md
