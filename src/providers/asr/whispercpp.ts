@@ -10,6 +10,14 @@ import type { Workspace } from '../../core/workspace.js';
 import { run } from '../../util/exec.js';
 import { downloadFile } from '../../util/download.js';
 import { provisionTool } from '../../util/tools.js';
+import {
+  ACCEL_BUILDS,
+  chooseAccel,
+  classifyAdapters,
+  detectHardware,
+  provisionWhisperBuild,
+  type AccelId,
+} from './accel.js';
 import { toWhisperAudio } from '../../util/ffmpeg.js';
 import { isNonSpeech, mergeWordsIntoSentences } from '../../stages/s2-segments.js';
 import { languageProfile } from '../../core/languages.js';
@@ -182,7 +190,8 @@ export function dtwPreset(model: string): string {
 }
 
 export class WhisperCppProvider implements AsrProvider {
-  readonly name = 'whisper.cpp (локально, CPU)';
+  /** Уточняется после выбора сборки: в отчёте видно, на чём считалось. */
+  name = 'whisper.cpp (локально, CPU)';
 
   constructor(
     private readonly workspace: Workspace,
@@ -193,9 +202,37 @@ export class WhisperCppProvider implements AsrProvider {
     return ensureWhisperModel(this.config.asr.model, this.workspace.modelsDir);
   }
 
+  /**
+   * Исполняемый файл whisper.cpp под выбранный ускоритель.
+   *
+   * Обычная сборка ищется и в PATH: у человека может стоять своя. Сборки под
+   * видеокарту лежат каждая в своём каталоге, поэтому переключение настройки
+   * не требует ничего удалять — рядом просто появляется вторая.
+   */
+  private async resolveBinary(): Promise<string> {
+    const preference = this.config.asr.backend;
+    // Опрос видеоадаптеров нужен только там, где от него зависит выбор.
+    const hardware =
+      preference === 'auto' || ACCEL_BUILDS[preference as AccelId]?.requires !== 'none'
+        ? await detectHardware()
+        : classifyAdapters([]);
+    const choice = chooseAccel(preference, hardware);
+    if (choice.warning) log.warn(choice.warning);
+
+    this.name = `whisper.cpp (локально, ${choice.build.title})`;
+    if (choice.build.id === 'blas') {
+      const tool = await provisionTool('whisper-cli', this.workspace.toolsDir);
+      log.step(`whisper.cpp: ${choice.build.title} (${choice.reason})`);
+      return tool.path;
+    }
+    const binary = await provisionWhisperBuild(this.workspace.toolsDir, choice.build);
+    log.step(`whisper.cpp: ${choice.build.title} (${choice.reason})`);
+    return binary;
+  }
+
   async transcribe(audioPath: string): Promise<AsrResult> {
     const warnings: string[] = [];
-    const binary = (await provisionTool('whisper-cli', this.workspace.toolsDir)).path;
+    const binary = await this.resolveBinary();
     const model = await this.ensureModel();
 
     // whisper.cpp only reads 16 kHz mono PCM.

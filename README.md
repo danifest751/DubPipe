@@ -90,7 +90,7 @@ not overlap are kept, because a character really can say "seriously?" twelve tim
 
 - **Node.js 20+** (tested on 25.9)
 - About 2 GB of free space for models and binaries
-- **No GPU needed**
+- **No GPU needed**, though one helps: see [Using the GPU](#using-the-gpu)
 - Python is optional and only for two stages: voice separation (`pip install numpy
   onnxruntime`) and speaker diarization (`pip install pyannote.audio`, which pulls in
   PyTorch, ~1 GB). Without Python, separation falls back to ducking the original and every
@@ -305,6 +305,17 @@ npx tsx src/cli.ts process video.mp4 --from-stage s3
 
 The same folder holds `run.log`, a log of every run of that file. If a result looks strange,
 that is the first place to look.
+
+## Using the GPU
+
+The most expensive step of the pipeline can run on the GPU.
+
+**Recognition.** whisper.cpp publishes no AMD builds, so the CPU build is chosen
+automatically. A Vulkan build can be selected by hand — `asr.backend: vulkan` —
+and the program says out loud that the archive comes from a third party. On a
+Radeon 780M an episode was recognised twice as fast: 2m18s against 4m57s. The
+text differs by about 9%: backends round differently, and on hard passages —
+shouting, singing — the decoding paths diverge.
 
 ## Performance
 

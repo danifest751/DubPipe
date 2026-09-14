@@ -43,7 +43,7 @@ const WHISPER_ZIP = 'https://github.com/ggml-org/whisper.cpp/releases/download/v
 const PIPER_ZIP = 'https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip';
 
 /** Extracts a zip using the platform's own tooling — no archive dependency. */
-async function unzip(archive: string, destination: string): Promise<void> {
+export async function unzip(archive: string, destination: string): Promise<void> {
   await mkdir(destination, { recursive: true });
   if (IS_WINDOWS) {
     await run(
@@ -62,7 +62,7 @@ async function unzip(archive: string, destination: string): Promise<void> {
 }
 
 /** Finds a file by name anywhere under root (archives nest their own folder). */
-async function findUnder(root: string, fileName: string, depth = 4): Promise<string | null> {
+export async function findUnder(root: string, fileName: string, depth = 4): Promise<string | null> {
   if (depth < 0 || !existsSync(root)) return null;
   const entries = await readdir(root, { withFileTypes: true });
   for (const entry of entries) {

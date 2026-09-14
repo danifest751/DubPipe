@@ -41,6 +41,13 @@ const asrSchema = z.object({
   /** Пословные таймкоды: `dtw` — выравнивание по вниманию (точное), `heuristic` — по вероятностям токенов (сдвигает первые слова раньше речи). */
   timestamps: z.enum(['dtw', 'heuristic']).default('dtw'),
   device: z.enum(['cpu', 'gpu']).default('cpu'),
+  /**
+   * Чем считать распознавание: `auto` — официальная сборка под найденное
+   * железо, остальное — выбор вручную. `vulkan` задействует видеокарту AMD или
+   * Intel, но эту сборку выпускает не сам проект whisper.cpp, поэтому сама она
+   * никогда не включается.
+   */
+  backend: z.enum(['auto', 'cpu', 'blas', 'cuda', 'vulkan']).default('auto'),
   language: z.string().min(2).max(5).default('en'),
   endpoint: z.string().url().nullable().default(null),
   api_key_env: z.string().nullable().default(null),
