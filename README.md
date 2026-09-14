@@ -331,6 +331,11 @@ Nothing needs configuring: with `onnxruntime-directml` installed the embeddings
 run on the GPU, otherwise the old path is used. The ONNX export happens once and
 is kept next to the weights.
 
+The speaker breakdown is also not recomputed for nothing. It depends on the audio
+and on its own settings, never on which model transcribed the words, so the result
+is stored with a fingerprint of the recording and reused. Switching the ASR model
+used to cost all seventeen minutes again; now it costs nothing.
+
 ROCm on Windows is neither needed nor advised for this: MIOpen compiles its
 kernels at run time, the ROCm packages ship no C++ standard headers, and the
 compilation fails on every kernel. That is an AMD defect, reproducible on
