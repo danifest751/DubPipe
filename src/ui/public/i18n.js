@@ -331,6 +331,8 @@ const DICTIONARY = {
   'project.stagesDone': { ru: 'готово стадий: {count}', en: 'stages done: {count}' },
   'segments.empty': { ru: 'Реплики появятся после распознавания — нажмите «Дублировать».', en: 'Replicas appear after recognition — press Dub.' },
   'segments.synth': { ru: 'синтез {value} с', en: 'synthesis {value} s' },
+  'segments.noFilm': { ru: 'Готового фильма нет — играет отдельный клип синтеза. Файл мог быть переименован или удалён', en: 'No finished film — playing the synthesis clip on its own. The file may have been renamed or deleted' },
+  'segments.playTargetHint': { ru: 'Показать это место в готовом фильме', en: 'Show this spot in the finished film' },
   'segments.original': { ru: 'ориг.', en: 'orig.' },
   'segments.tts': { ru: 'синтез', en: 'synthesis' },
   'segments.noAudio': { ru: 'Оригинальное аудио появится после первой стадии', en: 'The original audio appears after the first stage' },

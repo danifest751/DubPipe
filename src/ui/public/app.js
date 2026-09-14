@@ -648,19 +648,23 @@ function fitInfo(segment) {
  * поэтому последняя колонка больше не уезжает за край карточки.
  */
 const SEGMENT_COLUMNS = [
-  { key: 'index', width: 46, min: 36 },
-  { key: 'start', width: 96, min: 70 },
-  { key: 'end', width: 96, min: 70 },
-  { key: 'slot', width: 66, min: 52 },
-  { key: 'speaker', width: 152, min: 90 },
-  { key: 'source', width: 280, min: 120 },
-  { key: 'target', width: 280, min: 120 },
-  { key: 'fit', width: 116, min: 80 },
-  { key: 'flags', width: 96, min: 60 },
-  { key: 'listen', width: 150, min: 90 },
+  { key: 'index', width: 44, min: 34 },
+  { key: 'start', width: 92, min: 68 },
+  { key: 'end', width: 92, min: 68 },
+  { key: 'slot', width: 60, min: 48 },
+  { key: 'speaker', width: 150, min: 96 },
+  // Оригинал и перевод ширины не задают: они забирают остаток строки. Задай им
+  // ширину в пикселях — и сумма колонок перестанет помещаться в узкое окно,
+  // таблица уедет вправо, а кнопки прослушивания окажутся за краем карточки.
+  { key: 'source', width: null, min: 120 },
+  { key: 'target', width: null, min: 120 },
+  { key: 'fit', width: 112, min: 78 },
+  { key: 'flags', width: 86, min: 56 },
+  { key: 'listen', width: 128, min: 88 },
 ];
-const COLUMN_STORE = 'dubpipe.segmentColumns';
+const COLUMN_STORE = 'dubpipe.segmentColumns.v2';
 
+/** Ширины колонок; null — колонка забирает остаток строки. */
 function columnWidths() {
   const defaults = SEGMENT_COLUMNS.map((column) => column.width);
   try {
@@ -675,6 +679,12 @@ function columnWidths() {
   }
 }
 
+/** Ширина колонки сейчас — для начала перетаскивания у гибкой её надо измерить. */
+function measuredWidth(index) {
+  const cell = $$('#segmentsTable thead th')[index];
+  return cell ? Math.round(cell.getBoundingClientRect().width) : SEGMENT_COLUMNS[index].min;
+}
+
 function saveColumnWidths(widths) {
   try {
     localStorage.setItem(COLUMN_STORE, JSON.stringify(widths));
@@ -687,7 +697,7 @@ function renderColumns() {
   const group = $('#segmentsTable colgroup');
   if (!group) return;
   const widths = columnWidths();
-  group.innerHTML = widths.map((width) => `<col style="width:${width}px" />`).join('');
+  group.innerHTML = widths.map((width) => (width === null ? '<col />' : `<col style="width:${width}px" />`)).join('');
 
   $$('#segmentsTable thead th').forEach((cell, index) => {
     cell.querySelector('.col-grip')?.remove();
@@ -710,7 +720,7 @@ function startColumnDrag(event, index, grip) {
   event.preventDefault();
   const widths = columnWidths();
   const startX = event.clientX;
-  const startWidth = widths[index];
+  const startWidth = widths[index] ?? measuredWidth(index);
   const cols = $$('#segmentsTable colgroup col');
   grip.classList.add('active');
   document.body.classList.add('col-resizing');
@@ -755,7 +765,7 @@ function renderSegments() {
         <td><textarea data-field="text_ru">${escapeHtml(segment.text_ru ?? '')}</textarea></td>
         <td class="fit ${fit.cls}">${fit.label}${segment.tts_duration ? `<br><span class="meta">${t('segments.synth', { value: segment.tts_duration.toFixed(2) })}</span>` : ''}</td>
         <td><span class="meta">${(segment.flags ?? []).join(', ')}${segment.overlap ? ' overlap' : ''}</span></td>
-        <td><button data-play-original="${index}" class="ghost small">${icon('play')} ${t('segments.original')}</button>${clip ? `<button data-play-target="${index}" class="ghost small">${icon('play')} ${t('segments.target')}</button>` : ''}</td>
+        <td>${clip ? `<button data-play-target="${index}" class="ghost small" title="${escapeAttr(t('segments.playTargetHint'))}">${icon('play')} ${t('segments.target')}</button>` : ''}<button data-play-original="${index}" class="ghost small">${icon('play')} ${t('segments.original')}</button></td>
       </tr>`;
     })
     .join('');
@@ -852,6 +862,9 @@ function playTranslated(segment) {
   }
 
   if (!clip) return;
+  // Готового файла нет — показать место в фильме нечем. Играем клип синтеза,
+  // но молчать об этом нельзя: человек нажал «перевод» и ждёт фильм.
+  toast(t('segments.noFilm'), 'warn', 5000);
   const player = $('#player');
   player.src = mediaUrl(clip);
   player.dataset.source = '';
