@@ -17,6 +17,9 @@ All notable changes to this project are documented here. Versions follow
 - Whisper is no longer fed its own previous text as a prompt, which is what turned one
   invention into minutes of them. Measured on the same five minutes: 44 seconds of
   boilerplate instead of 79.
+- 89 formulas collected by others from noise-only recordings were added to the filter,
+  taken from an MIT dataset of 7889 and narrowed to the long ones that name subtitles or
+  subscriptions — the raw list starts with "bye" and "you" and would cut real dialogue.
 - `scripts/clean-hallucinations.mts` applies the same rules to a transcript that already
   exists, so a file recognised before this change need not be recognised again.
 
