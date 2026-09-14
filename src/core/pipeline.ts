@@ -144,6 +144,29 @@ async function artifactsPresent(stage: StageId, workspace: Workspace): Promise<b
   }
 }
 
+/**
+ * Отпечаток того, из чего стадия делает свою работу.
+ *
+ * Отпечаток настроек не ловит случай, когда изменились сами реплики: перевод
+ * переписали другой моделью, настройки те же — и синтез считается свежим, хотя
+ * озвучен прежний текст. Так и вышло: субтитры обновились, а звук остался от
+ * старого перевода, и заметить это можно было только на слух.
+ *
+ * Поэтому у стадий, работающих не с настройками, а с результатом предыдущих,
+ * свежесть проверяется ещё и по содержимому: синтез — по переводу, укладка —
+ * по тому, что синтезировано.
+ */
+export function stageInputHash(stage: StageId, segments: Segment[]): string | null {
+  switch (stage) {
+    case 's5':
+      return sha256(JSON.stringify(segments.map((segment) => [segment.id, segment.text_ru])));
+    case 's6':
+      return sha256(JSON.stringify(segments.map((segment) => [segment.id, segment.tts_file, segment.tts_duration])));
+    default:
+      return null;
+  }
+}
+
 export async function runPipeline(options: PipelineOptions): Promise<PipelineReport> {
   const { input } = options;
 
@@ -202,9 +225,14 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRep
     log.stage(index + 1, active.length, stage, STAGE_TITLES[stage]);
     const started = Date.now();
     const fingerprint = fingerprints[stage];
+    // Кроме настроек стадии сверяется и то, из чего она работает: перевод для
+    // синтеза, синтез для укладки. Иначе повторный перевод не заставит
+    // переозвучить реплики, и звук разойдётся с текстом.
+    const inputHash = stageInputHash(stage, (await workspace.readSegments()) ?? segments);
     const fresh =
       config.cache.enabled &&
       state.fingerprints[stage] === fingerprint &&
+      (inputHash === null || state.segmentsHash[stage] === inputHash) &&
       (await artifactsPresent(stage, workspace)) &&
       options.fromStage !== stage;
 
@@ -289,6 +317,9 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRep
     }
 
     state.fingerprints[stage] = fingerprint;
+    // Запоминается то, с чем стадия начинала: укладка сама переписывает
+    // длительности, и пересчёт после неё не совпал бы с входом никогда.
+    if (inputHash !== null) state.segmentsHash[stage] = inputHash;
     await workspace.writeState(state);
 
     const durationMs = Date.now() - started;

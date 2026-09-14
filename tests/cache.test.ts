@@ -1,7 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { parseConfig } from '../src/config/load.js';
 import { computeFingerprints } from '../src/core/workspace.js';
-import { stageRange, disabledStages, effectiveConfig, needsSpeakers, stageComplete } from '../src/core/pipeline.js';
+import {
+  stageRange,
+  disabledStages,
+  effectiveConfig,
+  needsSpeakers,
+  stageComplete,
+  stageInputHash,
+} from '../src/core/pipeline.js';
 import { makeSegment, STAGE_IDS, type Segment } from '../src/core/types.js';
 
 const baseConfig = () => parseConfig({}, 'test');
@@ -146,5 +153,37 @@ describe('§6: продолжение прогона с середины', () =>
 
     segments[0]!.aligned_file = null;
     expect(stageComplete('s6', segments, always)).toBe(false);
+  });
+});
+
+describe('§7: свежесть по тому, из чего стадия работает', () => {
+  const voiced = (id: number, text: string | null, file: string | null, duration: number | null): Segment =>
+    makeSegment({ id, start: id, end: id + 1, text_en: 'line', text_ru: text, tts_file: file, tts_duration: duration });
+
+  it('другой перевод делает синтез несвежим', () => {
+    // Иначе повторный перевод оставит озвучку от прежнего текста: субтитры
+    // обновятся, звук нет, и заметить это можно будет только на слух.
+    const before = [voiced(0, 'первая', 'tts/0.wav', 1)];
+    const after = [voiced(0, 'первая, но иначе', 'tts/0.wav', 1)];
+    expect(stageInputHash('s5', before)).not.toBe(stageInputHash('s5', after));
+  });
+
+  it('тот же перевод оставляет синтез свежим', () => {
+    const a = [voiced(0, 'первая', 'tts/0.wav', 1)];
+    const b = [voiced(0, 'первая', 'tts/0.wav', 2)];
+    // Длительность синтеза на свежесть синтеза не влияет — влияет текст.
+    expect(stageInputHash('s5', a)).toBe(stageInputHash('s5', b));
+  });
+
+  it('другой синтез делает укладку несвежей', () => {
+    const a = [voiced(0, 'первая', 'tts/0.wav', 1)];
+    const b = [voiced(0, 'первая', 'tts/0.wav', 1.4)];
+    expect(stageInputHash('s6', a)).not.toBe(stageInputHash('s6', b));
+  });
+
+  it('стадии, зависящие только от настроек, содержимое не сверяют', () => {
+    for (const stage of ['s1', 's2', 's3', 's4', 's7'] as const) {
+      expect(stageInputHash(stage, [voiced(0, 'текст', null, null)])).toBeNull();
+    }
   });
 });
