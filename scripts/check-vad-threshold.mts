@@ -16,7 +16,8 @@ const ort = await import('onnxruntime-node');
 const modelPath = path.join(ws, '..', 'models', 'silero-vad.onnx');
 const session = await ort.InferenceSession.create(modelPath, { executionProviders: ['cpu'] });
 const FRAME = 512, CONTEXT = 64, SR = 16000;
-let state = new Float32Array(2 * 128);
+// onnxruntime отдаёт буфер с более широким типом, чем у литерала.
+let state: Float32Array<ArrayBufferLike> = new Float32Array(2 * 128);
 let context = new Float32Array(CONTEXT);
 const input = new Float32Array(CONTEXT + FRAME);
 const sr = new ort.Tensor('int64', BigInt64Array.from([BigInt(SR)]), [1]);

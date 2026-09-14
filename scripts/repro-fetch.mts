@@ -39,7 +39,7 @@ const server = await startUiServer({ port: 0 });
 const base = `http://127.0.0.1:${server.port}`;
 const headers = { 'X-DubPipe-Token': server.token, 'Content-Type': 'application/json' };
 
-const before = await (await fetch(`${base}/api/readiness`, { headers })).json();
+const before = ((await (await fetch(`${base}/api/readiness`, { headers })).json()) as Record<string, any>);
 console.log('до:', before.summary);
 
 // Слушаем поток событий, как это делает страница.
@@ -47,8 +47,12 @@ const controller = new AbortController();
 const stream = await fetch(`${base}/api/events`, { headers, signal: controller.signal });
 const reader = stream.body!.getReader();
 const decoder = new TextDecoder();
-let finished: (() => void) | null = null;
-const done = new Promise<void>((resolve) => (finished = resolve));
+// Заглушка вместо null: анализ потока управления не знает, что обработчик
+// вызовется позже, и считает переменную навсегда пустой.
+let finished: () => void = () => undefined;
+const done = new Promise<void>((resolve) => {
+  finished = resolve;
+});
 
 void (async () => {
   let buffer = '';
@@ -73,7 +77,7 @@ void (async () => {
       }
       if (event === 'readiness') {
         console.log('после:', payload.summary);
-        finished?.();
+        finished();
       }
     }
   }

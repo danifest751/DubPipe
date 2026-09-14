@@ -8,7 +8,7 @@
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { TOOLS, provisionTool, findTool, resetToolCache } from '../src/util/tools.js';
+import { TOOLS, provisionTool, findTool, resetToolCache , type ToolName } from '../src/util/tools.js';
 
 const toolsDir = await mkdtemp(path.join(os.tmpdir(), 'dubpipe-dedup-'));
 let fetches = 0;
@@ -33,7 +33,7 @@ for (const name of ['ffmpeg', 'ffprobe'] as const) {
 }
 console.log('не хватает:', missing.join(', '));
 
-const results = await Promise.allSettled(missing.map((name) => provisionTool(name, toolsDir)));
+const results = await Promise.allSettled(missing.map((name) => provisionTool(name as ToolName, toolsDir)));
 for (const [index, result] of results.entries()) {
   console.log(`  ${missing[index]}: ${result.status === 'fulfilled' ? 'найден ' + path.basename(result.value.path) : 'ОШИБКА ' + (result.reason as Error).message}`);
 }

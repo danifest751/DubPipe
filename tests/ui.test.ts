@@ -23,6 +23,14 @@ afterAll(async () => {
   await server?.close();
 });
 
+/**
+ * Тело ответа API. `json()` отдаёт `unknown`, а тесты знают форму каждого
+ * ответа и проверяют поля напрямую — описывать её типом здесь незачем.
+ */
+type ResponseBody = Record<string, any>;
+
+const asBody = async (response: Response): Promise<ResponseBody> => (await response.json()) as ResponseBody;
+
 describe('§16.5: сервер слушает только петлевой интерфейс', () => {
   it('выдаёт адрес на 127.0.0.1 с токеном в ссылке', () => {
     expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/\?token=[a-f0-9]{48}$/);
@@ -82,7 +90,7 @@ describe('§16.6: пути из запроса не читаются вне ра
     const target = process.platform === 'win32' ? 'C:/Windows/win.ini' : '/etc/passwd';
     const response = await get(`/api/media?path=${encodeURIComponent(target)}`);
     expect(response.status).toBe(403);
-    expect((await response.json()).error).toContain('вне рабочего каталога');
+    expect((await asBody(response)).error).toContain('вне рабочего каталога');
   });
 
   it('отказывает при выходе вверх по дереву', async () => {
@@ -99,7 +107,7 @@ describe('§16.6: пути из запроса не читаются вне ра
 
 describe('FR-U2: выбор папки и список видео', () => {
   it('показывает диски, когда каталог не указан', async () => {
-    const data = await (await get('/api/browse')).json();
+    const data = await asBody(await get('/api/browse'));
     expect(Array.isArray(data.entries)).toBe(true);
     if (process.platform === 'win32') {
       expect(data.entries.length).toBeGreaterThan(0);
@@ -109,7 +117,7 @@ describe('FR-U2: выбор папки и список видео', () => {
 
   it('перечисляет только папки и медиафайлы', async () => {
     const target = path.resolve(process.cwd(), 'tests', 'fixtures');
-    const data = await (await get(`/api/browse?dir=${encodeURIComponent(target)}`)).json();
+    const data = await asBody(await get(`/api/browse?dir=${encodeURIComponent(target)}`));
     expect(data.dir).toBe(target);
     // В каталоге есть golden.json — он не медиа и показываться не должен.
     const names = data.entries.map((entry: { name: string }) => entry.name);
@@ -120,7 +128,7 @@ describe('FR-U2: выбор папки и список видео', () => {
   it('сообщает о недоступном каталоге понятной ошибкой', async () => {
     const response = await get(`/api/browse?dir=${encodeURIComponent('C:/нет-такой-папки-12345')}`);
     expect(response.status).toBe(400);
-    expect((await response.json()).error).toContain('не удалось прочитать каталог');
+    expect((await asBody(response)).error).toContain('не удалось прочитать каталог');
   });
 
   it('отклоняет несуществующую рабочую папку', async () => {
@@ -130,7 +138,7 @@ describe('FR-U2: выбор папки и список видео', () => {
       body: JSON.stringify({ dir: 'C:/нет-такой-папки-12345' }),
     });
     expect(response.status).toBe(400);
-    expect((await response.json()).error).toContain('папка не найдена');
+    expect((await asBody(response)).error).toContain('папка не найдена');
   });
 
   it('запоминает выбранную папку и отдаёт её содержимое', async () => {
@@ -142,7 +150,7 @@ describe('FR-U2: выбор папки и список видео', () => {
     });
     expect(saved.status).toBe(200);
 
-    const library = await (await get('/api/library')).json();
+    const library = await asBody(await get('/api/library'));
     expect(library.workingDir).toBe(target);
     const sample = library.files.find((file: { name: string }) => file.name === 'sample.mp4');
     expect(sample).toBeDefined();
@@ -155,7 +163,7 @@ describe('FR-U2: выбор папки и список видео', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ dir: null }),
     });
-    const library = await (await get('/api/library')).json();
+    const library = await asBody(await get('/api/library'));
     expect(library.workingDir).toBeNull();
     expect(library.files).toEqual([]);
   });
@@ -163,7 +171,7 @@ describe('FR-U2: выбор папки и список видео', () => {
 
 describe('§16: состояние и справочники', () => {
   it('возвращает версию, стадии и правовое предупреждение', async () => {
-    const data = await (await get('/api/state')).json();
+    const data = await asBody(await get('/api/state'));
     expect(data.version).toBeTruthy();
     expect(data.stages).toHaveLength(7);
     expect(data.stages[0]).toEqual({ id: 's1', title: expect.any(String) });
@@ -172,7 +180,7 @@ describe('§16: состояние и справочники', () => {
   });
 
   it('сообщает состояние внешних компонентов', async () => {
-    const data = await (await get('/api/environment')).json();
+    const data = await asBody(await get('/api/environment'));
     expect(data.tools.length).toBeGreaterThan(0);
     expect(data.tools[0]).toHaveProperty('installHint');
     expect(data).toHaveProperty('python');
@@ -186,13 +194,13 @@ describe('§16: состояние и справочники', () => {
   });
 
   it('перечисляет голоса синтеза', async () => {
-    const data = await (await get('/api/voices')).json();
+    const data = await asBody(await get('/api/voices'));
     expect(data.voices.length).toBeGreaterThan(0);
     expect(data.defaultVoice).toBeTruthy();
   });
 
   it('отдаёт текст конфигурации', async () => {
-    const data = await (await get('/api/config')).json();
+    const data = await asBody(await get('/api/config'));
     expect(data.text).toContain('profile');
     expect(data.parsed.asr.engine).toBe('whisper-cpp');
   });
@@ -200,7 +208,7 @@ describe('§16: состояние и справочники', () => {
 
 describe('FR-U7: готовность к работе', () => {
   it('перечисляет требования и говорит, что именно не выполнится', async () => {
-    const data = await (await get('/api/readiness')).json();
+    const data = await asBody(await get('/api/readiness'));
     expect(Array.isArray(data.items)).toBe(true);
     expect(data.items.length).toBeGreaterThan(3);
     expect(typeof data.summary).toBe('string');
@@ -213,7 +221,7 @@ describe('FR-U7: готовность к работе', () => {
   });
 
   it('ключ API — отдельное требование с понятным объяснением', async () => {
-    const data = await (await get('/api/readiness')).json();
+    const data = await asBody(await get('/api/readiness'));
     const key = data.items.find((item: { id: string }) => item.id === 'apikey');
     expect(key).toBeDefined();
     expect(key.title).toContain('Ключ');
@@ -224,7 +232,7 @@ describe('FR-U7: готовность к работе', () => {
   it('загрузка компонентов отвечает сразу, не дожидаясь окончания', async () => {
     const started = Date.now();
     const response = await fetch(`${base()}/api/environment/fetch?token=${server.token}`, { method: 'POST' });
-    const body = await response.json();
+    const body = await asBody(response);
     // Либо загрузка началась (202), либо качать нечего (200) — но ответ
     // приходит мгновенно: ход загрузки идёт через поток событий.
     expect([200, 202]).toContain(response.status);
@@ -261,7 +269,7 @@ describe('FR-U6: настройки как форма', () => {
       body: JSON.stringify({ values: { 'translate.batch_size': 12 } }),
     });
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await asBody(response);
     expect(body.parsed.translate.batch_size).toBe(12);
 
     const text = readFileSync(configPath, 'utf8');
@@ -277,12 +285,12 @@ describe('FR-U6: настройки как форма', () => {
       body: JSON.stringify({ values: { 'translate.batch_size': 999 } }),
     });
     expect(response.status).toBe(400);
-    expect((await response.json()).error).toContain('translate.batch_size');
+    expect((await asBody(response)).error).toContain('translate.batch_size');
   });
 
   it('показывает ключ только по краям', async () => {
     const original = process.env['KILO_API_KEY'];
-    const data = await (await get('/api/key')).json();
+    const data = await asBody(await get('/api/key'));
     expect(typeof data.set).toBe('boolean');
     if (original && original.length > 12) {
       expect(data.masked).not.toBe(original);
@@ -300,18 +308,18 @@ describe('FR-U6: настройки как форма', () => {
       body: JSON.stringify({ token }),
     });
     expect(saved.status).toBe(200);
-    const body = await saved.json();
+    const body = await asBody(saved);
     expect(body.set).toBe(true);
     expect(body.masked).not.toBe(token);
     expect(JSON.stringify(body)).not.toContain(token);
-    expect(JSON.stringify(await (await get('/api/readiness')).json())).not.toContain(token);
+    expect(JSON.stringify(asBody(await get('/api/readiness')))).not.toContain(token);
 
     const removed = await fetch(`${base()}/api/hf-token?token=${server.token}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: null }),
     });
-    expect((await removed.json()).set).toBe(false);
+    expect((await asBody(removed)).set).toBe(false);
     if (original) process.env['HF_TOKEN'] = original;
     else delete process.env['HF_TOKEN'];
   });
@@ -322,7 +330,7 @@ describe('FR-U6: настройки как форма', () => {
     try {
       const response = await fetch(`${base()}/api/key/check?token=${server.token}`, { method: 'POST' });
       expect(response.status).toBe(200);
-      const body = await response.json();
+      const body = await asBody(response);
       expect(body.ok).toBe(false);
       expect(body.reason).toContain('не задан');
     } finally {
@@ -339,7 +347,7 @@ describe('§16: валидация правок конфигурации', () =>
       body: JSON.stringify({ text: 'alignment:\n  max_tempo: 9\n' }),
     });
     expect(response.status).toBe(400);
-    const body = await response.json();
+    const body = await asBody(response);
     expect(body.error).toContain('alignment.max_tempo');
   });
 });
@@ -357,6 +365,6 @@ describe('§16: задачи', () => {
   it('сообщает о неизвестном маршруте понятной ошибкой', async () => {
     const response = await get('/api/nonexistent');
     expect(response.status).toBe(404);
-    expect((await response.json()).error).toContain('нет обработчика');
+    expect((await asBody(response)).error).toContain('нет обработчика');
   });
 });

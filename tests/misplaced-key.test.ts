@@ -75,7 +75,7 @@ describe('Интерфейс: лечение вставленного не ту�
     expect(text).toContain('# настройки');
     expect(text).toContain('batch_size: 9');
 
-    const data = await (await get('/api/config')).json();
+    const data = ((await (await get('/api/config')).json()) as Record<string, any>);
     expect(data.parsed.kilo_gateway.api_key_env).toBe('KILO_API_KEY');
   });
 
@@ -84,7 +84,7 @@ describe('Интерфейс: лечение вставленного не ту�
     expect(saved['KILO_API_KEY']).toBe(FAKE_TOKEN);
     expect(saved[FAKE_TOKEN]).toBeUndefined();
 
-    const key = await (await get('/api/key')).json();
+    const key = ((await (await get('/api/key')).json()) as Record<string, any>);
     expect(key.set).toBe(true);
     expect(key.env).toBe('KILO_API_KEY');
   });
