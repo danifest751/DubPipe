@@ -326,7 +326,11 @@ export async function runS6(workspace: Workspace, baseConfig: DubConfig, segment
     segment.aligned_file = target;
     segment.tempo = item.tempo;
     segment.shift_ms = item.shiftMs;
-    segment.tts_duration = Number((await wavDuration(target)).toFixed(3));
+    // Длительность уложенного клипа — в своё поле. Записанная поверх
+    // `tts_duration`, она на следующем прогоне выдавала себя за длительность
+    // синтеза: план видел уже ускоренный клип, брал темп 1.0 и клал реплику
+    // неускоренной поверх соседней.
+    segment.aligned_duration = Number((await wavDuration(target)).toFixed(3));
     rendered++;
   }
 

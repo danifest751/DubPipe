@@ -129,7 +129,16 @@ export function planReview(
     const changed = !old || (old.text_ru ?? '') !== (segment.text_ru ?? '') || voiceBefore !== voiceAfter;
     if (!changed) return segment;
     affected.push(segment.id);
-    return { ...segment, tts_file: null, tts_duration: null, aligned_file: null, tempo: null, shift_ms: null };
+    return {
+      ...segment,
+      tts_file: null,
+      tts_duration: null,
+      tts_key: null,
+      aligned_file: null,
+      aligned_duration: null,
+      tempo: null,
+      shift_ms: null,
+    };
   });
 
   const mixChanged = (['background_gain_db', 'voice_gain_db', 'duck_db'] as const).some(

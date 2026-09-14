@@ -49,6 +49,18 @@ export interface Segment {
   tts_key: string | null;
   tempo: number | null;
   aligned_file: string | null;
+  /**
+   * Длительность уложенного клипа — после ускорения и обрезки.
+   *
+   * Отдельным полем, потому что вопросов два, а ответ раньше был один.
+   * `tts_duration` — сколько наговорил синтезатор: из неё укладка считает темп,
+   * а S5 выводит скорость речи голоса. `aligned_duration` — сколько звучит то,
+   * что ляжет в дорожку: её спрашивают сведение и субтитры. Пока обе величины
+   * жили в одном поле, укладка затирала первую второй и на следующем прогоне
+   * считала темп от уже ускоренного клипа: выходил темп 1.0, реплика ложилась
+   * неускоренной и наезжала на соседнюю.
+   */
+  aligned_duration: number | null;
   words: WordTiming[] | null;
   overlap: boolean;
   shift_ms: number | null;
@@ -88,6 +100,7 @@ export function makeSegment(init: Partial<Segment> & Pick<Segment, 'id' | 'start
     tts_key: null,
     tempo: null,
     aligned_file: null,
+    aligned_duration: null,
     words: null,
     overlap: false,
     shift_ms: null,

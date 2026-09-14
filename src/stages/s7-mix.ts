@@ -116,11 +116,18 @@ export function mixFilters(mode: MixMode, backgroundGainDb: number, voiceGainDb:
  * пропал бы вокал.
  */
 export function spokenWindows(segments: Segment[]): SpeechWindow[] {
+  // Звучит ровно тот клип, который ляжет в дорожку: уложенный, если укладка
+  // была, иначе сырой синтез. Спрашивать длительность надо у него же.
   return segments
-    .filter((segment) => (segment.aligned_file ?? segment.tts_file) !== null && (segment.tts_duration ?? 0) > 0)
-    .map((segment) => {
-      const start = segment.start + (segment.shift_ms ?? 0) / 1000;
-      return { start, end: start + segment.tts_duration! };
+    .map((segment) => ({
+      segment,
+      clip: segment.aligned_file ?? segment.tts_file,
+      duration: segment.aligned_file !== null ? segment.aligned_duration : segment.tts_duration,
+    }))
+    .filter((entry) => entry.clip !== null && (entry.duration ?? 0) > 0)
+    .map((entry) => {
+      const start = entry.segment.start + (entry.segment.shift_ms ?? 0) / 1000;
+      return { start, end: start + entry.duration! };
     })
     .sort((a, b) => a.start - b.start);
 }

@@ -9,7 +9,7 @@ import {
 } from '../src/stages/s6-align.js';
 import { measureSpeechRate, recordClip, ttsKey } from '../src/stages/s5-tts.js';
 import { envelopeValueAt } from '../src/util/pcm.js';
-import { speechWindows, defaultOutputName, defaultOutputPath, resolveOutputPath } from '../src/stages/s7-mix.js';
+import { speechWindows, spokenWindows, defaultOutputName, defaultOutputPath, resolveOutputPath } from '../src/stages/s7-mix.js';
 import { voiceForSpeaker, voiceUrlPath } from '../src/providers/tts/voices.js';
 import { makeSegment, type Segment } from '../src/core/types.js';
 import type { StageError } from '../src/core/errors.js';
@@ -360,5 +360,86 @@ describe('FR-5: что уже озвучено, тем же и остаётся'
     const segment = makeSegment({ id: 1, start: 0, end: 2, text_en: 'a line' });
     recordClip(segment, { path: 'tts/0001.wav', durationSeconds: 1.23456 }, 'ru_RU-irina-medium', 'Реплика');
     expect(segment.tts_duration).toBe(1.235);
+  });
+
+  it('свежий клип не считается уложенным', () => {
+    // Сведение берёт уложенный файл, если он есть. Пока переозвучка оставляла
+    // прежние aligned_file и shift_ms, при выключенной укладке в дорожку шёл
+    // старый клип — со старым текстом и старым сдвигом.
+    const segment = makeSegment({ id: 1, start: 0, end: 2, text_en: 'a line' });
+    segment.aligned_file = 'aligned/0001.wav';
+    segment.aligned_duration = 1.6;
+    segment.tempo = 1.25;
+    segment.shift_ms = 320;
+
+    recordClip(segment, { path: 'tts/0001.wav', durationSeconds: 2.0 }, 'ru_RU-irina-medium', 'Реплика');
+
+    expect(segment.aligned_file).toBeNull();
+    expect(segment.aligned_duration).toBeNull();
+    expect(segment.tempo).toBeNull();
+    expect(segment.shift_ms).toBeNull();
+  });
+});
+
+describe('FR-6: повторная укладка', () => {
+  /** Что делает стадия после рендера: записывает длительность готового клипа. */
+  const applyPlan = (segments: Segment[], plan: ReturnType<typeof planAlignment>): void => {
+    for (const item of plan) {
+      const segment = segments.find((candidate) => candidate.id === item.id)!;
+      segment.aligned_file = `aligned/${item.id}.wav`;
+      segment.tempo = item.tempo;
+      segment.shift_ms = item.shiftMs;
+      // ffmpeg отдаёт ровно то, что заказал план: клип, ускоренный в tempo раз.
+      segment.aligned_duration = Number((segment.tts_duration! / item.tempo).toFixed(3));
+    }
+  };
+
+  it('второй прогон повторяет первый, а не считает темп от уже ускоренного клипа', () => {
+    // Из-за того, что длительность уложенного клипа записывалась поверх
+    // длительности синтеза, каждый второй прогон брал темп 1.0 и клал реплику
+    // неускоренной: она звучала дольше отведённого ей места и наезжала на
+    // следующую.
+    const segments = [seg(1, 0, 2, 2.4), seg(2, 2.2, 4, 1.5)];
+    const settings = options({ maxTempo: 1.3 });
+
+    const first = planAlignment(segments, settings);
+    applyPlan(segments, first);
+    const second = planAlignment(segments, settings);
+
+    expect(second).toEqual(first);
+    expect(second[0]!.tempo).toBeCloseTo(1.2, 4);
+  });
+
+  it('замер темпа речи берётся с синтеза, а не с уложенного клипа', () => {
+    const segments = [seg(1, 0, 2, 2.4)];
+    applyPlan(segments, planAlignment(segments, options({ maxTempo: 1.3 })));
+
+    expect(segments[0]!.tts_duration).toBe(2.4);
+    expect(segments[0]!.aligned_duration).toBe(2);
+  });
+});
+
+describe('FR-7: речь звучит ровно столько, сколько длится её клип', () => {
+  const voiced = (ttsDuration: number | null): Segment => {
+    const segment = seg(1, 10, 12, ttsDuration);
+    segment.tts_file = 'tts/0001.wav';
+    return segment;
+  };
+
+  it('под уложенной репликой берётся длительность уложенного клипа', () => {
+    const segment = voiced(2.4);
+    segment.aligned_file = 'aligned/0001.wav';
+    segment.aligned_duration = 2;
+    segment.shift_ms = 500;
+
+    expect(spokenWindows([segment])).toEqual([{ start: 10.5, end: 12.5 }]);
+  });
+
+  it('без укладки берётся длительность синтеза', () => {
+    expect(spokenWindows([voiced(2.4)])).toEqual([{ start: 10, end: 12.4 }]);
+  });
+
+  it('реплика без клипа окна не даёт', () => {
+    expect(spokenWindows([seg(1, 10, 12, 2.4)])).toEqual([]);
   });
 });

@@ -94,6 +94,13 @@ export function recordClip(
   segment.tts_file = clip.path;
   segment.tts_duration = Number(clip.durationSeconds.toFixed(3));
   segment.tts_key = ttsKey(voice, text);
+  // Свежий клип ещё не уложен, и прежняя укладка к нему не относится. Без
+  // этого при выключенной S6 сведение брало старый уложенный файл: реплика
+  // звучала прежним текстом, хотя перевод давно переписан.
+  segment.aligned_file = null;
+  segment.aligned_duration = null;
+  segment.tempo = null;
+  segment.shift_ms = null;
 }
 
 /** Runs tasks with a bounded number in flight (SPEC §5.3: tts.concurrency). */
