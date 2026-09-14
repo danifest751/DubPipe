@@ -933,7 +933,10 @@ function setVoice(speaker, voice) {
   state.overrides.voices[speaker] = voice;
   state.voicesDirty = true;
   renderSegments();
-  if (review.data) { renderReviewNow(); renderReviewMarks(); }
+  if (review.data) {
+    renderReviewNow();
+    renderReviewMarks();
+  }
 }
 
 /**
@@ -1020,7 +1023,7 @@ function playAt(source, start, end) {
  * Именно его смотрят: кнопка в строке нужна, чтобы увидеть, кто говорит в
  * кадре. Возвращает false, когда готового фильма нет и показывать нечего.
  */
-function showInReview(start, end, muted = false) {
+function showInReview(start, end, muted = false, scroll = true) {
   const video = $('#reviewVideo');
   if (!state.output || !video.dataset.src) return false;
   stopReviewAt = end ?? null;
@@ -1032,7 +1035,9 @@ function showInReview(start, end, muted = false) {
   // Перемотка до загрузки метаданных отбрасывается — видео осталось бы в начале.
   if (video.readyState >= 1) go();
   else video.addEventListener('loadedmetadata', go, { once: true });
-  video.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  // Прокрутка нужна нажатию из таблицы: плеер выше и вне поля зрения. При
+  // ходьбе по репликам он и так перед глазами — дёргать страницу незачем.
+  if (scroll) video.scrollIntoView({ behavior: 'smooth', block: 'center' });
   return true;
 }
 
@@ -1129,7 +1134,7 @@ function genderNote(speaker) {
 }
 
 function reviewVoiceFor(speaker) {
-  return review.overrides.voices[speaker] ?? review.data.voiceMap[speaker] ?? review.data.defaultVoice;
+  return voiceOf(speaker);
 }
 
 function voiceInfo(name) {
@@ -1191,13 +1196,19 @@ function renderReviewNow() {
       <label>${t('review.voiceOfSpeaker')} <select id="reviewVoice">${(review.data.voices ?? []).map((item) => `<option value="${escapeAttr(item.name)}" ${item.name === voice.name ? 'selected' : ''}>${escapeHtml(item.name)} — ${item.gender}, ${escapeHtml(item.note)}</option>`).join('')}</select></label>
     </div>`;
 
+  /*
+   * Переход к реплике: проигрывает её одну и останавливается.
+   *
+   * Панель — навигатор по репликам: идёшь подряд и правишь по дороге. Если
+   * после реплики видео едет дальше, следующую метку слышишь раньше, чем
+   * успеваешь что-то сделать с этой.
+   */
   const seekTo = (index) => {
     if (index < 0 || index >= state.segments.length) return;
-    const video = $('#reviewVideo');
-    video.currentTime = Math.max(0, state.segments[index].start - 0.2);
     review.index = index;
     renderReviewNow();
-    video.play().catch(() => {});
+    const where = spokenAt(state.segments[index]);
+    showInReview(Math.max(0, where.start - 0.2), where.end + 0.05, false, false);
   };
   $('#reviewPrev').addEventListener('click', () => seekTo(review.index - 1));
   $('#reviewNext').addEventListener('click', () => seekTo(review.index + 1));
@@ -1219,16 +1230,11 @@ function renderReviewNow() {
     renderReviewNow();
     renderReviewMarks();
   });
-  $('#reviewGender')?.addEventListener('click', () => {
-    review.overrides.voices[segment.speaker] = alternative.name;
-    renderReviewNow();
-    renderReviewMarks();
-  });
-  $('#reviewVoice').addEventListener('change', (event) => {
-    review.overrides.voices[segment.speaker] = event.target.value;
-    renderReviewNow();
-    renderReviewMarks();
-  });
+  // Голос меняется через общую точку: она же перерисовывает таблицу и помечает
+  // правку к сохранению. Пока панель писала правку сама, таблица показывала
+  // прежний голос, а «Сохранить правки» не знала, что переозвучивать.
+  $('#reviewGender')?.addEventListener('click', () => setVoice(segment.speaker, alternative.name));
+  $('#reviewVoice').addEventListener('change', (event) => setVoice(segment.speaker, event.target.value));
 }
 
 function reviewMarks() {
