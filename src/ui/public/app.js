@@ -971,8 +971,9 @@ let stopReviewAt = null;
 function playTranslated(segment) {
   const where = spokenAt(segment);
   // Готовый дубляж — там и картинка, и русская речь на своём месте.
-  if (state.output) {
-    playAt(state.output, where.start, where.end + 0.05);
+  if (showInReview(where.start, where.end + 0.05)) {
+    // Оригинальная дорожка снизу замолкает: играет фильм.
+    $('#player').pause();
     return;
   }
 
@@ -1014,12 +1015,37 @@ function playAt(source, start, end) {
 }
 
 /**
- * Оригинал: исходное видео со своим звуком — по нему и видно, кто говорит.
+ * Показывает место в плеере просмотра — том, что в карточке сверху.
+ *
+ * Именно его смотрят: кнопка в строке нужна, чтобы увидеть, кто говорит в
+ * кадре. Возвращает false, когда готового фильма нет и показывать нечего.
+ */
+function showInReview(start, end, muted = false) {
+  const video = $('#reviewVideo');
+  if (!state.output || !video.dataset.src) return false;
+  stopReviewAt = end ?? null;
+  video.muted = muted;
+  const go = () => {
+    video.currentTime = Math.max(0, start);
+    video.play().catch(() => {});
+  };
+  // Перемотка до загрузки метаданных отбрасывается — видео осталось бы в начале.
+  if (video.readyState >= 1) go();
+  else video.addEventListener('loadedmetadata', go, { once: true });
+  video.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  return true;
+}
+
+/**
+ * Оригинал: кадры показывает плеер просмотра, звук даёт исходная дорожка —
+ * поэтому картинка идёт без своего звука, иначе слышно было бы два сразу.
  * У ссылки исходника на диске нет, там остаётся извлечённая дорожка.
  */
 function playOriginal(start, end) {
+  const shown = showInReview(start, end, true);
   const isUrl = /^https?:/i.test(state.project ?? '');
-  playAt(!isUrl && state.project ? state.project : state.originalAudio, start, end);
+  const source = !isUrl && state.project && !shown ? state.project : state.originalAudio;
+  playAt(source, start, end);
 }
 $('#player').addEventListener('timeupdate', () => {
   const player = $('#player');
