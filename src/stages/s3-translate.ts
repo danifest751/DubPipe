@@ -286,6 +286,7 @@ export function lengthStats(
   tolerance: number,
   toleranceFloorSeconds = 0,
   overheadSeconds = 0,
+  room: (segment: Segment) => number = slotOf,
 ): LengthStats {
   const translated = segments.filter((segment) => segment.text_ru !== null);
   let within = 0;
@@ -295,7 +296,7 @@ export function lengthStats(
   for (const segment of translated) {
     const verdict = lengthVerdict(
       segment.text_ru!,
-      slotOf(segment),
+      room(segment),
       charsPerSecond,
       tolerance,
       toleranceFloorSeconds,
@@ -412,11 +413,12 @@ export function collectMisfits(
   toleranceFloorSeconds: number,
   expansionCap: number = MAX_EXPANSION,
   overheadSeconds = 0,
+  room: (segment: Segment) => number = slotOf,
 ): Array<{ segment: Segment; action: 'shorten' | 'expand'; targetChars: number }> {
   const misfits: Array<{ segment: Segment; action: 'shorten' | 'expand'; targetChars: number }> = [];
   for (const segment of segments) {
     if (segment.text_ru === null) continue;
-    const slot = slotOf(segment);
+    const slot = room(segment);
     const verdict = lengthVerdict(segment.text_ru, slot, charsPerSecond, tolerance, toleranceFloorSeconds, overheadSeconds);
     if (verdict.withinTolerance) continue;
     const action = verdict.ratio > 1 ? 'shorten' : 'expand';
@@ -436,6 +438,26 @@ function chunk<T>(items: T[], size: number): T[][] {
 }
 
 /**
+ * Сколько места отведено каждой реплике: её слот плюс пауза, которую займёт
+ * укладка. Считается один раз на прогон и раздаётся всем, кому нужно знать
+ * длину: заказу перевода, сводке и корректирующему проходу. Разные ответы на
+ * этот вопрос в разных местах — источник половины сегодняшних дефектов.
+ */
+export function roomFor(config: DubConfig, segments: Segment[]): (segment: Segment) => number {
+  const ordered = [...segments].sort((a, b) => a.start - b.start);
+  const byId = new Map(
+    ordered.map((segment, index) => [
+      segment.id,
+      availableSeconds(ordered, index, {
+        borrowSeconds: config.alignment.borrow_silence_ms / 1000,
+        gapSeconds: config.alignment.gap_ms / 1000,
+      }),
+    ]),
+  );
+  return (segment: Segment) => byId.get(segment.id) ?? slotOf(segment);
+}
+
+/**
  * Single corrective pass over replicas outside the length window (SPEC FR-3).
  * A rewrite is kept only when it actually improves the fit, so the pass can
  * never make the result worse.
@@ -448,7 +470,8 @@ async function fitLengths(
 ): Promise<number> {
   const { chars_per_second: cps, length_tolerance: tolerance, speech_overhead_seconds: overhead } = config.translate;
   const floor = config.translate.length_tolerance_floor_ms / 1000;
-  const misfits = collectMisfits(segments, cps, tolerance, floor, languageProfile(config.asr.language).expansionCap, overhead);
+  const room = roomFor(config, segments);
+  const misfits = collectMisfits(segments, cps, tolerance, floor, languageProfile(config.asr.language).expansionCap, overhead, room);
   if (misfits.length === 0) return 0;
   log.progress(`подгонка длины: реплик вне допуска ${misfits.length}`, null);
 
@@ -542,12 +565,13 @@ export async function translateSegments(
     context_segments: contextSize,
     speech_overhead_seconds: overhead,
   } = config.translate;
+  const room = roomFor(config, segments);
   const floor = config.translate.length_tolerance_floor_ms / 1000;
 
   if (segments.length === 0) {
     return {
       segments,
-      stats: lengthStats([], cps, tolerance, floor, overhead),
+      stats: lengthStats([], cps, tolerance, floor, overhead, room),
       glossary: {},
       usage,
       elapsedMs: 0,
@@ -559,21 +583,6 @@ export async function translateSegments(
   let failedBatches = 0;
   // Язык оригинала — параметр: от него зависят и предел длины перевода, и промпт.
   const sourceLanguage = languageProfile(config.asr.language);
-  // Сколько места у реплики на самом деле: её слот плюс пауза после неё,
-  // которую займёт укладка. Иначе на редком на диалог материале у модели
-  // просят перевести реплику одной буквой — слот там короче надбавки.
-  const ordered = [...segments].sort((a, b) => a.start - b.start);
-  const roomByIndex = new Map(
-    ordered.map((segment, index) => [
-      segment.id,
-      availableSeconds(ordered, index, {
-        borrowSeconds: config.alignment.borrow_silence_ms / 1000,
-        gapSeconds: config.alignment.gap_ms / 1000,
-      }),
-    ]),
-  );
-  const room = (segment: Segment) => roomByIndex.get(segment.id) ?? slotOf(segment);
-
   const batches = planBatches(segments, config.translate.batch_size);
   const glossary: Record<string, string> = {};
 
@@ -649,7 +658,7 @@ export async function translateSegments(
 
   return {
     segments,
-    stats: lengthStats(segments, cps, tolerance, floor, overhead),
+    stats: lengthStats(segments, cps, tolerance, floor, overhead, room),
     glossary,
     usage,
     elapsedMs: Date.now() - started,
