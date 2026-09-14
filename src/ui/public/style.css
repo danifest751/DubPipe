@@ -385,7 +385,12 @@ td.num input { width: 78px; min-width: 0; font-variant-numeric: tabular-nums; }
  */
 #segmentsTable { table-layout: fixed; }
 #segmentsTable td textarea { min-height: 58px; }
-#segmentsTable td:last-child { white-space: nowrap; }
+/*
+ * Кнопки прослушивания переносятся, а не тянут колонку.
+ * Запрет переноса делал ячейку шире отведённого, и таблица вылезала за край
+ * карточки на разницу — ровно на те полсотни пикселей, что не давали дотянуться.
+ */
+#segmentsTable td:last-child { display: flex; flex-wrap: wrap; gap: 4px; align-content: flex-start; }
 #segmentsTable th { position: relative; }
 
 /* Тянучка на правом краю заголовка: ширина запоминается на этом устройстве. */
