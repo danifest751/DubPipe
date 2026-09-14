@@ -218,6 +218,131 @@ export interface BuildOptions {
 }
 
 /**
+ * Фразы, которых в фильме не было: whisper выучил их из субтитров обучающей
+ * выборки и вставляет на музыке и в тишине. На корейской дораме такая формула
+ * про субтитры и рекламу заняла 68 реплик из 412 — каждая шестая.
+ *
+ * Список намеренно узкий: сюда попадают только служебные формулы озвучки и
+ * титров, а не обычные слова, которые могут прозвучать в кадре.
+ */
+const HALLUCINATION_PATTERNS: RegExp[] = [
+  // Корейский: «предоставлены субтитры», «субтитры by такой-то», «субтитры
+  // выбираются в настройках», «содержит рекламу», «подпишитесь». Вариантов у
+  // формулы много, и список приходится расширять под каждый новый — это его
+  // слабое место, поэтому главный заслон стоит раньше, на декодировании.
+  /자막[은는이가]?\s*(제공|출처|by|설정)/iu,
+  /한글\s*자막/u,
+  /광고를?\s*포함/u,
+  /구독\s*(과|와|,)?\s*좋아요/u,
+  /시청해\s*주셔서\s*감사/u,
+  // Английский: типовые концовки роликов и кредиты субтитров.
+  /\bsubtitles?\s+(by|provided\s+by)\b/i,
+  /\bthanks?\s+for\s+watching\b/i,
+  /\bplease\s+subscribe\b/i,
+  // Русский: те же формулы в переводных субтитрах.
+  /субтитры\s+(сделал|подготовил|предоставл)/iu,
+  /спасибо\s+за\s+просмотр/iu,
+  // Подпись переводчика целой репликой: «by 한효정». Только с именем не на
+  // латинице — иначе под правило попадает обычное «by the way».
+  /^by\s+[\p{Script=Hangul}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Cyrillic}]/u,
+  // Ссылки: в речи их не бывает, а в титрах сколько угодно.
+  /\b(?:https?:\/\/|www\.)\S+/i,
+];
+
+/**
+ * Обрывки той же формулы: модель начинает её и обрывается на первом слове.
+ * На корейском эпизоде так осталось три реплики из одного слова «한글», и
+ * переводчик сделал из них «Корейский» и «Субтитры» — в дубляже это слышно.
+ *
+ * Здесь именно точное совпадение со всей репликой: то же слово внутри живой
+ * фразы ничего не значит и остаётся.
+ */
+const HALLUCINATION_FRAGMENTS = new Set([
+  '한글',
+  '자막',
+  '광고',
+  '포함하고 있습니다', // хвост той же фразы: «…и содержит рекламу»
+  'subtitles',
+  'subtitle',
+  'субтитры',
+]);
+
+/** Текст — служебная формула из титров, а не речь из фильма. */
+export function isHallucination(text: string): boolean {
+  const clean = text.trim();
+  if (!clean) return false;
+  // Хвостовые знаки препинания и корейские падежные частицы: «자막은» — то же
+  // «자막», просто в именительном падеже.
+  const bare = clean
+    .replace(/[\p{P}\s]+$/u, '')
+    .replace(/(?<=[\p{Script=Hangul}])(은|는|이|가|을|를|도|만)$/u, '')
+    .toLowerCase();
+  if (HALLUCINATION_FRAGMENTS.has(bare)) return true;
+  return HALLUCINATION_PATTERNS.some((pattern) => pattern.test(clean));
+}
+
+/** Сколько раз подряд повторяется одна и та же группа слов в начале текста. */
+function loopLength(words: string[], size: number): number {
+  const chunk = words.slice(0, size).join(' ');
+  let times = 0;
+  while (words.slice(times * size, (times + 1) * size).join(' ') === chunk) times++;
+  return times;
+}
+
+/**
+ * Whisper иногда зацикливается внутри одной реплики и повторяет фразу подряд
+ * несколько раз. Оставляем одно вхождение: остальное — артефакт декодирования.
+ */
+export function trimLoopedText(text: string): string {
+  const words = text.trim().split(/\s+/);
+  if (words.length < 6) return text.trim();
+  for (let size = 1; size <= Math.floor(words.length / 3); size++) {
+    const times = loopLength(words, size);
+    if (times >= 3 && times * size === words.length) {
+      return words.slice(0, size).join(' ');
+    }
+  }
+  return text.trim();
+}
+
+/** Одинаковый текст без учёта регистра и лишних пробелов. */
+function sameText(a: string, b: string): boolean {
+  const normalize = (text: string) => text.replace(/\s+/g, ' ').trim().toLowerCase();
+  return normalize(a) === normalize(b);
+}
+
+/**
+ * Схлопывает залипания: подряд идущие реплики с одинаковым текстом, которые
+ * накладываются друг на друга по времени.
+ *
+ * Признак именно наложение, а не длина серии. Замер на корейской дораме:
+ * формула-галлюцинация повторилась 68 раз, максимум 42 подряд, и дала 16
+ * наложений; реплика робота — 24 раза, 5 наложений. А настоящая речь —
+ * «серьёзно?» 15 раз, «угу» 13 раз, имя героя 14 раз, серии до 12 подряд —
+ * не дала ни одного наложения. Человек не может произнести фразу, не закончив
+ * предыдущую; декодер whisper может.
+ */
+export function collapseRepeats<T extends { start: number; end: number; text: string }>(segments: T[]): T[] {
+  const result: T[] = [];
+  let index = 0;
+  while (index < segments.length) {
+    const current = segments[index]!;
+    let last = index;
+    while (last + 1 < segments.length && sameText(segments[last + 1]!.text, current.text)) last++;
+
+    const run = last - index + 1;
+    const overlapping = segments
+      .slice(index, last + 1)
+      .some((segment, position, group) => position > 0 && segment.start < group[position - 1]!.end - 0.01);
+
+    result.push(current);
+    // Наложение внутри серии — залипание: берём только первую реплику.
+    index = run > 1 && overlapping ? last + 1 : index + 1;
+  }
+  return result;
+}
+
+/**
  * Full S2 post-processing: refine edges → drop noise and sub-0.4 s fragments →
  * split over-long replicas → renumber → flag overlaps.
  */
@@ -230,8 +355,14 @@ export function buildSegments(raw: RawSegment[], options: BuildOptions = {}): Se
 
   const split = refined.flatMap((segment) => splitLongSegment(segment, maxSeconds));
 
-  const kept = split.filter(
-    (segment) => !isNonSpeech(segment.text) && segment.end - segment.start >= minSeconds,
+  // Галлюцинации whisper: служебные формулы из титров и залипания на одном
+  // тексте. Их отсеиваем до нарезки на реплики, иначе они уходят в перевод,
+  // озвучиваются и занимают эфир вместо настоящей речи.
+  const cleaned = collapseRepeats(split.map((segment) => ({ ...segment, text: trimLoopedText(segment.text) })));
+
+  const kept = cleaned.filter(
+    (segment) =>
+      !isNonSpeech(segment.text) && !isHallucination(segment.text) && segment.end - segment.start >= minSeconds,
   );
 
   const segments = kept

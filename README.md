@@ -78,6 +78,14 @@ Word timings come from whisper.cpp DTW alignment rather than the heuristic offse
 heuristic puts the first words of a phrase at the start of the whole segment, which on real
 material lands 0.5–1.3 s before the speech actually begins.
 
+Recognition also invents text. Whisper learned subtitle files during training, so on music
+and in silence it writes out the boilerplate it saw there — credits for the captions, ad
+notices, "thanks for watching" — and sometimes loops a single phrase for minutes. On a Korean
+episode that was 68 replicas out of 412, which the pipeline then dutifully translated and
+voiced. S2 drops them: known captioning formulas by pattern, and stuck decoding by the one
+property real speech never has — identical lines that overlap in time. Repeated lines that do
+not overlap are kept, because a character really can say "seriously?" twelve times in a row.
+
 ## Requirements
 
 - **Node.js 20+** (tested on 25.9)

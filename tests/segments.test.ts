@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildSegments,
+  collapseRepeats,
+  isHallucination,
   isNonSpeech,
+  trimLoopedText,
   markOverlaps,
   refineBoundaries,
   splitLongSegment,
@@ -219,5 +222,96 @@ describe('S2: сборка итоговых сегментов', () => {
     expect(summary.speechSeconds).toBe(3);
     expect(summary.speakers).toEqual(['speaker_0', 'speaker_1']);
     expect(summary.overlaps).toBe(0);
+  });
+});
+
+describe('FR-2: галлюцинации whisper', () => {
+  const raw = (start: number, end: number, text: string) => ({ start, end, text });
+
+  it('служебные формулы из титров речью не считаются', () => {
+    // Реальный случай: корейская дорама, 68 реплик из 412 — одна и та же формула.
+    expect(isHallucination('한글 자막 제공 및 광고를 포함하고 있습니다.')).toBe(true);
+    expect(isHallucination('Subtitles by the community')).toBe(true);
+    expect(isHallucination('Thanks for watching!')).toBe(true);
+    expect(isHallucination('Субтитры сделал энтузиаст')).toBe(true);
+    expect(isHallucination('Смотрите на www.example.com')).toBe(true);
+  });
+
+  it('обычную речь не трогает', () => {
+    expect(isHallucination('고마워요. 회의실은 어디예요?')).toBe(false);
+    expect(isHallucination('Спасибо, я уже посмотрел этот фильм.')).toBe(false);
+    expect(isHallucination('We should watch it together.')).toBe(false);
+  });
+
+  it('ловит и другие написания формулы из титров', () => {
+    // Так их пишет large-v3: коротко, в первые полторы минуты, без залипания.
+    expect(isHallucination('자막은 설정에서 선택하실 수 있습니다.')).toBe(true);
+    expect(isHallucination('한글자막 by 한효정')).toBe(true);
+    expect(isHallucination('by 한효정')).toBe(true);
+    // Латинское «by» в начале живой фразы — не подпись переводчика.
+    expect(isHallucination('by the way, I called him')).toBe(false);
+    expect(isHallucination('Stand by me.')).toBe(false);
+  });
+
+  it('обрывок формулы в одно слово тоже отсеивается', () => {
+    // Так и звучало в дубляже: модель начала формулу и оборвалась, переводчик
+    // сделал из «한글» слово «Корейский», и оно прозвучало посреди диалога.
+    expect(isHallucination('한글')).toBe(true);
+    expect(isHallucination('자막.')).toBe(true);
+    // Так их пишет large-v3: с падежной частицей и хвостом фразы отдельной репликой.
+    expect(isHallucination('자막은')).toBe(true);
+    expect(isHallucination('포함하고 있습니다.')).toBe(true);
+    expect(isHallucination('Subtitles')).toBe(true);
+    // То же слово внутри живой фразы — обычная речь.
+    expect(isHallucination('한글 배우고 있어요.')).toBe(false);
+    expect(isHallucination('Включи субтитры, пожалуйста.')).toBe(false);
+  });
+
+  it('зацикленный внутри реплики текст обрезается до одного вхождения', () => {
+    expect(trimLoopedText('퇴근하고 던져요 퇴근하고 던져요 퇴근하고 던져요')).toBe('퇴근하고 던져요');
+    expect(trimLoopedText('да да да да да да')).toBe('да');
+    // Короткие фразы и обычный текст остаются целыми.
+    expect(trimLoopedText('да да да')).toBe('да да да');
+    expect(trimLoopedText('Мы уходим прямо сейчас и забираем всех')).toBe('Мы уходим прямо сейчас и забираем всех');
+  });
+
+  it('залипание на одном тексте схлопывается в одну реплику', () => {
+    const stuck = [
+      raw(10, 11, 'одно и то же'),
+      raw(11, 12.2, 'одно и то же'),
+      raw(12, 13.4, 'одно и то же'),
+      raw(13.4, 14, 'настоящая речь'),
+    ];
+    const collapsed = collapseRepeats(stuck);
+    expect(collapsed.map((item) => item.text)).toEqual(['одно и то же', 'настоящая речь']);
+  });
+
+  it('две одинаковые реплики с паузой между ними остаются обе', () => {
+    const genuine = [raw(10, 11, 'Кто там?'), raw(30, 31, 'Кто там?')];
+    expect(collapseRepeats(genuine)).toHaveLength(2);
+  });
+
+  it('две одинаковые реплики внахлёст — это залипание', () => {
+    const overlapping = [raw(10, 12, 'Кто там?'), raw(11.5, 13, 'Кто там?')];
+    expect(collapseRepeats(overlapping)).toHaveLength(1);
+  });
+
+  it('длинная серия без наложений — настоящая речь, её не трогаем', () => {
+    // На дораме «серьёзно?» прозвучало 12 раз подряд вплотную и ни разу внахлёст.
+    const genuine = Array.from({ length: 12 }, (_, index) => raw(10 + index, 11 + index, 'серьёзно?'));
+    expect(collapseRepeats(genuine)).toHaveLength(12);
+  });
+
+  it('buildSegments выбрасывает галлюцинации вместе с залипанием', () => {
+    const segments = buildSegments(
+      [
+        raw(1, 3, '한글 자막 제공 및 광고를 포함하고 있습니다.'),
+        raw(3, 5, '한글 자막 제공 및 광고를 포함하고 있습니다.'),
+        raw(6, 8, '고마워요. 회의실은 어디예요?'),
+      ],
+      { vadWindowMs: 0 },
+    );
+    expect(segments).toHaveLength(1);
+    expect(segments[0]!.text_en).toContain('회의실');
   });
 });
