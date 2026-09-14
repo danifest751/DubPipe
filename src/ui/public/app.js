@@ -837,10 +837,16 @@ function playTranslated(segment) {
   const duration = segment.aligned_duration ?? segment.tts_duration;
 
   if (state.output && video.dataset.src) {
-    const start = segment.start + (segment.shift_ms ?? 0) / 1000;
-    stopReviewAt = duration ? start + duration + 0.05 : null;
-    video.currentTime = start;
-    video.play();
+    const where = spokenAt(segment);
+    stopReviewAt = duration ? where.end + 0.05 : null;
+    // Перемотка до готовности метаданных отбрасывается — видео остаётся на
+    // месте, и слышно не ту реплику, на которую нажали.
+    const seek = () => {
+      video.currentTime = where.start;
+      video.play().catch(() => {});
+    };
+    if (video.readyState >= 1) seek();
+    else video.addEventListener('loadedmetadata', seek, { once: true });
     $('#review').scrollIntoView({ behavior: 'smooth', block: 'start' });
     return;
   }
@@ -942,13 +948,27 @@ function voiceInfo(name) {
   return (review.data?.voices ?? []).find((voice) => voice.name === name) ?? { name, gender: '—', note: '' };
 }
 
+/**
+ * Где в готовом файле звучит русская реплика.
+ *
+ * Не там, где говорили в оригинале: укладка вправе сдвинуть реплику вправо (по
+ * умолчанию до полутора секунд), и длится она ровно столько, сколько её клип.
+ * Пока это считалось по исходным таймкодам, панель «звучит сейчас» называла
+ * одну реплику, а слышно было другую.
+ */
+function spokenAt(segment) {
+  const start = segment.start + (segment.shift_ms ?? 0) / 1000;
+  const duration = segment.aligned_duration ?? segment.tts_duration;
+  return { start, end: duration ? start + duration : segment.end + (segment.shift_ms ?? 0) / 1000 };
+}
+
 function currentReviewIndex(time) {
   // Реплика, звучащая сейчас; в паузе между репликами — последняя прозвучавшая.
   let found = -1;
   state.segments.forEach((segment, index) => {
-    if (segment.start <= time + 0.05) found = index;
+    if (spokenAt(segment).start <= time + 0.05) found = index;
   });
-  if (found >= 0 && time > state.segments[found].end + 1.5 && (found + 1 < state.segments.length)) return found;
+  if (found >= 0 && time > spokenAt(state.segments[found]).end + 1.5 && found + 1 < state.segments.length) return found;
   return found;
 }
 
