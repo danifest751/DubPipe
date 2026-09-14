@@ -32,6 +32,13 @@ dependencies (`typescript`, `vitest`, `electron`, `electron-builder`, `tsx`) are
 permissive licenses — MIT, ISC or Apache-2.0. See `package.json` and `npm ls --all` for the
 exact set and versions.
 
+## Data included in the source
+
+`src/stages/hallucination-phrases.ts` holds 89 phrases that whisper invents on noise,
+taken from the [sachaarbonel/whisper-hallucinations](https://huggingface.co/datasets/sachaarbonel/whisper-hallucinations)
+dataset (MIT). Only long phrases that either appeared more than once or name subtitles,
+subscriptions or thanks for watching were kept; the file says why.
+
 ## If you package the application yourself
 
 `npm run app:build` produces an Electron application that contains this project's code and

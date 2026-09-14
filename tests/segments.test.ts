@@ -253,6 +253,21 @@ describe('FR-2: галлюцинации whisper', () => {
     expect(isHallucination('Stand by me.')).toBe(false);
   });
 
+  it('знает формулы, собранные на записях шума', () => {
+    // Список собран экспериментально: модель гоняли на шуме и записывали вывод.
+    expect(isHallucination('Subtitles by the Amara.org community')).toBe(true);
+    expect(isHallucination('Подписывайтесь на мой канал!')).toBe(true);
+    expect(isHallucination('ご視聴ありがとうございました')).toBe(true);
+    expect(isHallucination("Merci d'avoir regardé cette vidéo")).toBe(true);
+  });
+
+  it('обычную длинную фразу из того же списка не трогает', () => {
+    // «Это очень красивый город» — тоже выдумка на шуме, но и обычная речь.
+    // Такие в список не берутся: цена ошибки — вырезанная живая реплика.
+    expect(isHallucination('Es ist eine sehr schöne Stadt')).toBe(false);
+    expect(isHallucination('Мы туда идём, подожди минуту')).toBe(false);
+  });
+
   it('обрывок формулы в одно слово тоже отсеивается', () => {
     // Так и звучало в дубляже: модель начала формулу и оборвалась, переводчик
     // сделал из «한글» слово «Корейский», и оно прозвучало посреди диалога.

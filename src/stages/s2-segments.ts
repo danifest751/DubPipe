@@ -1,4 +1,5 @@
 import { makeSegment, type Segment, type SegmentFlag, type WordTiming } from '../core/types.js';
+import { KNOWN_HALLUCINATIONS } from './hallucination-phrases.js';
 
 /**
  * Segment post-processing (SPEC FR-2). Pure functions only: no ffmpeg, no
@@ -278,6 +279,14 @@ export function isHallucination(text: string): boolean {
     .replace(/(?<=[\p{Script=Hangul}])(은|는|이|가|을|를|도|만)$/u, '')
     .toLowerCase();
   if (HALLUCINATION_FRAGMENTS.has(bare)) return true;
+  // Собранные на шуме формулы сравниваются с репликой целиком и в том же виде,
+  // в каком собраны: без знаков препинания, строчными, одиночными пробелами.
+  const normalized = clean
+    .toLowerCase()
+    .replace(/[\p{P}\p{S}]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (KNOWN_HALLUCINATIONS.has(normalized)) return true;
   return HALLUCINATION_PATTERNS.some((pattern) => pattern.test(clean));
 }
 

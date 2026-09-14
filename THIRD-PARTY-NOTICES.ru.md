@@ -33,6 +33,14 @@ DubPipe распространяется под [лицензией MIT](LICENSE
 лицензиями MIT, ISC или Apache-2.0. Точный состав и версии — в `package.json` и в выводе
 `npm ls --all`.
 
+## Данные в исходном коде
+
+В `src/stages/hallucination-phrases.ts` лежат 89 фраз, которые whisper выдумывает на шуме.
+Они взяты из набора данных [sachaarbonel/whisper-hallucinations](https://huggingface.co/datasets/sachaarbonel/whisper-hallucinations)
+(лицензия MIT). Отобраны только длинные фразы, которые либо встретились не один раз, либо
+называют субтитры, подписку или благодарность за просмотр; причина отбора описана в самом
+файле.
+
 ## Если вы собираете приложение сами
 
 `npm run app:build` создаёт приложение Electron, в которое входит код этого проекта и сам
