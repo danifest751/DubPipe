@@ -31,8 +31,15 @@ export interface SpeechInterval {
 
 export const MALE_MAX_HZ = 155;
 export const FEMALE_MIN_HZ = 175;
-/** Меньше — оценка ненадёжна (короткие реплики, шум). */
-export const MIN_VOICED_SECONDS = 0.6;
+/**
+ * Меньше — оценка ненадёжна (короткие реплики, шум).
+ *
+ * Было 0.6 с: приговор о поле выносился по трём десяткам кадров и выходил
+ * жребием. На девяти записях говорящие, у которых звонкой речи меньше полутора
+ * секунд, — это ровно те шесть, чьи вердикты не выдерживали проверки
+ * распределением; у всех остальных её от двух секунд и выше.
+ */
+export const MIN_VOICED_SECONDS = 1.5;
 
 const FRAME = 1024;
 const HOP = 320; // 20 мс при 16 кГц
@@ -167,16 +174,97 @@ export const FEMALE_QUARTILE_MIN_HZ = 155;
  * но его спокойные фразы остаются ниже 150 — поэтому мужской пол определяется
  * по нижней квартили. Женский — когда и нижняя квартиль, и медиана высокие.
  */
+/**
+ * Сколько материала нужно, зависит от того, насколько ответ очевиден.
+ *
+ * Голос на 93 Гц — мужской, сколько бы его ни слушать; требовать под него
+ * полторы секунды звонкой речи бессмысленно, а на коротких ролях столько и не
+ * набирается. А вот 190 Гц — это ровно та полоса, где мужчина и женщина
+ * соседствуют, и там секунда записи даёт жребий, а не ответ.
+ */
+export const CLEAR_MALE_HZ = 120;
+export const CLEAR_FEMALE_HZ = 260;
+/** Абсолютный низ: меньше — это уже не замер, а несколько случайных кадров. */
+export const MIN_VOICED_FLOOR_SECONDS = 0.6;
+
 export function classifyGender(f0: number | null, voicedSeconds: number, p25: number | null = f0): VoiceGender {
-  if (f0 === null || p25 === null || voicedSeconds < MIN_VOICED_SECONDS) return '—';
+  if (f0 === null || p25 === null || voicedSeconds < MIN_VOICED_FLOOR_SECONDS) return '—';
+  // Материала меньше нормы — отвечаем, только если ответ не у границы.
+  if (voicedSeconds < MIN_VOICED_SECONDS && f0 >= CLEAR_MALE_HZ && f0 <= CLEAR_FEMALE_HZ) return '—';
   if (p25 < MALE_QUARTILE_MAX_HZ && f0 < FEMALE_MIN_HZ + 100) return 'м';
   if (p25 >= FEMALE_QUARTILE_MIN_HZ && f0 > FEMALE_MIN_HZ) return 'ж';
   return '—';
 }
 
+/**
+ * Сворачивает октавные ошибки к главному сгустку.
+ *
+ * YIN ошибается ровно вдвое: у мужского голоса первый провал попадает на
+ * половину периода и тон выходит вдвое выше, у женского — наоборот. Отдельно
+ * взятый кадр так не поправить: провал на удвоенном периоде бывает не глубже.
+ * Зато на распределении это видно сразу — у мужчины из замеров сгусток на
+ * 125–150 Гц и хвост на 250–400, у женщины сгусток 300–400 и хвост ниже 150.
+ *
+ * Поэтому решение принимается не по кадру, а по всему голосу: находится самый
+ * плотный полутоновый бин, и каждый замер делится или умножается на два, пока
+ * не окажется в пределах полуоктавы от него. На девяти записях это сузило
+ * разброс между квартилями у 22 говорящих из 37, а у самых кривых — с ×2.36
+ * до ×1.18.
+ *
+ * Без этого медиана и нижняя квартиль описывали разные сгустки: у одного
+ * говорящего выходило «медиана 238 Гц, квартиль 132» — по медиане женщина, по
+ * квартили мужчина. Отсюда и бралось ощущение случайности.
+ */
+export function foldOctaves(pitches: number[]): number[] {
+  if (pitches.length === 0) return [];
+  const logs = pitches.map((pitch) => Math.log2(pitch));
+
+  const STEP = 1 / 12; // полутон
+  const bins = new Map<number, number>();
+  for (const value of logs) {
+    const bin = Math.round(value / STEP);
+    bins.set(bin, (bins.get(bin) ?? 0) + 1);
+  }
+  // Соседние бины учитываются с меньшим весом: голос не стоит на одной ноте,
+  // и без сглаживания «самым плотным» оказывается случайный пик.
+  let center = 0;
+  let best = -1;
+  for (const bin of bins.keys()) {
+    const weight = (bins.get(bin - 1) ?? 0) + (bins.get(bin) ?? 0) * 2 + (bins.get(bin + 1) ?? 0);
+    if (weight > best) {
+      best = weight;
+      center = bin * STEP;
+    }
+  }
+
+  /*
+   * Сворачивается только то, что стоит близко к ровной октаве от центра.
+   *
+   * Ошибка YIN — это ровно вдвое, по устройству алгоритма. Замер, отстоящий на
+   * три четверти октавы, — не ошибка, а настоящая высота: так звучит мужчина,
+   * повысивший голос. Его трогать нельзя, иначе крик станет женским голосом.
+   */
+  const OCTAVE_WINDOW = 2 / 12; // ±2 полутона от точной октавы
+  const foldTo = (value: number, to: number): number => {
+    let folded = value;
+    while (folded - to > 0.5 && Math.abs(folded - to - 1) <= OCTAVE_WINDOW) folded -= 1;
+    while (to - folded > 0.5 && Math.abs(to - folded - 1) <= OCTAVE_WINDOW) folded += 1;
+    return folded;
+  };
+  // Уточнение центра медианой уже свёрнутых значений: бин задаёт его грубо.
+  for (let pass = 0; pass < 3; pass++) {
+    const folded = logs.map((value) => foldTo(value, center)).sort((a, b) => a - b);
+    center = folded[Math.floor(folded.length / 2)] ?? center;
+  }
+
+  return logs.map((value) => 2 ** foldTo(value, center));
+}
+
 export function profileFromPitches(pitches: number[], secondsPerFrame: number): SpeakerProfile {
   if (pitches.length === 0) return { gender: '—', f0: null, voicedSeconds: 0 };
-  const sorted = [...pitches].sort((a, b) => a - b);
+  // Квартили считаются по свёрнутым замерам: иначе они описывают разные октавы
+  // одного голоса, и правило читает то один сгусток, то другой.
+  const sorted = foldOctaves(pitches).sort((a, b) => a - b);
   const at = (share: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * share))]!;
   const median = at(0.5);
   const voicedSeconds = pitches.length * secondsPerFrame;
