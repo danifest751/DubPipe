@@ -33,6 +33,11 @@ for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8")
 
 
+def note(message):
+    """Строка для журнала прогона: TS-сторона пишет такие в отладочный вывод."""
+    print(message, file=sys.stderr, flush=True)
+
+
 def fail(message, code=2):
     print(json.dumps({"error": message}, ensure_ascii=False), file=sys.stderr)
     raise SystemExit(code)
@@ -47,6 +52,10 @@ def parse_args():
     parser.add_argument("--cache-dir")
     parser.add_argument("--token-env", default="HF_TOKEN")
     parser.add_argument("--offline", action="store_true")
+    # auto — видеокарта, если она есть и её видит torch; иначе процессор.
+    parser.add_argument(
+        "--device", default="auto", choices=("auto", "cpu", "gpu", "igpu", "dgpu", "cuda")
+    )
     parser.add_argument("--warmup", action="store_true")
     parser.add_argument("--probe", action="store_true")
     return parser.parse_args()
@@ -64,6 +73,62 @@ def configure_environment(args):
     # Телеметрию и напоминания об обновлениях — выключить: работаем офлайн.
     os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
     os.environ.setdefault("PYANNOTE_DATABASE_CONFIG", "")
+
+
+DISCRETE_MARKERS = ("rtx", "gtx", "geforce", "quadro", "tesla", "radeon pro", " rx ")
+INTEGRATED_MARKERS = ("graphics", "uhd", "iris", "vega", "apple m")
+
+
+def gpu_kind(name):
+    """Встроенная видеокарта или отдельная — по названию, как его отдаёт torch."""
+    text = f" {name.lower()} "
+    if any(marker in text for marker in DISCRETE_MARKERS):
+        return "discrete"
+    # «Radeon 780M Graphics», «Intel UHD Graphics» — графика внутри процессора.
+    if any(marker in text for marker in INTEGRATED_MARKERS):
+        return "integrated"
+    return "discrete"
+
+
+def pick_gpu(torch, preference):
+    """
+    Номер видеокарты для расчёта или None, если считать на процессоре.
+
+    Выбор мягкий: нет подходящего устройства — работаем на процессоре и
+    говорим об этом. Прогон важнее, чем настройка, которую нельзя выполнить.
+    """
+    if preference == "cpu":
+        return None
+    if not torch.cuda.is_available():
+        if preference != "auto":
+            note("видеокарта недоступна для torch, считаю на процессоре")
+        return None
+
+    names = [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())]
+    if not names:
+        return None
+    if preference == "auto" and getattr(torch.version, "hip", None):
+        # ROCm под Windows пока незрелый: MIOpen роняет часть операций, а обход
+        # отключает его ядра, и выигрыш падает до 1.2 раза (1 мин 41 с против
+        # 2 мин 02 с на пяти минутах записи). Двадцать процентов не стоят риска
+        # уронить работающий прогон, поэтому сам он видеокарту AMD не берёт —
+        # только по прямому указанию. С CUDA выигрыш совсем другого порядка.
+        note("видеокарта AMD (ROCm) сама не выбирается: укажите device явно")
+        return None
+    if preference in ("auto", "gpu", "cuda"):
+        # При выборе «просто видеокарта» отдельная предпочтительнее встроенной:
+        # у встроенной память общая с процессором и полоса у́же.
+        for index, name in enumerate(names):
+            if gpu_kind(name) == "discrete":
+                return index
+        return 0
+
+    wanted = "integrated" if preference == "igpu" else "discrete"
+    for index, name in enumerate(names):
+        if gpu_kind(name) == wanted:
+            return index
+    note(f"подходящей видеокарты ({preference}) нет среди: {', '.join(names)}; беру первую")
+    return 0
 
 
 def load_pipeline(args):
@@ -100,8 +165,32 @@ def load_pipeline(args):
         )
 
     torch.set_num_threads(max(1, os.cpu_count() or 1))
-    return pipeline, torch
 
+    # Почти вся диаризация — это сеть голосовых отпечатков: 105 секунд из 108
+    # на пятиминутном отрезке. Её и переносим на видеокарту, через onnxruntime:
+    # 0.20 с на пакет против 1.89 с у torch. Остальные шаги трогать не надо —
+    # сеть сегментации крошечная, и на видеокарте она вдесятеро медленнее, чем
+    # на процессоре, из-за пересылок.
+    if args.device != "cpu" and use_onnx_embedding(pipeline, args.cache_dir, True, torch):
+        note(f"остальные шаги: процессор, потоков {max(1, os.cpu_count() or 1)}")
+        return pipeline, torch
+
+    # Запасной путь: считать всё сетями torch, по возможности на видеокарте.
+    index = pick_gpu(torch, args.device)
+    if index is None:
+        note(f"устройство: процессор, потоков {max(1, os.cpu_count() or 1)}")
+        return pipeline, torch
+    if getattr(torch.version, "hip", None) and not miopen_works(torch):
+        # Без MIOpen свёртки считаются обычными ядрами torch: медленнее, но
+        # работает. На Radeon 780M это 1 мин 41 с против 2 мин 02 на процессоре.
+        note("MIOpen не собирает ядра, считаю без него")
+        torch.backends.cudnn.enabled = False
+    try:
+        pipeline.to(torch.device(f"cuda:{index}"))
+        note(f"устройство: {torch.cuda.get_device_name(index)}")
+    except Exception as error:  # noqa: BLE001 — откат на процессор важнее причины
+        note(f"не удалось занять видеокарту ({error}); считаю на процессоре")
+    return pipeline, torch
 
 def read_wav(path):
     """Читает WAV 16 бит моно и возвращает (float32 [1, N], частота)."""
@@ -145,6 +234,222 @@ class ProgressHook:
         return False
 
 
+EMBEDDING_ONNX = "embedding-wespeaker-resnet34.onnx"
+
+
+def export_embedding_onnx(model, path, torch):
+    """
+    Выгружает сеть голосовых отпечатков в ONNX. Делается один раз: файл
+    остаётся рядом с весами и переиспользуется всеми последующими прогонами.
+
+    Выгружается только сеть, без подготовки признаков: та использует
+    `torch.vmap`, который в ONNX не переводится, а стоит она копейки — 0.07 с
+    на пакет против 1.9 с у самой сети.
+    """
+
+    class Wrapper(torch.nn.Module):
+        def __init__(self, resnet):
+            super().__init__()
+            self.resnet = resnet
+
+        def forward(self, fbank, weights):
+            return self.resnet(fbank, weights=weights)[1]
+
+    with torch.no_grad():
+        sample = model.compute_fbank(torch.randn(2, 1, 16000 * 5))
+        weights = torch.rand(sample.shape[0], sample.shape[1])
+    temporary = f"{path}.partial"
+    torch.onnx.export(
+        Wrapper(model.resnet).eval(),
+        (sample, weights),
+        temporary,
+        input_names=["fbank", "weights"],
+        output_names=["embedding"],
+        dynamic_axes={
+            "fbank": {0: "batch", 1: "frames"},
+            "weights": {0: "batch", 1: "frames"},
+            "embedding": {0: "batch"},
+        },
+        opset_version=17,
+        dynamo=False,
+    )
+    os.replace(temporary, path)
+
+
+def embedding_session(path, prefer_gpu):
+    """
+    Сессия onnxruntime для отпечатков: видеокарта через DirectML, если она есть.
+
+    DirectML здесь выгоден именно на этой сети: 0.20 с на пакет против 1.13 с у
+    onnxruntime на процессоре и 1.89 с у torch. На маленькой сети сегментации
+    всё наоборот, поэтому её мы не трогаем.
+    """
+    import onnxruntime as ort
+
+    providers = list(ort.get_available_providers())
+    order = []
+    if prefer_gpu:
+        for name in ("DmlExecutionProvider", "CUDAExecutionProvider", "ROCMExecutionProvider"):
+            if name in providers:
+                order.append(name)
+    order.append("CPUExecutionProvider")
+    session = ort.InferenceSession(path, providers=order)
+    return session, session.get_providers()[0]
+
+
+def use_onnx_embedding(pipeline, cache_dir, prefer_gpu, torch):
+    """
+    Переводит шаг голосовых отпечатков на onnxruntime.
+
+    Именно он занимает 96% времени диаризации — 105 секунд из 108 на пятиминутном
+    отрезке, — а всё остальное pyannote делает быстро и остаётся как есть.
+
+    Любая неудача здесь не беда: возвращаем False, и прогон идёт прежним путём.
+    """
+    try:
+        from pyannote.audio.pipelines.speaker_verification import (
+            PyannoteAudioPretrainedSpeakerEmbedding,
+        )
+
+        holder = pipeline._embedding
+        model = holder.model_
+        path = os.path.join(cache_dir, EMBEDDING_ONNX)
+        if not os.path.exists(path):
+            note("выгружаю сеть отпечатков в ONNX (один раз)")
+            export_embedding_onnx(model, path, torch)
+        session, provider = embedding_session(path, prefer_gpu)
+
+        if not getattr(PyannoteAudioPretrainedSpeakerEmbedding, "_dubpipe_patched", False):
+            original = PyannoteAudioPretrainedSpeakerEmbedding.__call__
+
+            def call(self, waveforms, masks=None):
+                run = getattr(self, "_dubpipe_session", None)
+                if run is None:
+                    return original(self, waveforms, masks)
+                with torch.inference_mode():
+                    fbank = self.model_.compute_fbank(waveforms.to("cpu"))
+                if masks is None:
+                    weights = torch.ones(fbank.shape[0], fbank.shape[1])
+                else:
+                    weights = masks.detach().to("cpu").float()
+                return run.run(None, {"fbank": fbank.numpy(), "weights": weights.numpy()})[0]
+
+            PyannoteAudioPretrainedSpeakerEmbedding.__call__ = call
+            PyannoteAudioPretrainedSpeakerEmbedding._dubpipe_patched = True
+
+        holder._dubpipe_session = session
+        note(f"отпечатки голосов: onnxruntime, {provider}")
+        return True
+    except Exception as error:  # noqa: BLE001 — причина в журнал, прогон продолжается
+        note(f"ONNX для отпечатков не задействован ({type(error).__name__}: {str(error)[:70]})")
+        return False
+
+
+def miopen_works(torch):
+    """
+    Способен ли MIOpen собрать хоть одно ядро.
+
+    Он компилирует их на лету, а в пакетах ROCm под Windows нет стандартных
+    заголовков C++ — сборка падает на любом ядре: мы видели это и на
+    нормализации (ROCm#6150), и на обновлении состояния RNN. Выяснить это одной
+    маленькой операцией дешевле, чем уронить расчёт на середине и повторить его.
+    """
+    try:
+        x = torch.randn(2, 4, 8, device="cuda")
+        weight = torch.ones(4, device="cuda")
+        bias = torch.zeros(4, device="cuda")
+        torch.nn.functional.batch_norm(x, None, None, weight, bias, True, 0.1, 1e-5)
+        torch.cuda.synchronize()
+        return True
+    except Exception:  # noqa: BLE001 — причина не важна, важен факт
+        return False
+
+
+def patch_instance_norm(torch):
+    """
+    Считает нормализацию своими средствами вместо ядра MIOpen.
+
+    Ломается именно оно: MIOpen собирает MIOpenBatchNormFwdTrainSpatial на лету,
+    и под Windows сборка падает — в пакетах ROCm нет стандартных заголовков C++
+    (ROCm#6150, воспроизводится и на поддерживаемой RX 9060 XT). На Linux то же
+    ядро падает на ассемблерной вставке (TheRock#2488). А свёртки — основная
+    работа сети — считаются MIOpen нормально, поэтому глушить его целиком
+    значит терять их скорость ради одной сломанной операции.
+
+    Формула нормализации простая, и обычные операции torch дают тот же
+    результат: вычесть среднее по времени, поделить на разброс, применить
+    обучаемые коэффициенты.
+    """
+    from torch.nn.modules.instancenorm import _InstanceNorm
+
+    if getattr(_InstanceNorm, "_dubpipe_patched", False):
+        return
+    original = _InstanceNorm.forward
+
+    def forward(self, input):
+        # Скользящие средние здесь не используются; если они включены,
+        # поведение сложнее, и мы не вмешиваемся.
+        if self.track_running_stats or input.device.type != "cuda":
+            return original(self, input)
+        channel_dim = 1 if input.dim() > 2 else 0
+        spatial = tuple(range(channel_dim + 1, input.dim()))
+        mean = input.mean(dim=spatial, keepdim=True)
+        variance = input.var(dim=spatial, keepdim=True, unbiased=False)
+        output = (input - mean) * torch.rsqrt(variance + self.eps)
+        if self.affine:
+            shape = [1] * input.dim()
+            shape[channel_dim] = -1
+            output = output * self.weight.view(shape) + self.bias.view(shape)
+        return output
+
+    _InstanceNorm.forward = forward
+    _InstanceNorm._dubpipe_patched = True
+
+
+def run_pipeline(pipeline, audio, options):
+    """Один прогон диаризации с показом хода работы."""
+    with ProgressHook() as hook:
+        try:
+            return pipeline(audio, hook=hook, **options)
+        except TypeError:
+            return pipeline(audio, **options)
+
+
+def on_gpu(pipeline, torch):
+    """Считает ли конвейер на видеокарте — по устройству первого же параметра."""
+    device = getattr(pipeline, "device", None)
+    if device is not None:
+        return getattr(device, "type", "cpu") != "cpu"
+    return torch.cuda.is_available()
+
+
+def diarize_with_fallback(pipeline, audio, options, torch):
+    """
+    Считает диаризацию, спускаясь по ступеням при неудаче.
+
+    У ROCm под Windows собраны не все ядра, и заранее не известно, на какой
+    операции это вылезет. Ступени идут от быстрого к надёжному: видеокарта как
+    есть, видеокарта без ускоренных ядер MIOpen, процессор. Прогон дороже
+    ускорения, поэтому сдаёмся только на последней.
+    """
+    if not on_gpu(pipeline, torch):
+        return run_pipeline(pipeline, audio, options)
+
+    steps = ("видеокарта", "видеокарта без MIOpen", "процессор")
+    for step in steps:
+        if step == "видеокарта без MIOpen":
+            torch.backends.cudnn.enabled = False
+        elif step == "процессор":
+            pipeline.to(torch.device("cpu"))
+        try:
+            return run_pipeline(pipeline, audio, options)
+        except Exception as error:  # noqa: BLE001 — на видеокарте падает что угодно
+            if step == steps[-1]:
+                raise
+            note(f"{step}: не вышло ({type(error).__name__}: {str(error)[:70]}); пробую дальше")
+    raise RuntimeError("диаризация не выполнена ни на одной ступени")
+
+
 def main():
     args = parse_args()
     configure_environment(args)
@@ -180,11 +485,7 @@ def main():
         options["max_speakers"] = args.max_speakers
 
     print("progress=5", file=sys.stderr, flush=True)
-    with ProgressHook() as hook:
-        try:
-            annotation = pipeline(audio, hook=hook, **options)
-        except TypeError:
-            annotation = pipeline(audio, **options)
+    annotation = diarize_with_fallback(pipeline, audio, options, torch)
     # pyannote 4.x возвращает объект с полем speaker_diarization.
     annotation = getattr(annotation, "speaker_diarization", annotation)
 

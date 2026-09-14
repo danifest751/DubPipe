@@ -67,6 +67,16 @@ const asrSchema = z.object({
       engine: z.enum(['pyannote', 'pyannote-onnx', 'none']).default('pyannote'),
       model: z.string().min(1).default('pyannote/speaker-diarization-community-1'),
       max_speakers: z.number().int().min(1).max(16).default(4),
+      /**
+       * Где считать разбор по голосам. Это самый долгий расчёт конвейера — на
+       * 35-минутном эпизоде 17 минут против 5 у распознавания, — и видеокарта
+       * даёт здесь больше всего.
+       *
+       * `igpu` и `dgpu` выбирают встроенную или отдельную карту на машинах, где
+       * есть обе. `cuda` — то же самое, что `gpu`: имя оставлено потому, что
+       * torch показывает через этот интерфейс и ROCm у AMD.
+       */
+      device: z.enum(['auto', 'cpu', 'gpu', 'igpu', 'dgpu', 'cuda']).default('auto'),
       /** Имя переменной окружения с токеном Hugging Face — никогда не сам токен. */
       hf_token_env: z
         .string()

@@ -94,7 +94,9 @@ not overlap are kept, because a character really can say "seriously?" twelve tim
 - Python is optional and only for two stages: voice separation (`pip install numpy
   onnxruntime`) and speaker diarization (`pip install pyannote.audio`, which pulls in
   PyTorch, ~1 GB). Without Python, separation falls back to ducking the original and every
-  line gets a single voice; the rest of the pipeline never touches Python.
+  line gets a single voice; the rest of the pipeline never touches Python. An optional
+  `pip install onnxruntime-directml` moves the speaker embeddings onto the GPU and makes
+  diarization four times faster.
 
 The code targets Windows, Linux and macOS; the packaged desktop build and every measurement
 in this README come from Windows.
@@ -308,7 +310,7 @@ that is the first place to look.
 
 ## Using the GPU
 
-The most expensive step of the pipeline can run on the GPU.
+The two most expensive steps can run on the GPU, by two different mechanisms.
 
 **Recognition.** whisper.cpp publishes no AMD builds, so the CPU build is chosen
 automatically. A Vulkan build can be selected by hand — `asr.backend: vulkan` —
@@ -316,6 +318,23 @@ and the program says out loud that the archive comes from a third party. On a
 Radeon 780M an episode was recognised twice as fast: 2m18s against 4m57s. The
 text differs by about 9%: backends round differently, and on hard passages —
 shouting, singing — the decoding paths diverge.
+
+**Working out who speaks.** Here 96% of the time goes into a single network, the
+speaker embedding: 105 seconds out of 108 on a five-minute clip. It is exported
+to ONNX and runs through DirectML on any DirectX GPU: 27 seconds against 122 on
+the CPU, four times faster, with results identical down to fifty milliseconds and
+the speaker label. The segmentation network stays on the CPU — it is tiny, and on
+the GPU it is ten times slower, because the transfers cost more than the
+arithmetic saves.
+
+Nothing needs configuring: with `onnxruntime-directml` installed the embeddings
+run on the GPU, otherwise the old path is used. The ONNX export happens once and
+is kept next to the weights.
+
+ROCm on Windows is neither needed nor advised for this: MIOpen compiles its
+kernels at run time, the ROCm packages ship no C++ standard headers, and the
+compilation fails on every kernel. That is an AMD defect, reproducible on
+supported cards too ([ROCm#6150](https://github.com/ROCm/ROCm/issues/6150)).
 
 ## Performance
 

@@ -280,6 +280,8 @@ export async function diarize(
     hfCacheDir(modelsDir),
     '--token-env',
     config.asr.diarization.hf_token_env,
+    '--device',
+    config.asr.diarization.device,
     // Веса на месте — в сеть не ходим: без этого хаб проверяет версии
     // при каждом запуске и падает без подключения.
     '--offline',
