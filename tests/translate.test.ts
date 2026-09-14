@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildBatchRequest,
   collectMisfits,
+  markUntranslated,
   estimateSpeechSeconds,
   extractJson,
   formatContext,
@@ -220,5 +221,37 @@ describe('Промпт перевода', () => {
     expect(profanityRule('keep')).toContain('как есть');
     expect(profanityRule('hard')).toContain('***');
     expect(profanityRule('soft')).toContain('смягчай');
+  });
+});
+
+describe('FR-3: реплика осталась без перевода', () => {
+  it('латиницу оставляем как есть: русский голос её прочитает', () => {
+    const segment = makeSegment({ id: 3, start: 0, end: 2, text_en: 'Fair enough.' });
+    const warnings: string[] = [];
+    markUntranslated(segment, warnings);
+    expect(segment.text_ru).toBe('Fair enough.');
+    expect(segment.flags).toContain('translation_failed');
+    expect(warnings[0]).toContain('оставлен оригинал');
+  });
+
+  it('хангыль и иероглифы не подставляем: синтезатор сделает из них мусор', () => {
+    const warnings: string[] = [];
+    const korean = makeSegment({ id: 4, start: 0, end: 2, text_en: '고마워요. 회의실은 어디예요?' });
+    markUntranslated(korean, warnings);
+    expect(korean.text_ru).toBeNull();
+    expect(korean.flags).toContain('translation_failed');
+    expect(warnings[0]).toContain('без озвучки');
+
+    const chinese = makeSegment({ id: 5, start: 0, end: 2, text_en: '你好吗？' });
+    markUntranslated(chinese, warnings);
+    expect(chinese.text_ru).toBeNull();
+  });
+
+  it('флаг не задваивается при повторной пометке', () => {
+    const segment = makeSegment({ id: 6, start: 0, end: 2, text_en: 'Hello.' });
+    const warnings: string[] = [];
+    markUntranslated(segment, warnings);
+    markUntranslated(segment, warnings);
+    expect(segment.flags.filter((flag) => flag === 'translation_failed')).toHaveLength(1);
   });
 });

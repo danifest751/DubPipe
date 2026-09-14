@@ -473,6 +473,24 @@ async function fitLengths(
 }
 
 /**
+ * Реплика осталась без перевода. По ТЗ §3.4 на её место ставится оригинал,
+ * чтобы конвейер шёл дальше, но это имеет смысл, только если оригинал вообще
+ * можно прочитать русским голосом: хангыль или иероглифы синтезатор превратит
+ * в мусор, поэтому там честнее тишина — в этом месте останется слышен
+ * приглушённый оригинал.
+ */
+export function markUntranslated(segment: Segment, warnings: string[]): void {
+  const readable = /^[\p{Script=Latin}\p{Script=Cyrillic}\p{P}\p{N}\s]+$/u.test(segment.text_en);
+  segment.text_ru = readable ? segment.text_en : null;
+  if (!segment.flags.includes('translation_failed')) segment.flags.push('translation_failed');
+  warnings.push(
+    readable
+      ? `Реплика ${segment.id} не переведена — оставлен оригинал`
+      : `Реплика ${segment.id} не переведена — останется без озвучки`,
+  );
+}
+
+/**
  * Translates replicas with the given client. Works on copies and writes nothing,
  * so the same input can be run through several models side by side.
  */
@@ -502,6 +520,7 @@ export async function translateSegments(
   }
 
   const template = await loadPromptTemplate('translate.md');
+  let failedBatches = 0;
   // Язык оригинала — параметр: от него зависят и предел длины перевода, и промпт.
   const sourceLanguage = languageProfile(config.asr.language);
   const batches = planBatches(segments, config.translate.batch_size);
@@ -525,10 +544,20 @@ export async function translateSegments(
     try {
       payload = await translateBatch(client, systemPrompt, batch, cps, usage, sourceLanguage.expansionCap);
     } catch (error) {
-      throw new StageError('s3', `пакет ${index + 1}/${batches.length}: ${(error as Error).message}`, {
-        cause: error,
-        hints: ['Проверьте доступность модели и корректность prompts/translate.md'],
-      });
+      // Один упрямый пакет не должен обнулять час работы: на 99 пакетах модель
+      // почти наверняка где-нибудь нарушит формат ответа или не уложится в
+      // таймаут. Реплики пакета остаются непереведёнными и помечаются флагом,
+      // прогон идёт дальше, а сводка в конце говорит, сколько потеряно.
+      failedBatches++;
+      const reason = (error as Error).message;
+      log.warn(`Пакет ${index + 1}/${batches.length} не переведён (${reason})`);
+      warnings.push(
+        `Пакет ${index + 1}/${batches.length} не переведён (${reason}): ` +
+          `реплики ${batch[0]!.id}–${batch[batch.length - 1]!.id} остались без перевода`,
+      );
+      for (const segment of batch) markUntranslated(segment, warnings);
+      await options.onBatch?.(index + 1, batches.length, segments);
+      continue;
     }
 
     Object.assign(glossary, payload.glossary);
@@ -538,14 +567,28 @@ export async function translateSegments(
       if (translated) {
         segment.text_ru = translated;
       } else {
-        // Last resort per SPEC §3.4: keep the original so the pipeline can go on.
-        segment.text_ru = segment.text_en;
-        if (!segment.flags.includes('translation_failed')) segment.flags.push('translation_failed');
-        warnings.push(`Реплика ${segment.id} не переведена — оставлен оригинал`);
+        markUntranslated(segment, warnings);
       }
     }
 
     await options.onBatch?.(index + 1, batches.length, segments);
+  }
+
+  // Ни один пакет не поддался — дальше идти незачем: озвучивать нечего.
+  if (failedBatches > 0 && failedBatches === batches.length) {
+    throw new StageError('s3', `не переведён ни один из ${batches.length} пакетов`, {
+      hints: [
+        'Проверьте модель кнопкой «Проверить модель» в настройках',
+        'Некоторые модели не держат формат ответа — выберите другую',
+      ],
+    });
+  }
+  if (failedBatches > 0) {
+    warnings.push(
+      `Не переведено пакетов: ${failedBatches} из ${batches.length}. ` +
+        'Повторный запуск со стадии s3 переведёт их заново — стадии до неё возьмутся из кэша',
+    );
+    log.warn(`Не переведено пакетов: ${failedBatches} из ${batches.length}`);
   }
 
   if (config.translate.fit_length_pass) {
