@@ -169,6 +169,20 @@ brings recognition down to about 1.5 minutes; with diarization the same stage ta
 six. The recognition cache keeps the two apart, so a later dubbing run does not pick up a
 transcript that has no speakers in it.
 
+## Languages
+
+The **source language** is a parameter, not an assumption. Set `asr.language` and the
+pipeline adapts what actually depends on the writing system: how much longer a translation
+may be than its source (×2 for English, ×3 for Korean, ×5 for Chinese and Japanese — a
+character carries more meaning than a letter), whether recognized words are joined with
+spaces, the subtitle line width and reading speed, and which characters end a sentence.
+A language without a profile gets Latin rules. Subtitle files are named by language code,
+so a Korean episode yields `episode.ko.srt` next to `episode.ru.srt`.
+
+The **interface language** is switched next to the application name and remembered between
+runs. The UI ships in English and Russian; messages that come from the server, such as the
+readiness panel, arrive in the chosen language too. Pipeline log messages stay in Russian.
+
 ## Execution profiles
 
 | | `offline` | `hybrid` (default) |
@@ -339,7 +353,7 @@ is local piper; edge-tts has to be enabled explicitly.
 ## Development
 
 ```bash
-npm test              # 263 tests; no ffmpeg, no network and no keys required
+npm test              # 284 tests; no ffmpeg, no network and no keys required
 npm run typecheck
 npm run build
 npx electron scripts/screenshot-ui.cjs     # screenshots of every screen

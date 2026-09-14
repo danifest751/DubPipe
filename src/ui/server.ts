@@ -27,11 +27,14 @@ import { checkModel } from '../core/model-check.js';
 import {
   cueProblems,
   formatSrt,
+  optionsForLanguage,
   planCues,
   subtitleFileName,
   subtitleOptionsFrom,
   type Cue,
 } from '../stages/subtitles.js';
+import { languageProfile } from '../core/languages.js';
+import { message, normalizeLanguage, type UiLanguage } from '../core/i18n.js';
 import { cancellation, isCancelled } from '../core/cancel.js';
 import { applyOverrides, normalizeOverrides, planReview } from '../core/overrides.js';
 import { defaultOutputName, resolveOutputPath } from '../stages/s7-mix.js';
@@ -81,7 +84,7 @@ interface JobState {
   output: string | null;
   error: string | null;
   /** Файлы субтитров, записанные задачей. */
-  subtitles?: Array<{ lang: 'en' | 'ru'; path: string; cues: number }>;
+  subtitles?: Array<{ lang: string; kind: 'source' | 'target'; path: string; cues: number }>;
 }
 
 export interface UiServerOptions {
@@ -386,7 +389,7 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
    * Что готово к работе, чего не хватает и что именно из-за этого не выполнится.
    * Интерфейс показывает это сразу, а не прячет на отдельной вкладке (ТЗ FR-U7).
    */
-  const buildReadiness = async () => {
+  const buildReadiness = async (lang: UiLanguage = 'ru') => {
     const toolsDir = path.join(cacheRoot, 'tools');
     const modelsDir = path.join(cacheRoot, 'models');
     const items: Array<{
@@ -398,6 +401,7 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       hint: string | null;
       canFix: boolean;
       size: string | null;
+      needsToken?: boolean;
     }> = [];
 
     const media = await findTool('ffmpeg', toolsDir);
@@ -405,17 +409,16 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
     const mediaReady = Boolean(media && probe);
     items.push({
       id: 'ffmpeg',
-      title: 'ffmpeg и ffprobe',
+      title: message('ready.ffmpeg.title', lang),
       state: mediaReady ? 'ok' : 'blocked',
-      detail: mediaReady
-        ? media!.source === 'local'
-          ? 'загружены в рабочий каталог'
-          : 'найдены в системе'
-        : 'не найдены',
-      blocks: mediaReady ? null : 'без них не работает ничего: ни извлечение аудио, ни сведение',
-      hint: mediaReady ? null : 'нажмите «Догрузить недостающее»',
+      detail: message(
+        mediaReady ? (media!.source === 'local' ? 'ready.ffmpeg.local' : 'ready.ffmpeg.system') : 'ready.ffmpeg.missing',
+        lang,
+      ),
+      blocks: mediaReady ? null : message('ready.ffmpeg.blocks', lang),
+      hint: mediaReady ? null : message('ready.hintFetch', lang),
       canFix: !mediaReady,
-      size: '106 МБ',
+      size: message('ready.size.ffmpeg', lang),
     });
 
     const whisper = await findTool('whisper-cli', toolsDir);
@@ -423,13 +426,16 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
     const asrReady = Boolean(whisper) && existsSync(asrModel);
     items.push({
       id: 'whisper',
-      title: `Распознавание речи — модель ${config.asr.model}`,
+      title: message('ready.whisper.title', lang, { model: config.asr.model }),
       state: asrReady ? 'ok' : 'blocked',
-      detail: !whisper ? 'нет программы распознавания' : existsSync(asrModel) ? 'готово' : 'нет весов модели',
-      blocks: asrReady ? null : 'стадия S2: без неё не будет ни реплик, ни таймкодов',
-      hint: asrReady ? null : 'нажмите «Догрузить недостающее»',
+      detail: message(
+        !whisper ? 'ready.whisper.noProgram' : existsSync(asrModel) ? 'ready.ready' : 'ready.whisper.noWeights',
+        lang,
+      ),
+      blocks: asrReady ? null : message('ready.whisper.blocks', lang),
+      hint: asrReady ? null : message('ready.hintFetch', lang),
       canFix: !asrReady,
-      size: '20 МБ + 465 МБ веса',
+      size: message('ready.size.whisper', lang),
     });
 
     const piper = await findTool('piper', toolsDir);
@@ -437,36 +443,27 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
     const ttsReady = Boolean(piper) && existsSync(voice);
     items.push({
       id: 'piper',
-      title: `Синтез речи — голос ${config.tts.default_voice}`,
+      title: message('ready.piper.title', lang, { voice: config.tts.default_voice }),
       state: ttsReady ? 'ok' : 'blocked',
-      detail: !piper ? 'нет программы синтеза' : existsSync(voice) ? 'готово' : 'нет голоса',
-      blocks: ttsReady ? null : 'стадия S5: без неё не будет озвучки',
-      hint: ttsReady ? null : 'нажмите «Догрузить недостающее»',
+      detail: message(!piper ? 'ready.piper.noProgram' : existsSync(voice) ? 'ready.ready' : 'ready.piper.noVoice', lang),
+      blocks: ttsReady ? null : message('ready.piper.blocks', lang),
+      hint: ttsReady ? null : message('ready.hintFetch', lang),
       canFix: !ttsReady,
-      size: '21 МБ + 60 МБ голос',
+      size: message('ready.size.piper', lang),
     });
 
     const keySet = Boolean(process.env[config.kilo_gateway.api_key_env]);
     const viaGateway = config.translate.engine === 'kilo-gateway';
-    const envLabel = ENV_NAME.test(config.kilo_gateway.api_key_env) ? config.kilo_gateway.api_key_env : 'переменная';
+    const envLabel = ENV_NAME.test(config.kilo_gateway.api_key_env)
+      ? config.kilo_gateway.api_key_env
+      : message('ready.key.envFallback', lang);
     items.push({
       id: 'apikey',
-      title: `Ключ доступа к моделям — ${envLabel}`,
+      title: message('ready.key.title', lang, { env: envLabel }),
       state: keySet || !viaGateway ? 'ok' : 'warn',
-      detail: keySet
-        ? 'задан, перевод пойдёт через шлюз'
-        : viaGateway
-          ? 'не задан'
-          : 'не нужен: профиль offline переводит локально',
-      blocks:
-        keySet || !viaGateway
-          ? null
-          : 'стадия S3: без ключа перевод пойдёт через локальный Ollama, а если его нет — не выполнится вовсе',
-      hint:
-        keySet || !viaGateway
-          ? null
-          : `задайте переменную окружения ${config.kilo_gateway.api_key_env} и перезапустите программу ` +
-            'либо переключите профиль на offline в настройках',
+      detail: message(keySet ? 'ready.key.set' : viaGateway ? 'ready.key.missing' : 'ready.key.notNeeded', lang),
+      blocks: keySet || !viaGateway ? null : message('ready.key.blocks', lang),
+      hint: keySet || !viaGateway ? null : message('ready.key.hint', lang, { env: config.kilo_gateway.api_key_env }),
       canFix: false,
       size: null,
     });
@@ -474,26 +471,29 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
     const ytDlp = await findTool('yt-dlp', toolsDir);
     items.push({
       id: 'yt-dlp',
-      title: 'Загрузка видео по ссылке',
+      title: message('ready.ytdlp.title', lang),
       state: ytDlp ? 'ok' : 'warn',
-      detail: ytDlp ? 'готово' : 'не найдена',
-      blocks: ytDlp ? null : 'обработка ссылок YouTube; файлы с диска работают и без неё',
-      hint: ytDlp ? null : 'нажмите «Догрузить недостающее»',
+      detail: message(ytDlp ? 'ready.ready' : 'ready.ytdlp.missing', lang),
+      blocks: ytDlp ? null : message('ready.ytdlp.blocks', lang),
+      hint: ytDlp ? null : message('ready.hintFetch', lang),
       canFix: !ytDlp,
-      size: '17 МБ',
+      size: message('ready.size.ytdlp', lang),
     });
 
     if (config.asr.diarization.enabled && config.asr.diarization.engine !== 'none') {
       const diarization = await probeDiarization(config, modelsDir);
       items.push({
         id: 'diarization',
-        title: 'Разные голоса для персонажей (диаризация)',
+        title: message('ready.diarization.title', lang),
         state: diarization.available ? 'ok' : 'warn',
-        detail: diarization.available ? 'pyannote и веса модели на месте' : diarization.reason ?? 'недоступна',
-        blocks: diarization.available ? null : 'стадия S2: все реплики получат один голос',
-        hint: diarization.hint,
+        detail: diarization.available ? message('ready.diarization.ok', lang) : message(diarization.reason ?? '', lang),
+        blocks: diarization.available ? null : message('ready.diarization.blocks', lang),
+        hint: diarization.hint ? message(diarization.hint, lang) : null,
         canFix: Boolean(diarization.python) && (!diarization.installed || (diarization.tokenSet && !diarization.weightsReady)),
-        size: diarization.installed ? '30 МБ веса' : '~1 ГБ (PyTorch) + 30 МБ веса',
+        // Признак для интерфейса: нужна кнопка ввода токена. По тексту это
+        // определять нельзя — он бывает на разных языках.
+        needsToken: !diarization.available && !diarization.tokenSet,
+        size: message(diarization.installed ? 'ready.size.diarizationWeights' : 'ready.size.diarizationFull', lang),
       });
     }
 
@@ -501,12 +501,12 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       const python = await probePython();
       items.push({
         id: 'python',
-        title: 'Отделение голоса от музыки',
+        title: message('ready.python.title', lang),
         state: python.available ? 'ok' : 'warn',
         detail: python.available
-          ? 'Python, numpy и onnxruntime на месте'
-          : `не хватает: ${python.missing.join(', ')}`,
-        blocks: python.available ? null : 'стадия S4; вместо неё оригинал будет приглушён',
+          ? message('ready.python.ok', lang)
+          : message('ready.python.missing', lang, { missing: python.missing.join(', ') }),
+        blocks: python.available ? null : message('ready.python.blocks', lang),
         hint: python.available ? null : `${python.executable ?? 'python'} -m pip install numpy onnxruntime`,
         canFix: false,
         size: null,
@@ -522,10 +522,10 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       warnings,
       summary:
         blocked > 0
-          ? `Не хватает необходимого: ${blocked}`
+          ? message('ready.summary.blocked', lang, { count: blocked })
           : warnings > 0
-            ? `Главное на месте, есть замечания: ${warnings}`
-            : 'Всё готово к работе',
+            ? message('ready.summary.warnings', lang, { count: warnings })
+            : message('ready.summary.ok', lang),
     };
   };
 
@@ -665,7 +665,7 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
     }
 
     if (route === '/api/readiness' && method === 'GET') {
-      sendJson(response, 200, await buildReadiness());
+      sendJson(response, 200, await buildReadiness(normalizeLanguage(url.searchParams.get('lang'))));
       return true;
     }
 
@@ -836,7 +836,7 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       }
       try {
         const parsed = await applyConfigValues(body.values);
-        sendJson(response, 200, { ok: true, parsed, readiness: await buildReadiness() });
+        sendJson(response, 200, { ok: true, parsed, readiness: await buildReadiness(normalizeLanguage(url.searchParams.get('lang'))) });
       } catch (error) {
         sendJson(response, 400, { ok: false, error: (error as Error).message });
       }
@@ -852,7 +852,7 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       const body = (await readBody(request)) as { key?: string | null };
       const value = typeof body.key === 'string' ? body.key.trim() : null;
       await saveSecret(config.kilo_gateway.api_key_env, value || null);
-      sendJson(response, 200, { ...keyStatus(), readiness: await buildReadiness() });
+      sendJson(response, 200, { ...keyStatus(), readiness: await buildReadiness(normalizeLanguage(url.searchParams.get('lang'))) });
       return true;
     }
 
@@ -866,7 +866,7 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       const value = typeof body.token === 'string' ? body.token.trim() : null;
       await saveSecret(config.asr.diarization.hf_token_env, value || null);
       resetDiarizationProbe();
-      sendJson(response, 200, { ...hfTokenStatus(), readiness: await buildReadiness() });
+      sendJson(response, 200, { ...hfTokenStatus(), readiness: await buildReadiness(normalizeLanguage(url.searchParams.get('lang'))) });
       return true;
     }
 
@@ -1067,10 +1067,18 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       const options = subtitleOptionsFrom(config);
       const targetDir = subtitleTargetDir(meta?.input ?? input, meta);
 
+      // Два файла: оригинал на языке записи и перевод на русском.
+      const sourceCode = config.asr.language;
+      const tracks = [
+        { kind: 'source' as const, code: sourceCode, text: (segment: Segment) => segment.text_en },
+        { kind: 'target' as const, code: 'ru', text: (segment: Segment) => segment.text_ru },
+      ];
+
       const languages = await Promise.all(
-        (['en', 'ru'] as const).map(async (lang) => {
+        tracks.map(async (track) => {
           // Правленые титры важнее пересчёта из реплик: их правил человек.
-          const saved = await workspace.readCues(lang);
+          const saved = await workspace.readCues(track.kind);
+          const trackOptions = optionsForLanguage(options, track.code);
           const cues =
             saved ??
             planCues(
@@ -1079,22 +1087,24 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
                   id: segment.id,
                   start: segment.start,
                   end: segment.end,
-                  text: (lang === 'ru' ? segment.text_ru : segment.text_en) ?? '',
+                  text: track.text(segment) ?? '',
                 }))
                 .filter((item) => item.text.trim().length > 0),
-              options,
+              trackOptions,
             );
-          const file = path.join(targetDir, subtitleFileName(meta?.input ?? input, lang));
+          const file = path.join(targetDir, subtitleFileName(meta?.input ?? input, track.code));
           if (existsSync(file)) knownOutputs.add(file);
           return {
-            lang,
+            kind: track.kind,
+            lang: track.code,
+            name: languageProfile(track.code).name,
             edited: saved !== null,
             file,
             exists: existsSync(file),
             cues: cues.map((cue, index) => ({
               ...cue,
               index: index + 1,
-              problems: cueProblems(cue, cues[index + 1], options),
+              problems: cueProblems(cue, cues[index + 1], trackOptions),
             })),
           };
         }),
@@ -1113,9 +1123,9 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
 
     if (route === '/api/subtitles' && method === 'PUT') {
       // Сохранение правок: титры кладутся в рабочий каталог и сразу пишутся в SRT.
-      const body = (await readBody(request)) as { input?: string; lang?: 'en' | 'ru'; cues?: Cue[]; dir?: string };
-      if (!body.input || (body.lang !== 'en' && body.lang !== 'ru') || !Array.isArray(body.cues)) {
-        sendJson(response, 400, { error: 'нужны поля input, lang (en|ru) и cues' });
+      const body = (await readBody(request)) as { input?: string; kind?: 'source' | 'target'; cues?: Cue[]; dir?: string };
+      if (!body.input || (body.kind !== 'source' && body.kind !== 'target') || !Array.isArray(body.cues)) {
+        sendJson(response, 400, { error: 'нужны поля input, kind (source|target) и cues' });
         return true;
       }
       const workspace = await Workspace.open(body.input, config);
@@ -1132,10 +1142,11 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
         .sort((a, b) => a.start - b.start)
         .map((cue, index) => ({ ...cue, index: index + 1 }));
 
-      await workspace.writeCues(body.lang, cues);
+      await workspace.writeCues(body.kind, cues);
       const targetDir = body.dir ? path.resolve(body.dir) : subtitleTargetDir(meta?.input ?? body.input, meta);
       await mkdir(targetDir, { recursive: true });
-      const file = path.join(targetDir, subtitleFileName(meta?.input ?? body.input, body.lang));
+      const code = body.kind === 'target' ? 'ru' : config.asr.language;
+      const file = path.join(targetDir, subtitleFileName(meta?.input ?? body.input, code));
       await writeFile(file, `\uFEFF${formatSrt(cues)}`, 'utf8');
       knownOutputs.add(file);
       sendJson(response, 200, { ok: true, file, count: cues.length });
@@ -1144,13 +1155,13 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
 
     if (route === '/api/subtitles/rebuild' && method === 'POST') {
       // Вернуться к титрам, рассчитанным из реплик: правки удаляются.
-      const body = (await readBody(request)) as { input?: string; lang?: 'en' | 'ru' };
-      if (!body.input || (body.lang !== 'en' && body.lang !== 'ru')) {
-        sendJson(response, 400, { error: 'нужны поля input и lang (en|ru)' });
+      const body = (await readBody(request)) as { input?: string; kind?: 'source' | 'target' };
+      if (!body.input || (body.kind !== 'source' && body.kind !== 'target')) {
+        sendJson(response, 400, { error: 'нужны поля input и kind (source|target)' });
         return true;
       }
       const workspace = await Workspace.open(body.input, config);
-      const target = workspace.cuesPath(body.lang);
+      const target = workspace.cuesPath(body.kind);
       if (existsSync(target)) await rm(target, { force: true });
       sendJson(response, 200, { ok: true });
       return true;

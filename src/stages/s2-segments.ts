@@ -149,6 +149,8 @@ export function splitLongSegment(segment: RawSegment, maxSeconds = MAX_SEGMENT_S
 const SENTENCE_END = /[.!?…]["')\]]?$/;
 
 export interface MergeOptions {
+  /** Чем склеивать слова: в письменностях без пробелов — пустой строкой. */
+  wordJoiner?: string;
   /** A pause longer than this always starts a new replica. */
   maxGapMs?: number;
   /** Hard ceiling so a run-on passage still gets cut. */
@@ -163,7 +165,9 @@ export interface MergeOptions {
  * ends at sentence punctuation, at a long pause, or at the duration ceiling.
  */
 export function mergeWordsIntoSentences(words: WordTiming[], options: MergeOptions = {}): RawSegment[] {
-  const { maxGapMs = 700, maxSeconds = 15 } = options;
+  // В китайском и японском между словами нет пробелов: склейка через пробел
+  // даёт «你 好 吗» — и в субтитрах, и в запросе на перевод.
+  const { maxGapMs = 700, maxSeconds = 15, wordJoiner = ' ' } = options;
   const segments: RawSegment[] = [];
   let current: WordTiming[] = [];
 
@@ -172,7 +176,7 @@ export function mergeWordsIntoSentences(words: WordTiming[], options: MergeOptio
     segments.push({
       start: current[0]!.start,
       end: current[current.length - 1]!.end,
-      text: normalizeText(current.map((w) => w.word).join(' ')),
+      text: normalizeText(current.map((w) => w.word).join(wordJoiner)),
       words: current,
     });
     current = [];

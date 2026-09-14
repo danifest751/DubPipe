@@ -59,8 +59,8 @@ export interface Meta {
   stage_fingerprints: Partial<Record<StageId, string>>;
   /** Куда лёг готовый дубляж в последний раз: интерфейс открывает его на просмотр. */
   output?: string | null;
-  /** Записанные файлы субтитров. */
-  subtitles?: Array<{ lang: 'en' | 'ru'; path: string }>;
+  /** Записанные файлы субтитров: код языка и что это — оригинал или перевод. */
+  subtitles?: Array<{ lang: string; kind?: 'source' | 'target'; path: string }>;
 }
 
 export interface StageOutcome {

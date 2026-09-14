@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MAX_WORD_SECONDS, dtwPreset, parseWhisperWords } from '../src/providers/asr/whispercpp.js';
+import { MAX_BRACKETED_WORDS, MAX_WORD_SECONDS, dropBracketedGroups, dtwPreset, parseWhisperWords } from '../src/providers/asr/whispercpp.js';
 import { boundedTargetChars, collectMisfits, targetChars, MAX_EXPANSION } from '../src/stages/s3-translate.js';
 import { makeSegment } from '../src/core/types.js';
 
@@ -113,5 +113,37 @@ describe('FR-3: перевод не длиннее оригинала более
     const misfits = collectMisfits([segment], 11.5, 0.15, 0.25);
     expect(misfits).toHaveLength(1);
     expect(misfits[0]!.action).toBe('shorten');
+  });
+});
+
+describe('FR-2: описания звуков в скобках не попадают в субтитры', () => {
+  const words = (...list: string[]) => list.map((word) => ({ word }));
+
+  it('группа в скобках выбрасывается целиком', () => {
+    // Реальный случай: в титрах оригинала оставалось «(eerie» — пословный режим
+    // whisper разрезает «(eerie music)» на два токена.
+    expect(dropBracketedGroups(words('(eerie', 'music)', 'Hello', 'there')).map((w) => w.word)).toEqual(['Hello', 'there']);
+    expect(dropBracketedGroups(words('[door', 'creaks]', 'Run.')).map((w) => w.word)).toEqual(['Run.']);
+  });
+
+  it('одиночный токен в скобках тоже уходит', () => {
+    expect(dropBracketedGroups(words('(panting)', 'Go')).map((w) => w.word)).toEqual(['Go']);
+  });
+
+  it('незакрытая скобка не съедает остаток реплики', () => {
+    const kept = dropBracketedGroups(words('(then', 'he', 'said', 'nothing', 'at', 'all'));
+    expect(kept.map((w) => w.word)).toEqual(['(then', 'he', 'said', 'nothing', 'at', 'all']);
+  });
+
+  it('слишком длинная группа не считается описанием звука', () => {
+    const long = words('(a', ...Array.from({ length: MAX_BRACKETED_WORDS + 2 }, () => 'word'), 'end)');
+    expect(dropBracketedGroups(long).length).toBe(long.length);
+  });
+
+  it('разбор вывода whisper убирает такие группы вместе с таймкодами', () => {
+    const parsed = parseWhisperWords({
+      transcription: [item(' (eerie', 1, 1.4), item(' music)', 1.4, 2.2), item(' Hello.', 2.3, 2.8)],
+    });
+    expect(parsed.map((w) => w.word)).toEqual(['Hello.']);
   });
 });

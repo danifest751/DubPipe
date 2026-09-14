@@ -56,6 +56,7 @@ async function main() {
   await run(`document.querySelector('#subtabs button[data-sub="subtitles"]').click()`);
   for (let i = 0; i < 20 && !(await run(`document.querySelectorAll('#subsTable tbody tr').length > 1`)); i++) await sleep(300);
 
+  const sourceLabel = await run(`document.getElementById('subSourceLabel').textContent`);
   const en = await run(`({
     rows: document.querySelectorAll('#subsTable tbody tr').length,
     summary: document.getElementById('subsSummary').textContent,
@@ -83,11 +84,11 @@ async function main() {
 
   // Переключение на русские титры (правки сбрасываем подтверждением).
   await run(`(() => { window.confirm = () => true; })()`);
-  await run(`(() => { const r = [...document.querySelectorAll('input[name=subLang]')].find((x) => x.value === 'ru'); r.checked = true; r.dispatchEvent(new Event('change')); })()`);
+  await run(`(() => { const r = [...document.querySelectorAll('input[name=subKind]')].find((x) => x.value === 'target'); r.checked = true; r.dispatchEvent(new Event('change')); })()`);
   await sleep(1200);
-  const ru = await run(`({ rows: document.querySelectorAll('#subsTable tbody tr').length, file: document.getElementById('subsFile').textContent, firstText: document.querySelector('#subsTable tbody textarea')?.value ?? '' })`);
+  const target = await run(`({ rows: document.querySelectorAll('#subsTable tbody tr').length, file: document.getElementById('subsFile').textContent, firstText: document.querySelector('#subsTable tbody textarea')?.value ?? '' })`);
 
-  console.log(JSON.stringify({ hasButton, libraryRequest, en, overlay, afterBadEdit, afterEdit, ru }, null, 1));
+  console.log(JSON.stringify({ hasButton, libraryRequest, sourceLabel, en, overlay, afterBadEdit, afterEdit, target }, null, 1));
   const ok =
     hasButton &&
     Boolean(libraryRequest) &&
@@ -101,9 +102,10 @@ async function main() {
     afterBadEdit === en.rows &&
     /несохранённые правки/.test(afterEdit.summary) &&
     afterEdit.first === 'Правленый титр' &&
-    ru.rows > 10 &&
-    /\.ru\.srt/.test(ru.file) &&
-    /[а-яё]/i.test(ru.firstText);
+    target.rows > 10 &&
+    /\.ru\.srt/.test(target.file) &&
+    /[а-яё]/i.test(target.firstText) &&
+    /Оригинал \(/.test(sourceLabel);
   console.log(ok ? 'ПРОВЕРКА ПРОЙДЕНА' : 'ПРОВЕРКА НЕ ПРОЙДЕНА');
   await server.close?.();
   app.exit(ok ? 0 : 1);

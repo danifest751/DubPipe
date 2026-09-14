@@ -817,3 +817,13 @@ button.danger { color: var(--bad); }
 #subsTable tr.playing td { background: var(--accent-soft); }
 .meta.bad { color: var(--bad); }
 .meta.ok { color: var(--text-faint); }
+
+/* Переключатель языка интерфейса рядом с названием программы */
+.brand { display: flex; align-items: baseline; gap: 8px; }
+.lang-switch {
+  flex: 0 0 auto; width: auto; min-width: 0; max-width: 56px;
+  margin-left: auto; padding: 2px 4px; font-size: 11px; line-height: 1.2;
+  color: var(--text-dim); background: transparent; border: 1px solid var(--line);
+  border-radius: 6px; cursor: pointer;
+}
+.lang-switch:hover { color: var(--text); border-color: var(--accent); }

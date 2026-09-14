@@ -2,6 +2,7 @@ import path from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
 import type { DubConfig } from '../config/schema.js';
 import { log } from '../core/logger.js';
+import { languageProfile } from '../core/languages.js';
 import { formatTimestamp } from '../util/srt.js';
 import type { Segment } from '../core/types.js';
 
@@ -30,6 +31,8 @@ export interface SubtitleOptions {
   gapMs: number;
   /** Предел скорости чтения, символов в секунду. */
   maxCps: number;
+  /** Знаки конца предложения языка этого файла: в CJK они полноширинные. */
+  sentenceEnders?: string;
 }
 
 export const DEFAULT_SUBTITLE_OPTIONS: SubtitleOptions = {
@@ -39,7 +42,25 @@ export const DEFAULT_SUBTITLE_OPTIONS: SubtitleOptions = {
   maxDurationSeconds: 7,
   gapMs: 84,
   maxCps: 17,
+  sentenceEnders: '.!?…',
 };
+
+/**
+ * Правила титра для конкретного языка: у иероглифических письменностей строка
+ * короче, а читаются они медленнее. Значение, заданное пользователем в
+ * настройках, важнее языкового умолчания — поэтому подменяются только те поля,
+ * которые остались стандартными.
+ */
+export function optionsForLanguage(base: SubtitleOptions, code: string): SubtitleOptions {
+  const profile = languageProfile(code);
+  return {
+    ...base,
+    maxLineChars:
+      base.maxLineChars === DEFAULT_SUBTITLE_OPTIONS.maxLineChars ? profile.subtitleLineChars : base.maxLineChars,
+    maxCps: base.maxCps === DEFAULT_SUBTITLE_OPTIONS.maxCps ? profile.subtitleCps : base.maxCps,
+    sentenceEnders: profile.sentenceEnders,
+  };
+}
 
 export interface Cue {
   /** Номер по порядку, с единицы. */
@@ -128,12 +149,15 @@ export function wrapCueText(text: string, maxLineChars: number, maxLines: number
  * Если текст не помещается в титр целиком, делит его на несколько частей
  * по границам предложений, а при их отсутствии — по словам.
  */
-export function splitLongText(text: string, capacity: number): string[] {
+export function splitLongText(text: string, capacity: number, sentenceEnders = '.!?…'): string[] {
   const clean = text.replace(/\s+/g, ' ').trim();
   if (!clean) return [];
   if (clean.length <= capacity) return [clean];
 
-  const sentences = clean.match(/[^.!?…]+[.!?…]*\s*/g)?.map((part) => part.trim()).filter(Boolean) ?? [clean];
+  // В китайском и японском конец предложения — полноширинные знаки 。！？
+  const escaped = sentenceEnders.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`[^${escaped}]+[${escaped}]*\\s*`, 'g');
+  const sentences = clean.match(pattern)?.map((part) => part.trim()).filter(Boolean) ?? [clean];
   const parts: string[] = [];
   let current = '';
   for (const sentence of sentences) {
@@ -187,7 +211,7 @@ export function planCues(items: PlanItem[], options: SubtitleOptions = DEFAULT_S
     const text = item.text.replace(/\s+/g, ' ').trim();
     if (!text || item.end <= item.start) continue;
 
-    const parts = splitLongText(text, capacity);
+    const parts = splitLongText(text, capacity, options.sentenceEnders);
     const totalChars = parts.reduce((sum, part) => sum + part.length, 0) || 1;
     let cursor = item.start;
     const span = item.end - item.start;
@@ -284,14 +308,14 @@ export function subtitleOptionsFrom(config: DubConfig): SubtitleOptions {
   };
 }
 
-/** Имя файла субтитров по имени входа: `эпизод.mp4` → `эпизод.en.srt`. */
-export function subtitleFileName(input: string, lang: 'en' | 'ru'): string {
+/** Имя файла субтитров по имени входа и коду языка: `эпизод.mp4` → `эпизод.ko.srt`. */
+export function subtitleFileName(input: string, lang: string): string {
   const base = /^https?:\/\//i.test(input) ? 'subtitles' : path.basename(input, path.extname(input));
   return `${base}.${lang}.srt`;
 }
 
 export interface SubtitleResult {
-  files: Array<{ lang: 'en' | 'ru'; path: string; cues: number }>;
+  files: Array<{ lang: string; kind: 'source' | 'target'; path: string; cues: number }>;
   warnings: string[];
 }
 
@@ -301,27 +325,35 @@ export async function writeSubtitleFiles(
   input: string,
   targetDir: string,
   options: SubtitleOptions = DEFAULT_SUBTITLE_OPTIONS,
+  sourceLanguage = 'en',
 ): Promise<SubtitleResult> {
   const warnings: string[] = [];
   const files: SubtitleResult['files'] = [];
   await mkdir(targetDir, { recursive: true });
 
-  for (const lang of ['en', 'ru'] as const) {
+  // Оригинал — на языке записи, перевод — всегда русский; правила читаемости
+  // у них разные, поэтому опции берутся под каждый язык отдельно.
+  const outputs = [
+    { kind: 'source' as const, code: sourceLanguage, text: (segment: Segment) => segment.text_en },
+    { kind: 'target' as const, code: 'ru', text: (segment: Segment) => segment.text_ru },
+  ];
+
+  for (const output of outputs) {
     const items = segments
-      .map((segment) => ({ id: segment.id, start: segment.start, end: segment.end, text: (lang === 'ru' ? segment.text_ru : segment.text_en) ?? '' }))
+      .map((segment) => ({ id: segment.id, start: segment.start, end: segment.end, text: output.text(segment) ?? '' }))
       .filter((item) => item.text.trim().length > 0);
 
     if (items.length === 0) {
-      if (lang === 'ru') warnings.push('Русские субтитры не созданы: реплики ещё не переведены');
+      if (output.kind === 'target') warnings.push('Русские субтитры не созданы: реплики ещё не переведены');
       continue;
     }
 
-    const cues = planCues(items, options);
-    const target = path.join(targetDir, subtitleFileName(input, lang));
+    const cues = planCues(items, optionsForLanguage(options, output.code));
+    const target = path.join(targetDir, subtitleFileName(input, output.code));
     // BOM: Windows-проигрыватели иначе показывают кириллицу как «кракозябры».
     await writeFile(target, `﻿${formatSrt(cues)}`, 'utf8');
-    files.push({ lang, path: target, cues: cues.length });
-    log.step(`субтитры ${lang}: ${cues.length} титров → ${target}`);
+    files.push({ lang: output.code, kind: output.kind, path: target, cues: cues.length });
+    log.step(`субтитры ${output.code}: ${cues.length} титров → ${target}`);
   }
 
   return { files, warnings };

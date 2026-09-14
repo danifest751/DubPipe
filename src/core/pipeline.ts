@@ -298,11 +298,11 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRep
           configured: config.output,
         }),
       );
-    const result = await writeSubtitleFiles(current, input, targetDir, subtitleOptionsFrom(config));
+    const result = await writeSubtitleFiles(current, input, targetDir, subtitleOptionsFrom(config), config.asr.language);
     subtitleFiles = result.files;
     warnings.push(...result.warnings.map((warning) => `[субтитры] ${warning}`));
     if (meta) {
-      meta.subtitles = result.files.map((file) => ({ lang: file.lang, path: file.path }));
+      meta.subtitles = result.files.map((file) => ({ lang: file.lang, kind: file.kind, path: file.path }));
       await workspace.writeMeta(meta);
     }
   }

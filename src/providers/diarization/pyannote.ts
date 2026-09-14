@@ -8,6 +8,7 @@ import { log } from '../../core/logger.js';
 import { progress } from '../../core/progress.js';
 import { makeSegment, type Segment } from '../../core/types.js';
 import { run, ProcessError } from '../../util/exec.js';
+import { message } from '../../core/i18n.js';
 
 /**
  * Диаризация спикеров через pyannote (SPEC FR-2, §12.2).
@@ -95,20 +96,22 @@ export async function probeDiarization(config: DubConfig, modelsDir: string): Pr
   const tokenSet = Boolean(process.env[tokenEnv]);
   const weightsReady = existsSync(weightsMarker(model, modelsDir));
 
+  // Причина и подсказка — ключи словаря: их показывают и в русском, и в
+  // английском интерфейсе, а в журнал они попадают уже переведёнными.
   let reason: string | null = null;
   let hint: string | null = null;
   if (!python.executable) {
-    reason = 'Python не найден';
-    hint = 'Установите Python 3.10+ (python.org) и перезапустите программу';
+    reason = 'diarization.noPython';
+    hint = 'diarization.noPythonHint';
   } else if (!python.installed) {
-    reason = 'не установлен pyannote.audio (PyTorch)';
-    hint = 'нажмите «Догрузить недостающее» — модули будут установлены автоматически';
+    reason = 'diarization.notInstalled';
+    hint = 'diarization.installHint';
   } else if (!weightsReady && !tokenSet) {
-    reason = 'нет токена Hugging Face для загрузки весов';
-    hint = 'введите токен в настройках распознавания и нажмите «Догрузить недостающее»';
+    reason = 'diarization.noToken';
+    hint = 'diarization.tokenHint';
   } else if (!weightsReady) {
-    reason = 'веса модели ещё не загружены';
-    hint = 'нажмите «Догрузить недостающее»';
+    reason = 'diarization.noWeights';
+    hint = 'ready.hintFetch';
   }
 
   return {
@@ -137,7 +140,7 @@ export async function installDiarization(config: DubConfig, modelsDir: string): 
   resetDiarizationProbe();
   let probe = await probeDiarization(config, modelsDir);
   const python = probe.python;
-  if (!python) throw new Error(`${probe.reason}. ${probe.hint}`);
+  if (!python) throw new Error(`${message(probe.reason ?? '', 'ru')}. ${message(probe.hint ?? '', 'ru')}`);
 
   if (!probe.installed) {
     emit('running', 'установка pyannote.audio и PyTorch (около 1 ГБ)…');
@@ -170,8 +173,8 @@ export async function installDiarization(config: DubConfig, modelsDir: string): 
 
   if (!probe.weightsReady) {
     if (!probe.tokenSet) {
-      emit('error', probe.reason ?? 'нет токена');
-      throw new Error(`${probe.reason}. ${probe.hint}`);
+      emit('error', message(probe.reason ?? '', 'ru'));
+      throw new Error(`${message(probe.reason ?? '', 'ru')}. ${message(probe.hint ?? '', 'ru')}`);
     }
     emit('running', 'загрузка весов модели с Hugging Face…');
     try {
@@ -228,7 +231,7 @@ export async function diarize(
 ): Promise<DiarizationTurn[]> {
   const probe = await probeDiarization(config, modelsDir);
   if (!probe.available || !probe.python) {
-    throw new Error(`${probe.reason}. ${probe.hint}`);
+    throw new Error(`${message(probe.reason ?? '', 'ru')}. ${message(probe.hint ?? '', 'ru')}`);
   }
 
   const args = [

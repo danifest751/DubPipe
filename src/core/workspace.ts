@@ -115,17 +115,21 @@ export class Workspace {
     return this.writeJson(this.overridesPath, normalizeOverrides(overrides));
   }
 
-  /** Правленые вручную титры одного языка; пусто — берутся из реплик. */
-  cuesPath(lang: 'en' | 'ru'): string {
-    return this.file(`cues.${lang}.json`);
+  /**
+   * Правленые вручную титры; пусто — берутся из реплик. Хранятся по роли
+   * (оригинал или перевод), а не по коду языка: смена языка оригинала
+   * в настройках не должна терять ручные правки.
+   */
+  cuesPath(kind: 'source' | 'target'): string {
+    return this.file(`cues.${kind}.json`);
   }
 
-  readCues(lang: 'en' | 'ru'): Promise<Cue[] | null> {
-    return this.readJson<Cue[]>(this.cuesPath(lang));
+  readCues(kind: 'source' | 'target'): Promise<Cue[] | null> {
+    return this.readJson<Cue[]>(this.cuesPath(kind));
   }
 
-  writeCues(lang: 'en' | 'ru', cues: Cue[]): Promise<void> {
-    return this.writeJson(this.cuesPath(lang), cues);
+  writeCues(kind: 'source' | 'target', cues: Cue[]): Promise<void> {
+    return this.writeJson(this.cuesPath(kind), cues);
   }
 
   /** Профили спикеров (пол голоса по основному тону), считаются на S2. */

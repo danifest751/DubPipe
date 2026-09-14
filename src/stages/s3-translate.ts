@@ -4,6 +4,7 @@ import { packageRoot } from '../config/load.js';
 import type { DubConfig } from '../config/schema.js';
 import { cancellation } from '../core/cancel.js';
 import { StageError } from '../core/errors.js';
+import { languageProfile } from '../core/languages.js';
 import { counter, log } from '../core/logger.js';
 import { slotOf, type Segment } from '../core/types.js';
 import type { Workspace } from '../core/workspace.js';
@@ -75,9 +76,14 @@ export function targetChars(slotSeconds: number, charsPerSecond: number, toleran
 export const MAX_EXPANSION = 2.0;
 
 /** Цель по длине, ограниченная сверху тем, что вообще есть в оригинале. */
-export function boundedTargetChars(textEn: string, slotSeconds: number, charsPerSecond: number): number {
+export function boundedTargetChars(
+  source: string,
+  slotSeconds: number,
+  charsPerSecond: number,
+  expansionCap: number = MAX_EXPANSION,
+): number {
   const bySlot = targetChars(slotSeconds, charsPerSecond);
-  const bySource = Math.max(8, Math.round(textEn.trim().length * MAX_EXPANSION));
+  const bySource = Math.max(8, Math.round(source.trim().length * expansionCap));
   return Math.min(bySlot, bySource);
 }
 
@@ -198,9 +204,10 @@ export function profanityRule(mode: DubConfig['translate']['profanity']): string
 
 export function renderSystemPrompt(
   template: string,
-  values: { glossary: string; context: string; profanityRule: string },
+  values: { glossary: string; context: string; profanityRule: string; sourceLanguage?: string },
 ): string {
   return template
+    .replace('{source_language}', values.sourceLanguage || 'английского')
     .replace('{glossary}', values.glossary || '(пока пуст)')
     .replace('{context}', values.context || '(начало ролика)')
     .replace('{profanity_rule}', values.profanityRule);
@@ -220,13 +227,17 @@ export function formatContext(previous: Segment[]): string {
     .join('\n');
 }
 
-export function buildBatchRequest(batch: Segment[], charsPerSecond: number): string {
+export function buildBatchRequest(
+  batch: Segment[],
+  charsPerSecond: number,
+  expansionCap: number = MAX_EXPANSION,
+): string {
   const lines = batch.map((segment) => {
     const slot = slotOf(segment);
     return JSON.stringify({
       id: segment.id,
       slot_seconds: Number(slot.toFixed(2)),
-      target_chars: boundedTargetChars(segment.text_en, slot, charsPerSecond),
+      target_chars: boundedTargetChars(segment.text_en, slot, charsPerSecond, expansionCap),
       text_en: segment.text_en,
     });
   });
@@ -329,9 +340,10 @@ async function translateBatch(
   batch: Segment[],
   charsPerSecond: number,
   usage: RunUsage,
+  expansionCap: number,
 ): Promise<TranslationPayload> {
   const ids = batch.map((segment) => segment.id);
-  const request = buildBatchRequest(batch, charsPerSecond);
+  const request = buildBatchRequest(batch, charsPerSecond, expansionCap);
   let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -368,6 +380,7 @@ export function collectMisfits(
   charsPerSecond: number,
   tolerance: number,
   toleranceFloorSeconds: number,
+  expansionCap: number = MAX_EXPANSION,
 ): Array<{ segment: Segment; action: 'shorten' | 'expand'; targetChars: number }> {
   const misfits: Array<{ segment: Segment; action: 'shorten' | 'expand'; targetChars: number }> = [];
   for (const segment of segments) {
@@ -376,7 +389,7 @@ export function collectMisfits(
     const verdict = lengthVerdict(segment.text_ru, slot, charsPerSecond, tolerance, toleranceFloorSeconds);
     if (verdict.withinTolerance) continue;
     const action = verdict.ratio > 1 ? 'shorten' : 'expand';
-    const target = boundedTargetChars(segment.text_en, slot, charsPerSecond);
+    const target = boundedTargetChars(segment.text_en, slot, charsPerSecond, expansionCap);
     // Удлинять есть смысл, только пока оригинал это оправдывает: если перевод
     // уже исчерпал исходный текст, недобор до слота закроет тишина на S6.
     if (action === 'expand' && segment.text_ru.trim().length >= target) continue;
@@ -404,7 +417,7 @@ async function fitLengths(
 ): Promise<number> {
   const { chars_per_second: cps, length_tolerance: tolerance } = config.translate;
   const floor = config.translate.length_tolerance_floor_ms / 1000;
-  const misfits = collectMisfits(segments, cps, tolerance, floor);
+  const misfits = collectMisfits(segments, cps, tolerance, floor, languageProfile(config.asr.language).expansionCap);
   if (misfits.length === 0) return 0;
   log.progress(`подгонка длины: реплик вне допуска ${misfits.length}`, null);
 
@@ -489,6 +502,8 @@ export async function translateSegments(
   }
 
   const template = await loadPromptTemplate('translate.md');
+  // Язык оригинала — параметр: от него зависят и предел длины перевода, и промпт.
+  const sourceLanguage = languageProfile(config.asr.language);
   const batches = planBatches(segments, config.translate.batch_size);
   const glossary: Record<string, string> = {};
 
@@ -503,11 +518,12 @@ export async function translateSegments(
       glossary: formatGlossary(glossary),
       context: formatContext(contextSegments),
       profanityRule: profanityRule(config.translate.profanity),
+      sourceLanguage: sourceLanguage.name,
     });
 
     let payload: TranslationPayload;
     try {
-      payload = await translateBatch(client, systemPrompt, batch, cps, usage);
+      payload = await translateBatch(client, systemPrompt, batch, cps, usage, sourceLanguage.expansionCap);
     } catch (error) {
       throw new StageError('s3', `пакет ${index + 1}/${batches.length}: ${(error as Error).message}`, {
         cause: error,

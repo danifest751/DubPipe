@@ -12,6 +12,7 @@ import { downloadFile } from '../../util/download.js';
 import { provisionTool } from '../../util/tools.js';
 import { toWhisperAudio } from '../../util/ffmpeg.js';
 import { isNonSpeech, mergeWordsIntoSentences } from '../../stages/s2-segments.js';
+import { languageProfile } from '../../core/languages.js';
 import type { AsrProvider, AsrResult } from './index.js';
 
 /**
@@ -112,14 +113,53 @@ const FALLBACK_WORD_SECONDS = 0.3;
  * слова берётся из DTW-таймкодов токенов (когда они есть), а конец — не позже
  * начала следующего слова и эвристического конца.
  */
+/** Сколько слов подряд может занимать описание звука: дальше скобка считается случайной. */
+export const MAX_BRACKETED_WORDS = 8;
+
+/**
+ * Выбрасывает описания звуков в скобках: «(eerie music)», «[door creaks]».
+ * Пословный режим whisper разрезает их на отдельные токены, и проверка слова
+ * целиком такое не ловит — в субтитрах оригинала оставалось «(eerie».
+ * Незакрытая скобка ничего не съедает: без пары группа не считается описанием.
+ */
+export function dropBracketedGroups<T extends { word: string }>(words: T[]): T[] {
+  const result: T[] = [];
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i]!.word;
+    const opening = /^[([{]/.test(word);
+    if (!opening) {
+      result.push(words[i]!);
+      continue;
+    }
+    // Ищем закрывающую скобку неподалёку; нашли — пропускаем всю группу.
+    const limit = Math.min(words.length, i + MAX_BRACKETED_WORDS);
+    let close = -1;
+    for (let j = i; j < limit; j++) {
+      if (/[)\]}][^\p{L}\p{N}]*$/u.test(words[j]!.word)) {
+        close = j;
+        break;
+      }
+    }
+    if (close < 0) {
+      result.push(words[i]!);
+      continue;
+    }
+    i = close;
+  }
+  return result;
+}
+
 export function parseWhisperWords(json: WhisperJson): WordTiming[] {
-  const raw = (json.transcription ?? [])
-    .map((item) => ({
+  // Порядок важен: скобочные группы снимаются до отсева одиночных служебных
+  // токенов. Иначе «music)» уходит первым, и от «(eerie music)» остаётся «(eerie».
+  const raw = dropBracketedGroups(
+    (json.transcription ?? []).map((item) => ({
       word: (item.text ?? '').trim(),
       start: (item.offsets?.from ?? 0) / 1000,
       end: (item.offsets?.to ?? 0) / 1000,
       dtw: dtwStart(item),
-    }))
+    })),
+  )
     // Музыка, шум и маркеры смены говорящего (>>) речью не являются.
     .filter((word) => word.word.length > 0 && !isNonSpeech(word.word) && word.end >= word.start);
 
@@ -228,7 +268,7 @@ export class WhisperCppProvider implements AsrProvider {
     }
 
     const words = parseWhisperWords(parsed);
-    const segments = mergeWordsIntoSentences(words);
+    const segments = mergeWordsIntoSentences(words, { wordJoiner: languageProfile(this.config.asr.language).wordJoiner });
     return { segments, words, provider: this.name, warnings };
   }
 }

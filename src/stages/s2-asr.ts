@@ -7,6 +7,7 @@ import type { Workspace } from '../core/workspace.js';
 import { createAsrProvider } from '../providers/asr/index.js';
 import { assignSpeakers, diarize, probeDiarization, speakerNames } from '../providers/diarization/pyannote.js';
 import { profileSpeakers, type SpeechInterval } from '../providers/diarization/gender.js';
+import { message } from '../core/i18n.js';
 import { detectSpeech, snapToSpeech, type SpeechRegion } from '../providers/vad/silero.js';
 import { toSrt } from '../util/srt.js';
 import { buildSegments, segmentsSummary, type RawSegment } from './s2-segments.js';
@@ -67,8 +68,8 @@ export async function runS2(workspace: Workspace, config: DubConfig, audioPath: 
     const probe = await probeDiarization(config, workspace.modelsDir);
     if (!probe.available) {
       warnings.push(
-        `Диаризация пропущена (${probe.reason}): все реплики помечены speaker_0, ` +
-          `назначение голосов по спикерам работать не будет. ${probe.hint}`,
+        `Диаризация пропущена (${message(probe.reason ?? '', 'ru')}): все реплики помечены speaker_0, ` +
+          `назначение голосов по спикерам работать не будет. ${message(probe.hint ?? '', 'ru')}`,
       );
     } else {
       log.step(`диаризация моделью ${config.asr.diarization.model} (Python + PyTorch)`);

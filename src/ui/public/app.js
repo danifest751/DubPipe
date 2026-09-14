@@ -32,7 +32,9 @@ const state = {
 
 async function api(path, options = {}) {
   const separator = path.includes('?') ? '&' : '?';
-  const response = await fetch(`${path}${separator}token=${TOKEN}`, {
+  // Язык интерфейса уходит с каждым запросом: часть текста (панель готовности,
+  // причины отказов) рождается на сервере и должна прийти на нужном языке.
+  const response = await fetch(`${path}${separator}token=${TOKEN}&lang=${window.i18n.language()}`, {
     ...options,
     headers: { 'Content-Type': 'application/json', 'X-DubPipe-Token': TOKEN, ...(options.headers ?? {}) },
   });
@@ -54,10 +56,10 @@ function escapeHtml(value) {
 const escapeAttr = (value) => escapeHtml(value).replace(/\n/g, ' ');
 
 function formatBytes(bytes) {
-  if (!bytes) return '0 КБ';
-  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(0)} КБ`;
-  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} МБ`;
-  return `${(bytes / 1024 ** 3).toFixed(2)} ГБ`;
+  if (!bytes) return `0 ${t('unit.kb')}`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(0)} ${t('unit.kb')}`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} ${t('unit.mb')}`;
+  return `${(bytes / 1024 ** 3).toFixed(2)} ${t('unit.gb')}`;
 }
 
 const baseName = (input) => (/^https?:\/\//i.test(input) ? input : input.split(/[\\/]/).pop());
@@ -138,10 +140,10 @@ function renderReadiness(data) {
           .join('')}
       </ul>
       <div class="row">
-        ${fixable ? `<button id="readinessFix" class="primary small">${icon('down')} Догрузить недостающее</button>` : ''}
-        ${problems.some((item) => item.id === 'apikey') ? '<button id="readinessKey" class="small">Ввести ключ</button>' : ''}
-        ${problems.some((item) => item.id === 'diarization' && /токен/.test(item.detail)) ? '<button id="readinessHfToken" class="small">Ввести токен Hugging Face</button>' : ''}
-        <button id="readinessEnv" class="ghost small">Подробнее</button>
+        ${fixable ? `<button id="readinessFix" class="primary small">${icon('down')} ${t('env.fetch')}</button>` : ''}
+        ${problems.some((item) => item.id === 'apikey') ? `<button id="readinessKey" class="small">${t('readiness.enterKey')}</button>` : ''}
+        ${problems.some((item) => item.needsToken) ? `<button id="readinessHfToken" class="small">${t('readiness.enterHfToken')}</button>` : ''}
+        <button id="readinessEnv" class="ghost small">${t('readiness.details')}</button>
       </div>
     </div>`;
 
@@ -172,8 +174,8 @@ function renderProgress() {
     .map((item) => {
       const known = item.percent !== null && item.percent !== undefined;
       const amount = item.totalBytes
-        ? `${formatBytes(item.receivedBytes)} из ${formatBytes(item.totalBytes)}`
-        : known ? `${item.percent}%` : `${item.detail ?? 'подготовка'}…`;
+        ? `${formatBytes(item.receivedBytes)} / ${formatBytes(item.totalBytes)}`
+        : known ? `${item.percent}%` : `${item.detail ?? t('progress.preparing')}…`;
       return `<div class="progress-item">
         <div class="line"><strong>${escapeHtml(item.label)}</strong><span class="amount">${amount}</span></div>
         <div class="bar ${known ? '' : 'indeterminate'}"><i style="width:${known ? item.percent : 35}%"></i></div>
@@ -185,8 +187,8 @@ function renderProgress() {
 function applyProgress(event) {
   if (event.status === 'running') state.progress.set(event.id, event);
   else state.progress.delete(event.id);
-  if (event.status === 'error') toast(`${event.label}: ${event.detail ?? 'ошибка'}`, 'error', 9000);
-  if (event.status === 'done' && event.kind === 'download') toast(`${event.label} — загружено`, 'ok', 3500);
+  if (event.status === 'error') toast(`${event.label}: ${event.detail ?? t('common.error')}`, 'error', 9000);
+  if (event.status === 'done' && event.kind === 'download') toast(`${event.label} — ${t('progress.downloaded')}`, 'ok', 3500);
   renderProgress();
 }
 
@@ -194,12 +196,12 @@ async function startProvisioning(button) {
   await withBusy(button, async () => {
     const result = await post('/api/environment/fetch');
     if (!result.started) {
-      toast(result.note ?? 'Всё уже загружено', 'ok');
+      toast(result.note ?? t('env.allPresent'), 'ok');
       await loadReadiness();
       return;
     }
     const count = (result.tools?.length ?? 0) + (result.weights?.length ?? 0);
-    toast(`Загружаю: ${count} компонент(ов). Ход виден полосами вверху`, 'info', 6000);
+    toast(t('env.fetching', { count }), 'info', 6000);
   });
 }
 
@@ -210,7 +212,7 @@ const browserState = { dir: null, mode: 'folder', resolve: null };
 
 async function openBrowser(mode, startDir) {
   browserState.mode = mode;
-  $('#browserTitle').textContent = mode === 'folder' ? 'Выберите папку с видео' : 'Выберите файл';
+  $('#browserTitle').textContent = t(mode === 'folder' ? 'browser.titleFolder' : 'browser.titleFile');
   $('#browserChoose').hidden = mode !== 'folder';
   $('#browser').hidden = false;
   await browseTo(startDir ?? state.workingDir ?? null);
@@ -233,18 +235,18 @@ async function browseTo(dir) {
     return;
   }
   browserState.dir = data.dir;
-  $('#browserPath').textContent = data.dir ?? 'Этот компьютер';
+  $('#browserPath').textContent = data.dir ?? t('browser.thisComputer');
   $('#browserChoose').disabled = !data.dir;
-  $('#browserHint').textContent = browserState.mode === 'folder' ? 'Зайдите в нужную папку и нажмите «Выбрать эту папку»' : 'Щёлкните по файлу';
+  $('#browserHint').textContent = t(browserState.mode === 'folder' ? 'browser.hintFolder' : 'browser.hintFile');
 
   const rows = [];
-  if (data.parent !== null) rows.push(`<div class="browser-item" data-dir="${escapeAttr(data.parent)}">${icon('up')}<span>на уровень выше</span></div>`);
-  else if (data.dir) rows.push(`<div class="browser-item" data-dir="">${icon('up')}<span>к списку дисков</span></div>`);
+  if (data.parent !== null) rows.push(`<div class="browser-item" data-dir="${escapeAttr(data.parent)}">${icon('up')}<span>${t('browser.up')}</span></div>`);
+  else if (data.dir) rows.push(`<div class="browser-item" data-dir="">${icon('up')}<span>${t('browser.drives')}</span></div>`);
   for (const entry of data.entries) {
     const attribute = entry.isDir ? `data-dir="${escapeAttr(entry.path)}"` : `data-file="${escapeAttr(entry.path)}"`;
     rows.push(`<div class="browser-item" ${attribute}>${icon(entry.isDir ? 'folder' : 'video')}<span>${escapeHtml(entry.name)}</span><span class="size">${entry.isDir ? '' : formatBytes(entry.size)}</span></div>`);
   }
-  if (data.entries.length === 0 && data.dir) rows.push('<div class="browser-item"><span class="meta">здесь нет ни папок, ни медиафайлов</span></div>');
+  if (data.entries.length === 0 && data.dir) rows.push(`<div class="browser-item"><span class="meta">${t('browser.empty')}</span></div>`);
 
   const list = $('#browserList');
   list.innerHTML = rows.join('');
@@ -266,7 +268,7 @@ async function pickFolder() {
   await put('/api/workdir', { dir: chosen });
   state.workingDir = chosen;
   await loadLibrary();
-  toast('Папка выбрана', 'ok', 3000);
+  toast(t('library.folderChosen'), 'ok', 3000);
 }
 window.dubpipePickFolder = pickFolder;
 
@@ -291,23 +293,23 @@ $('#otherOpen').addEventListener('click', () => {
 // --- библиотека ------------------------------------------------------------
 
 function statusPill(stages) {
-  if (stages.includes('s7')) return '<span class="pill ok">озвучено</span>';
-  if (stages.length > 0) return `<span class="pill accent">частично: ${stages.join(', ')}</span>`;
-  return '<span class="pill">не обработан</span>';
+  if (stages.includes('s7')) return `<span class="pill ok">${t('library.state.dubbed')}</span>`;
+  if (stages.length > 0) return `<span class="pill accent">${t('library.state.partial', { stages: stages.join(', ') })}</span>`;
+  return `<span class="pill">${t('library.state.fresh')}</span>`;
 }
 
 async function loadLibrary() {
   const list = $('#libraryList');
   const data = await api('/api/library');
   state.workingDir = data.workingDir;
-  $('#workdirPath').textContent = data.workingDir ?? 'не выбрана';
+  $('#workdirPath').textContent = data.workingDir ?? t('library.noFolder');
 
   if (!data.workingDir) {
-    list.innerHTML = '<div class="notice">Папка не выбрана. Нажмите «Выбрать папку» — в списке появятся её видеофайлы.</div>';
+    list.innerHTML = `<div class="notice">${t('library.noFolderHint')}</div>`;
     return;
   }
   if (data.files.length === 0) {
-    list.innerHTML = '<div class="notice warn">В этой папке нет видео- и аудиофайлов.</div>';
+    list.innerHTML = `<div class="notice warn">${t('library.noMedia')}</div>`;
     return;
   }
 
@@ -316,12 +318,12 @@ async function loadLibrary() {
       <div class="card row-card">
         <div class="grow">
           <div class="name">${escapeHtml(file.name)}</div>
-          <div class="meta">${formatBytes(file.size)}${file.processedAt ? ` · озвучено ${new Date(file.processedAt).toLocaleString('ru-RU')}` : ''}</div>
+          <div class="meta">${formatBytes(file.size)}${file.processedAt ? ` · ${t('library.dubbedAt', { date: new Date(file.processedAt).toLocaleString() })}` : ''}</div>
         </div>
         ${statusPill(file.stages)}
-        <button data-dub="${escapeAttr(file.path)}" class="primary small">${icon('play')} Дублировать</button>
-        <button data-subs="${escapeAttr(file.path)}" class="small" title="Распознать речь, перевести и записать два файла SRT">Субтитры</button>
-        <button data-open="${escapeAttr(file.path)}" class="small">Открыть</button>
+        <button data-dub="${escapeAttr(file.path)}" class="primary small">${icon('play')} ${t('library.dub')}</button>
+        <button data-subs="${escapeAttr(file.path)}" class="small" title="${escapeAttr(t('library.subtitlesHint'))}">${t('library.subtitles')}</button>
+        <button data-open="${escapeAttr(file.path)}" class="small">${t('common.open')}</button>
       </div>`)
     .join('');
 
@@ -343,7 +345,7 @@ function renderProjects() {
           <div class="meta mono">${escapeHtml(project.input)}</div>
         </div>
         ${statusPill(project.stages)}
-        <button data-open="${escapeAttr(project.input)}" class="small">Открыть</button>
+        <button data-open="${escapeAttr(project.input)}" class="small">${t('common.open')}</button>
       </div>`)
     .join('');
   list.querySelectorAll('[data-open]').forEach((button) => button.addEventListener('click', () => openProject(button.dataset.open)));
@@ -396,7 +398,7 @@ async function startJob() {
     outDir: outMode() === 'folder' && state.outDir ? state.outDir : undefined,
   });
   renderJob();
-  toast('Обработка запущена', 'ok', 3000);
+  toast(t('job.started'), 'ok', 3000);
 }
 
 $('#startJob').addEventListener('click', () => startJob().catch(showError));
@@ -404,7 +406,7 @@ $('#cancelJob').addEventListener('click', (event) =>
   withBusy(event.currentTarget, async () => {
     const result = await post('/api/jobs/cancel');
     toast(
-      result.ok ? 'Остановлено: процессы прерваны, готовые стадии остались в кэше' : result.note,
+      result.ok ? t('job.stopped') : result.note,
       result.ok ? 'warn' : 'ok',
       5000,
     );
@@ -413,14 +415,14 @@ $('#cancelJob').addEventListener('click', (event) =>
 $('#clearProjectCache').addEventListener('click', (event) =>
   withBusy(event.currentTarget, async () => {
     await post('/api/cache/clear', { input: state.project });
-    toast('Кэш файла сброшен — следующий запуск пройдёт все стадии заново', 'ok');
+    toast(t('project.cacheCleared'), 'ok');
     await loadSegments().catch(() => {});
   }).catch(showError),
 );
 
 const STAGE_SHORT = {
-  s1: 'Аудио', s2: 'Распознавание', s3: 'Перевод', s4: 'Фонограмма',
-  s5: 'Синтез', s6: 'Подгонка', s7: 'Сведение',
+  s1: 'stage.s1', s2: 'stage.s2', s3: 'stage.s3', s4: 'stage.s4',
+  s5: 'stage.s5', s6: 'stage.s6', s7: 'stage.s7',
 };
 
 function renderJob() {
@@ -455,21 +457,21 @@ function renderJob() {
     const done = new Set(known?.stages ?? []);
     const finished = done.has('s7');
     status.className = `pill ${finished ? 'ok' : done.size ? 'accent' : ''}`;
-    status.textContent = finished ? 'озвучено' : done.size ? `готово стадий: ${done.size}` : 'не обработан';
+    status.textContent = finished ? t('library.state.dubbed') : done.size ? t('project.stagesDone', { count: done.size }) : t('library.state.fresh');
     stepper.innerHTML = state.stages
       .map((stage) => {
         const ready = done.has(stage.id);
-        return `<div class="step ${ready ? 'done' : ''}"><svg class="mark"><use href="#i-${ready ? 'check' : 'dot'}" /></svg><b>${STAGE_SHORT[stage.id]}</b><span class="sub">${ready ? 'в кэше' : 'не выполнялась'}</span></div>`;
+        return `<div class="step ${ready ? 'done' : ''}"><svg class="mark"><use href="#i-${ready ? 'check' : 'dot'}" /></svg><b>${t(STAGE_SHORT[stage.id])}</b><span class="sub">${t(ready ? 'stage.state.cached' : 'stage.state.never')}</span></div>`;
       })
       .join('');
     result.innerHTML = '';
     $('#actionHint').textContent = finished
-      ? 'Уже озвучено. Повторный запуск возьмёт готовые стадии из кэша и пересчитает только изменённое.'
-      : 'Нажмите «Дублировать» — пройдут все стадии, готовые возьмутся из кэша.';
+      ? t('project.hint.done')
+      : t('project.hint.fresh');
     return;
   }
 
-  const labels = { running: 'выполняется', done: 'готово', error: 'ошибка', cancelled: 'остановлено' };
+  const labels = { running: t('job.running'), done: t('job.done'), error: t('job.error'), cancelled: t('job.cancelled') };
   const tone = { running: 'accent', done: 'ok', error: 'bad', cancelled: 'warn' }[job.status];
   status.className = `pill ${tone}`;
   status.textContent = labels[job.status];
@@ -479,14 +481,14 @@ function renderJob() {
   stepper.innerHTML = state.stages
     .map((stage) => {
       const item = planned.get(stage.id);
-      if (!item) return `<div class="step skipped"><svg class="mark"><use href="#i-dot" /></svg><b>${STAGE_SHORT[stage.id]}</b><span class="sub">пропущена</span></div>`;
+      if (!item) return `<div class="step skipped"><svg class="mark"><use href="#i-dot" /></svg><b>${t(STAGE_SHORT[stage.id])}</b><span class="sub">${t('stage.state.skipped')}</span></div>`;
       const mark = item.state === 'done' ? 'check' : item.state === 'running' ? 'spin' : 'dot';
       const sub =
         item.state === 'done'
-          ? (item.provider ?? 'готово')
+          ? (item.provider ?? t('stage.state.done'))
           : item.state === 'running'
-            ? (item.progress?.detail ?? 'выполняется…')
-            : 'ожидает';
+            ? (item.progress?.detail ?? t('stage.state.running'))
+            : t('stage.state.pending');
       // Полоса: с известной долей — заполняется, без неё — бежит, чтобы было видно, что процесс жив.
       const percent = item.progress?.percent;
       const bar =
@@ -500,14 +502,14 @@ function renderJob() {
             ? `<span class="time">${formatElapsed(item.durationMs)}</span>`
             : '';
       const pct = item.state === 'running' && percent != null ? `<span class="pct">${percent}%</span>` : '';
-      return `<div class="step ${item.state}"><svg class="mark"><use href="#i-${mark}" /></svg><b>${STAGE_SHORT[stage.id]}${pct}</b><span class="sub">${escapeHtml(sub)}</span>${bar}${time}</div>`;
+      return `<div class="step ${item.state}"><svg class="mark"><use href="#i-${mark}" /></svg><b>${t(STAGE_SHORT[stage.id])}${pct}</b><span class="sub">${escapeHtml(sub)}</span>${bar}${time}</div>`;
     })
     .join('');
 
   const parts = [];
   if (job.error) parts.push(`<div class="notice error">${escapeHtml(job.error)}</div>`);
   if (job.output) {
-    parts.push(`<div class="notice ok">Готово: ${escapeHtml(job.output)} — смотрите и правьте ниже.</div>`);
+    parts.push(`<div class="notice ok">${escapeHtml(t('job.result', { path: job.output }))}</div>`);
   }
   for (const warning of job.warnings ?? []) parts.push(`<div class="notice warn">${escapeHtml(warning)}</div>`);
   result.innerHTML = parts.join('');
@@ -561,10 +563,10 @@ function renderOutPlace() {
   $('#outFolderRow').hidden = outMode() !== 'folder';
   const preview = $('#outPreview');
   if (outMode() === 'folder' && !state.outDir) {
-    preview.textContent = 'Выберите папку — файл получит имя по имени исходного.';
+    preview.textContent = t('project.outPickFirst');
     return;
   }
-  preview.textContent = folder ? `Файл: ${folder}\\${outputFileName(state.project)}` : '';
+  preview.textContent = folder ? t('project.outFile', { path: `${folder}\\${outputFileName(state.project)}` }) : '';
 }
 
 $$('input[name="outMode"]').forEach((radio) => radio.addEventListener('change', renderOutPlace));
@@ -586,14 +588,14 @@ function fitInfo(segment) {
   const slot = segment.end - segment.start;
   const estimated = segment.text_ru.trim().length / state.charsPerSecond;
   const delta = estimated - slot;
-  if (Math.abs(delta) <= Math.max(slot * 0.15, 0.25)) return { cls: 'ok', label: `${estimated.toFixed(2)} с` };
-  return { cls: delta > 0 ? 'long' : 'short', label: `${estimated.toFixed(2)} с (${delta > 0 ? '+' : ''}${delta.toFixed(2)})` };
+  if (Math.abs(delta) <= Math.max(slot * 0.15, 0.25)) return { cls: 'ok', label: t('common.seconds', { value: estimated.toFixed(2) }) };
+  return { cls: delta > 0 ? 'long' : 'short', label: `${t('common.seconds', { value: estimated.toFixed(2) })} (${delta > 0 ? '+' : ''}${delta.toFixed(2)})` };
 }
 
 function renderSegments() {
   const body = $('#segmentsTable tbody');
   if (state.segments.length === 0) {
-    body.innerHTML = '<tr><td colspan="10"><span class="meta">Реплики появятся после распознавания — нажмите «Дублировать».</span></td></tr>';
+    body.innerHTML = `<tr><td colspan="10"><span class="meta">${t('segments.empty')}</span></td></tr>`;
     return;
   }
   body.innerHTML = state.segments
@@ -608,9 +610,9 @@ function renderSegments() {
         <td class="num"><input type="text" data-field="speaker" value="${escapeAttr(segment.speaker)}" /></td>
         <td><textarea data-field="text_en">${escapeHtml(segment.text_en)}</textarea></td>
         <td><textarea data-field="text_ru">${escapeHtml(segment.text_ru ?? '')}</textarea></td>
-        <td class="fit ${fit.cls}">${fit.label}${segment.tts_duration ? `<br><span class="meta">синтез ${segment.tts_duration.toFixed(2)} с</span>` : ''}</td>
+        <td class="fit ${fit.cls}">${fit.label}${segment.tts_duration ? `<br><span class="meta">${t('segments.synth', { value: segment.tts_duration.toFixed(2) })}</span>` : ''}</td>
         <td><span class="meta">${(segment.flags ?? []).join(', ')}${segment.overlap ? ' overlap' : ''}</span></td>
-        <td><button data-play-original="${index}" class="ghost small">${icon('play')} ориг.</button>${clip ? `<button data-play-clip="${escapeAttr(clip)}" class="ghost small">${icon('play')} синтез</button>` : ''}</td>
+        <td><button data-play-original="${index}" class="ghost small">${icon('play')} ${t('segments.original')}</button>${clip ? `<button data-play-clip="${escapeAttr(clip)}" class="ghost small">${icon('play')} синтез</button>` : ''}</td>
       </tr>`;
     })
     .join('');
@@ -636,7 +638,7 @@ function renderSegments() {
 
 let stopAt = null;
 function playOriginal(start, end) {
-  if (!state.originalAudio) { toast('Оригинальное аудио появится после первой стадии', 'warn'); return; }
+  if (!state.originalAudio) { toast(t('segments.noAudio'), 'warn'); return; }
   const player = $('#player');
   if (player.dataset.source !== state.originalAudio) { player.src = mediaUrl(state.originalAudio); player.dataset.source = state.originalAudio; }
   stopAt = end;
@@ -654,7 +656,7 @@ async function loadSegments() {
   state.segments = data.segments;
   state.originalAudio = data.originalAudio;
   state.charsPerSecond = data.charsPerSecond;
-  $('#editorInfo').textContent = data.segments.length ? `${data.segments.length} реплик` : '';
+  $('#editorInfo').textContent = data.segments.length ? t('segments.count', { count: data.segments.length }) : '';
   state.defaultOutputDir = data.defaultOutputDir ?? null;
   renderOutPlace();
   $('#player').dataset.source = '';
@@ -707,9 +709,9 @@ function genderNote(speaker) {
   const profile = review.data?.speakers?.[speaker];
   if (!profile) return '';
   if (profile.gender === 'м' || profile.gender === 'ж') {
-    return ` · по записи ${profile.gender === 'м' ? 'мужчина' : 'женщина'}, ${profile.f0} Гц`;
+    return t(profile.gender === 'м' ? 'review.byRecordMale' : 'review.byRecordFemale', { hz: profile.f0 });
   }
-  return ' · пол по записи не определён';
+  return t('review.byRecordUnknown');
 }
 
 function reviewVoiceFor(speaker) {
@@ -734,7 +736,7 @@ function renderReviewNow() {
   const box = $('#reviewNow');
   const segment = state.segments[review.index];
   if (!segment) {
-    box.innerHTML = '<div class="meta">Запустите видео — здесь появится реплика, которая звучит сейчас, и кнопки правки.</div>';
+    box.innerHTML = `<div class="meta">${t('review.waiting')}</div>`;
     return;
   }
   const speakers = [...new Set(state.segments.map((item) => item.speaker))].sort();
@@ -743,22 +745,22 @@ function renderReviewNow() {
   const alternative = (review.data.voices ?? []).find((item) => item.gender === opposite);
   box.innerHTML = `
     <div class="now-head">
-      <div class="now-title"><b>Реплика ${segment.id}</b> <span class="meta">${segment.start.toFixed(2)}–${segment.end.toFixed(2)} с</span></div>
+      <div class="now-title"><b>${t('review.replica', { id: segment.id })}</b> <span class="meta">${segment.start.toFixed(2)}–${segment.end.toFixed(2)} с</span></div>
       <div class="now-nav">
-        <button class="ghost small" id="reviewPrev" title="Предыдущая реплика">‹ пред.</button>
-        <button class="ghost small" id="reviewReplay" title="Прослушать ещё раз">${icon('play')} ещё раз</button>
-        <button class="ghost small" id="reviewNext" title="Следующая реплика">след. ›</button>
+        <button class="ghost small" id="reviewPrev" title="${escapeAttr(t('review.prev'))}">${t('review.prevShort')}</button>
+        <button class="ghost small" id="reviewReplay" title="${escapeAttr(t('review.replay'))}">${icon('play')} ${t('review.replayShort')}</button>
+        <button class="ghost small" id="reviewNext" title="${escapeAttr(t('review.next'))}">${t('review.nextShort')}</button>
       </div>
     </div>
     <div class="now-en">${escapeHtml(segment.text_en)}</div>
-    <textarea id="reviewText" rows="2" title="Перевод этой реплики">${escapeHtml(segment.text_ru ?? '')}</textarea>
+    <textarea id="reviewText" rows="2" title="${escapeAttr(t('review.textTitle'))}">${escapeHtml(segment.text_ru ?? '')}</textarea>
     <div class="now-row">
-      <label>Спикер <select id="reviewSpeaker">${speakers.map((item) => `<option value="${escapeAttr(item)}" ${item === segment.speaker ? 'selected' : ''}>${escapeHtml(item)}</option>`).join('')}<option value="__new">новый спикер…</option></select></label>
-      <span class="meta">голос: ${escapeHtml(voice.name)} (${voice.gender})${genderNote(segment.speaker)}</span>
+      <label>${t('review.speakerLabel')} <select id="reviewSpeaker">${speakers.map((item) => `<option value="${escapeAttr(item)}" ${item === segment.speaker ? 'selected' : ''}>${escapeHtml(item)}</option>`).join('')}<option value="__new">${t('review.newSpeaker')}</option></select></label>
+      <span class="meta">${t('review.voiceIs', { name: escapeHtml(voice.name), gender: voice.gender })}${genderNote(segment.speaker)}</span>
     </div>
     <div class="now-row">
-      ${alternative ? `<button class="small" id="reviewGender">${voice.gender === 'м' ? 'Сделать голос женским' : 'Сделать голос мужским'}</button>` : ''}
-      <label>Голос спикера <select id="reviewVoice">${(review.data.voices ?? []).map((item) => `<option value="${escapeAttr(item.name)}" ${item.name === voice.name ? 'selected' : ''}>${escapeHtml(item.name)} — ${item.gender}, ${escapeHtml(item.note)}</option>`).join('')}</select></label>
+      ${alternative ? `<button class="small" id="reviewGender">${t(voice.gender === 'м' ? 'review.makeFemale' : 'review.makeMale')}</button>` : ''}
+      <label>${t('review.voiceOfSpeaker')} <select id="reviewVoice">${(review.data.voices ?? []).map((item) => `<option value="${escapeAttr(item.name)}" ${item.name === voice.name ? 'selected' : ''}>${escapeHtml(item.name)} — ${item.gender}, ${escapeHtml(item.note)}</option>`).join('')}</select></label>
     </div>`;
 
   const seekTo = (index) => {
@@ -807,13 +809,13 @@ function reviewMarks() {
   state.segments.forEach((segment, index) => {
     const base = review.baseline.segments[index];
     if (!base) return;
-    if (base.speaker !== segment.speaker) marks.push({ kind: 'speaker', text: `реплика ${segment.id}: ${base.speaker} → ${segment.speaker}` });
-    if ((base.text_ru ?? '') !== (segment.text_ru ?? '')) marks.push({ kind: 'text', text: `реплика ${segment.id}: перевод изменён` });
+    if (base.speaker !== segment.speaker) marks.push({ kind: 'speaker', text: t('review.markSpeaker', { id: segment.id, from: base.speaker, to: segment.speaker }) });
+    if ((base.text_ru ?? '') !== (segment.text_ru ?? '')) marks.push({ kind: 'text', text: t('review.markText', { id: segment.id }) });
   });
   const baseVoices = review.baseline.overrides.voices;
   for (const [speaker, voice] of Object.entries(review.overrides.voices)) {
     const before = baseVoices[speaker] ?? review.data.voiceMap[speaker] ?? review.data.defaultVoice;
-    if (before !== voice) marks.push({ kind: 'voice', text: `${speaker}: голос ${voiceInfo(before).name} → ${voiceInfo(voice).name}` });
+    if (before !== voice) marks.push({ kind: 'voice', text: t('review.markVoice', { speaker, from: voiceInfo(before).name, to: voiceInfo(voice).name }) });
   }
   for (const [id, key] of Object.entries(MIX_KEYS)) {
     const before = review.baseline.overrides.mix[key] ?? review.data.mix[key];
@@ -827,14 +829,14 @@ function renderReviewMarks() {
   const marks = reviewMarks();
   const box = $('#reviewMarks');
   box.innerHTML = marks.length
-    ? `<b>Пометки (${marks.length}):</b> ${marks.map((mark) => `<span class="chip mark-${mark.kind}">${escapeHtml(mark.text)}</span>`).join(' ')}`
-    : '<span class="meta">Пометок пока нет.</span>';
+    ? `<b>${t('review.marks', { count: marks.length })}</b> ${marks.map((mark) => `<span class="chip mark-${mark.kind}">${escapeHtml(mark.text)}</span>`).join(' ')}`
+    : `<span class="meta">${t('review.noMarks')}</span>`;
   $('#reviewApply').disabled = marks.length === 0;
   $('#reviewDiscard').disabled = marks.length === 0;
 }
 
 function renderMixLabels() {
-  const signed = (value) => `${value > 0 ? '+' : ''}${value} дБ`;
+  const signed = (value) => `${value > 0 ? '+' : ''}${value} ${t('unit.db')}`;
   $('#mixBgLabel').textContent = signed(Number($('#mixBg').value));
   $('#mixVoiceLabel').textContent = signed(Number($('#mixVoice').value));
   $('#mixDuckLabel').textContent = signed(Number($('#mixDuck').value));
@@ -875,13 +877,13 @@ $('#reviewDiscard').addEventListener('click', () => {
 $('#reviewApply').addEventListener('click', (event) =>
   withBusy(event.currentTarget, async () => {
     const result = await post('/api/project/review', { input: state.project, segments: state.segments, overrides: review.overrides });
-    if (!result.fromStage) { toast('Изменений, требующих пересведения, нет', 'warn'); return; }
+    if (!result.fromStage) { toast(t('review.nothingToApply'), 'warn'); return; }
     state.job = await post('/api/jobs', { input: state.project, fromStage: result.fromStage });
     renderJob();
     toast(
       result.fromStage === 's5'
-        ? `Правки сохранены: переозвучу ${result.affected.length} реплик и пересведу файл`
-        : 'Правки сохранены: пересвожу файл с новыми громкостями',
+        ? t('review.applied', { count: result.affected.length })
+        : t('review.appliedMix'),
       'ok',
       6000,
     );
@@ -890,9 +892,9 @@ $('#reviewApply').addEventListener('click', (event) =>
 
 $('#reviewReset').addEventListener('click', (event) =>
   withBusy(event.currentTarget, async () => {
-    if (!window.confirm('Удалить всё, что сделано для этого видео (распознавание, перевод, озвучка), и начать с нуля? Готовый файл останется на диске.')) return;
+    if (!window.confirm(t('review.resetConfirm'))) return;
     await post('/api/cache/clear', { input: state.project });
-    toast('Всё сброшено. Нажмите «Дублировать», чтобы начать заново', 'ok', 6000);
+    toast(t('review.resetDone'), 'ok', 6000);
     await loadSegments().catch(() => {});
   }).catch(showError),
 );
@@ -900,9 +902,9 @@ $('#reviewReset').addEventListener('click', (event) =>
 $('#reloadSegments').addEventListener('click', (event) => withBusy(event.currentTarget, loadSegments).catch(showError));
 $('#saveSegments').addEventListener('click', (event) =>
   withBusy(event.currentTarget, async () => {
-    if (!state.segments.length) { toast('Нечего сохранять', 'warn'); return; }
+    if (!state.segments.length) { toast(t('segments.nothingToSave'), 'warn'); return; }
     const result = await put('/api/segments', { input: state.project, segments: state.segments });
-    toast(`Сохранено реплик: ${result.count}. Чтобы переозвучить, запустите со стадии «Синтез» в «Дополнительно».`, 'ok', 8000);
+    toast(t('segments.saved', { count: result.count }), 'ok', 8000);
   }).catch(showError),
 );
 
@@ -912,19 +914,19 @@ $('#saveSegments').addEventListener('click', (event) =>
 // по правилам чтения (две строки, ограничение символов, скорость чтения).
 // Здесь их правят, видят замечания и пишут в SRT.
 
-const subs = { data: null, lang: 'en', dirty: false, active: -1 };
+const subs = { data: null, kind: 'source', dirty: false, active: -1 };
 
 const PROBLEM_LABELS = {
-  too_fast: 'быстро читать',
-  too_short: 'слишком коротко',
-  too_long: 'слишком долго',
-  line_overflow: 'строка длиннее нормы',
-  too_many_lines: 'больше двух строк',
-  overlap: 'наезжает на следующий',
+  too_fast: 'problem.too_fast',
+  too_short: 'problem.too_short',
+  too_long: 'problem.too_long',
+  line_overflow: 'problem.line_overflow',
+  too_many_lines: 'problem.too_many_lines',
+  overlap: 'problem.overlap',
 };
 
-const subsLang = () => $$('input[name="subLang"]').find((radio) => radio.checked)?.value ?? 'en';
-const currentSubs = () => subs.data?.languages.find((item) => item.lang === subs.lang) ?? null;
+const subsKind = () => $$('input[name="subKind"]').find((radio) => radio.checked)?.value ?? 'source';
+const currentSubs = () => subs.data?.languages.find((item) => item.kind === subs.kind) ?? null;
 
 function timecode(seconds) {
   const value = Math.max(0, seconds);
@@ -948,7 +950,9 @@ function parseTimecode(text) {
 async function loadSubtitles() {
   if (!state.project) return;
   subs.data = await api(`/api/subtitles?input=${encodeURIComponent(state.project)}`);
-  subs.lang = subsLang();
+  const source = subs.data.languages.find((item) => item.kind === 'source');
+  $('#subSourceLabel').textContent = source ? t('subs.sourceWithLang', { name: source.name }) : t('subs.source');
+  subs.kind = subsKind();
   subs.dirty = false;
   const video = $('#subsVideo');
   const preview = $('#subsPreview');
@@ -968,13 +972,13 @@ function renderSubtitles() {
   const cues = current?.cues ?? [];
 
   if (!subs.data?.hasSegments) {
-    body.innerHTML = '<tr><td colspan="7"><span class="meta">Субтитров пока нет. Нажмите «Сделать субтитры» — программа распознает речь, переведёт её и запишет два файла SRT.</span></td></tr>';
+    body.innerHTML = `<tr><td colspan="7"><span class="meta">${t('subs.none')}</span></td></tr>`;
     $('#subsSummary').textContent = '';
     $('#subsFile').textContent = '';
     return;
   }
   if (cues.length === 0) {
-    body.innerHTML = `<tr><td colspan="7"><span class="meta">${subs.lang === 'ru' ? 'Русских титров нет: реплики ещё не переведены.' : 'Английских титров нет: речь ещё не распознана.'}</span></td></tr>`;
+    body.innerHTML = `<tr><td colspan="7"><span class="meta">${t(subs.kind === 'target' ? 'subs.noneTarget' : 'subs.noneSource')}</span></td></tr>`;
   } else {
     body.innerHTML = cues
       .map((cue, index) => {
@@ -986,10 +990,10 @@ function renderSubtitles() {
           <td>${cue.index}</td>
           <td class="num"><input type="text" data-cue-field="start" value="${timecode(cue.start)}" /></td>
           <td class="num"><input type="text" data-cue-field="end" value="${timecode(cue.end)}" /></td>
-          <td class="num">${duration.toFixed(2)} с<br><span class="meta">${cps.toFixed(1)} зн/с</span></td>
+          <td class="num">${t('common.seconds', { value: duration.toFixed(2) })}<br><span class="meta">${t('subs.cps', { value: cps.toFixed(1) })}</span></td>
           <td><textarea data-cue-field="lines" rows="2">${escapeHtml(cue.lines.join('\n'))}</textarea></td>
           <td>${problems.length ? `<span class="meta bad">${escapeHtml(problems.join(', '))}</span>` : '<span class="meta ok">—</span>'}</td>
-          <td><button class="ghost small" data-cue-play="${index}" title="Перемотать сюда">${icon('play')}</button></td>
+          <td><button class="ghost small" data-cue-play="${index}" title="${escapeAttr(t('subs.playHere'))}">${icon('play')}</button></td>
         </tr>`;
       })
       .join('');
@@ -1004,7 +1008,7 @@ function renderSubtitles() {
         cue.lines = event.target.value.split('\n').map((line) => line.trim()).filter(Boolean);
       } else {
         const parsed = parseTimecode(event.target.value);
-        if (parsed === null) { toast('Не понял время: ждал 01:23.400 или 83.4', 'warn'); renderSubtitles(); return; }
+        if (parsed === null) { toast(t('subs.badTime'), 'warn'); renderSubtitles(); return; }
         cue[kind] = parsed;
       }
       subs.dirty = true;
@@ -1023,20 +1027,20 @@ function renderSubtitles() {
 
   const problems = cues.filter((cue) => (cue.problems ?? []).length > 0).length;
   $('#subsSummary').textContent = cues.length
-    ? `${cues.length} титров${problems ? `, с замечаниями: ${problems}` : ', замечаний нет'}${subs.dirty ? ' · есть несохранённые правки' : ''}`
+    ? `${t('subs.summary', { count: cues.length })}${problems ? t('subs.summary.problems', { count: problems }) : t('subs.summary.clean')}${subs.dirty ? t('subs.summary.dirty') : ''}`
     : '';
-  $('#subsFile').textContent = current ? `${current.file}${current.exists ? '' : ' (ещё не записан)'}` : '';
+  $('#subsFile').textContent = current ? `${current.file}${current.exists ? '' : t('subs.notWritten')}` : '';
   $('#saveSubtitles').disabled = cues.length === 0;
   $('#rebuildSubtitles').disabled = !current?.edited;
 }
 
-$$('input[name="subLang"]').forEach((radio) =>
+$$('input[name="subKind"]').forEach((radio) =>
   radio.addEventListener('change', () => {
-    if (subs.dirty && !window.confirm('Правки текущего языка не сохранены. Переключиться и потерять их?')) {
-      $$('input[name="subLang"]').forEach((other) => { other.checked = other.value === subs.lang; });
+    if (subs.dirty && !window.confirm(t('subs.switchConfirm'))) {
+      $$('input[name="subKind"]').forEach((other) => { other.checked = other.value === subs.kind; });
       return;
     }
-    subs.lang = subsLang();
+    subs.kind = subsKind();
     subs.dirty = false;
     loadSubtitles().catch(showError);
   }),
@@ -1050,7 +1054,7 @@ async function startSubtitles() {
     outDir: outMode() === 'folder' && state.outDir ? state.outDir : undefined,
   });
   renderJob();
-  toast('Делаю субтитры: распознавание, перевод и запись двух файлов SRT', 'ok', 6000);
+  toast(t('subs.started'), 'ok', 6000);
 }
 
 $('#makeSubtitles').addEventListener('click', (event) => withBusy(event.currentTarget, startSubtitles).catch(showError));
@@ -1061,22 +1065,22 @@ $('#saveSubtitles').addEventListener('click', (event) =>
     if (!current || current.cues.length === 0) return;
     const result = await put('/api/subtitles', {
       input: state.project,
-      lang: subs.lang,
+      kind: subs.kind,
       cues: current.cues.map((cue) => ({ start: cue.start, end: cue.end, lines: cue.lines, segmentId: cue.segmentId })),
     });
     subs.dirty = false;
-    toast(`Сохранено титров: ${result.count} → ${result.file}`, 'ok', 7000);
+    toast(t('subs.saved', { count: result.count, path: result.file }), 'ok', 7000);
     await loadSubtitles();
   }).catch(showError),
 );
 
 $('#rebuildSubtitles').addEventListener('click', (event) =>
   withBusy(event.currentTarget, async () => {
-    if (!window.confirm('Вернуть титры, рассчитанные из реплик? Ручные правки этого языка будут потеряны.')) return;
-    await post('/api/subtitles/rebuild', { input: state.project, lang: subs.lang });
+    if (!window.confirm(t('subs.rebuildConfirm'))) return;
+    await post('/api/subtitles/rebuild', { input: state.project, kind: subs.kind });
     subs.dirty = false;
     await loadSubtitles();
-    toast('Титры пересобраны из реплик', 'ok');
+    toast(t('subs.rebuilt'), 'ok');
   }).catch(showError),
 );
 
@@ -1114,7 +1118,7 @@ async function loadCatalog() {
       }),
     );
   } catch (error) {
-    $('#modelCatalog').innerHTML = `<div class="notice warn">Каталог моделей недоступен: ${escapeHtml(error.message)}</div>`;
+    $('#modelCatalog').innerHTML = `<div class="notice warn">${escapeHtml(t('compare.unavailable', { error: error.message }))}</div>`;
   }
 }
 $('#modelSearch').addEventListener('change', () => loadCatalog());
@@ -1123,12 +1127,12 @@ $('#modelFree').addEventListener('change', () => loadCatalog());
 $('#runCompare').addEventListener('click', (event) =>
   withBusy(event.currentTarget, async () => {
     const models = $('#compareModels').value.split(',').map((item) => item.trim()).filter(Boolean);
-    if (models.length === 0) { toast('Укажите хотя бы одну модель', 'warn'); return; }
-    if (!state.segments.length) { toast('Сначала нужно распознать речь', 'warn'); return; }
-    $('#compareResult').innerHTML = '<div class="notice">Идёт сравнение — это занимает десятки секунд…</div>';
+    if (models.length === 0) { toast(t('compare.needModel'), 'warn'); return; }
+    if (!state.segments.length) { toast(t('compare.needSegments'), 'warn'); return; }
+    $('#compareResult').innerHTML = `<div class="notice">${t('compare.running')}</div>`;
     const report = await post('/api/compare', { input: state.project, models, limit: Number($('#compareLimit').value) || 10 });
     renderComparison(report);
-    toast('Сравнение готово', 'ok');
+    toast(t('compare.done'), 'ok');
   }).catch((error) => { $('#compareResult').innerHTML = `<div class="notice error">${escapeHtml(error.message)}</div>`; showError(error); }),
 );
 
@@ -1136,13 +1140,13 @@ function renderComparison(report) {
   const ok = report.models.filter((model) => model.ok);
   const rows = [...report.models].sort((a, b) => (a.ok === b.ok ? b.stats.share - a.stats.share : a.ok ? -1 : 1));
   const summary = `<div class="table-wrap"><table>
-    <thead><tr><th>Модель</th><th>В допуске</th><th>Время</th><th>Токены</th><th>Стоимость</th><th></th></tr></thead>
+    <thead><tr><th>${t('compare.col.model')}</th><th>${t('compare.col.withinTolerance')}</th><th>${t('compare.col.time')}</th><th>${t('compare.col.tokens')}</th><th>${t('compare.col.cost')}</th><th></th></tr></thead>
     <tbody>${rows.map((row) => row.ok
       ? `<tr><td>${escapeHtml(row.model)}</td><td>${row.stats.withinTolerance}/${row.stats.total} (${Math.round(row.stats.share * 100)}%)</td><td>${(row.elapsedMs / 1000).toFixed(1)} с</td><td>${row.usage.promptTokens + row.usage.completionTokens}</td><td>${row.costUsd ? '$' + row.costUsd.toFixed(5) : 'бесплатно'}</td><td><button class="small" data-apply="${escapeAttr(row.model)}">Применить</button></td></tr>`
-      : `<tr><td>${escapeHtml(row.model)}</td><td colspan="5" class="fit long">${escapeHtml(row.error ?? 'ошибка')}</td></tr>`).join('')}</tbody></table></div>`;
+      : `<tr><td>${escapeHtml(row.model)}</td><td colspan="5" class="fit long">${escapeHtml(row.error ?? t('common.error'))}</td></tr>`).join('')}</tbody></table></div>`;
 
   const lines = (ok[0]?.lines ?? []).map((line, index) => `
-    <h2>[${line.id}] слот ${line.slot.toFixed(2)} с — ${escapeHtml(line.text_en)}</h2>
+    <h2>${escapeHtml(t('compare.slot', { id: line.id, slot: line.slot.toFixed(2), text: line.text_en }))}</h2>
     <div class="table-wrap"><table><tbody>${ok.map((model) => {
       const c = model.lines[index];
       return c ? `<tr><td class="meta">${escapeHtml(model.model)}</td><td class="fit ${c.fits ? 'ok' : 'long'}">${c.fits ? '✓' : '✗'}</td><td>${escapeHtml(c.text_ru)}</td></tr>` : '';
@@ -1157,7 +1161,7 @@ function renderComparison(report) {
         for (const segment of state.segments) { const text = byId.get(segment.id); if (text) segment.text_ru = text; }
         await put('/api/segments', { input: state.project, segments: state.segments });
         renderSegments();
-        toast(`Перевод ${chosen.model} применён. Переозвучьте со стадии «Синтез».`, 'ok', 8000);
+        toast(t('compare.applied', { model: chosen.model }), 'ok', 8000);
       }).catch(showError),
     ),
   );
@@ -1211,7 +1215,7 @@ function fillForm(config) {
 function markDirty(key, value) {
   state.dirty[key] = value;
   $('#savebar').hidden = false;
-  $('#saveNote').textContent = `Изменено настроек: ${Object.keys(state.dirty).length}`;
+  $('#saveNote').textContent = t('settings.dirtyCount', { count: Object.keys(state.dirty).length });
 }
 
 $$('#settingsForm [data-key]').forEach((field) => {
@@ -1231,7 +1235,7 @@ $$('input[name="profile"]').forEach((radio) =>
   }),
 );
 
-$('#configText').addEventListener('input', () => { state.yamlDirty = true; $('#savebar').hidden = false; $('#saveNote').textContent = 'Файл YAML изменён'; });
+$('#configText').addEventListener('input', () => { state.yamlDirty = true; $('#savebar').hidden = false; $('#saveNote').textContent = t('settings.yamlDirty'); });
 
 function renderVoiceMap(config) {
   const voices = state.voices ?? [];
@@ -1239,7 +1243,7 @@ function renderVoiceMap(config) {
   const speakers = Array.from(new Set(['speaker_0', 'speaker_1', ...Object.keys(map)]));
   $('#voiceMap').innerHTML = speakers
     .map((speaker) => `<div class="row nowrap"><span class="mono" style="width:90px">${escapeHtml(speaker)}</span>
-      <select data-voicemap="${speaker}"><option value="">как по умолчанию</option>${voices.map((v) => `<option value="${v.name}" ${map[speaker] === v.name ? 'selected' : ''}>${escapeHtml(v.name)} (${v.gender})</option>`).join('')}</select></div>`)
+      <select data-voicemap="${speaker}"><option value="">${t('settings.asDefault')}</option>${voices.map((v) => `<option value="${v.name}" ${map[speaker] === v.name ? 'selected' : ''}>${escapeHtml(v.name)} (${v.gender})</option>`).join('')}</select></div>`)
     .join('');
   $('#voiceMap').querySelectorAll('[data-voicemap]').forEach((select) =>
     select.addEventListener('change', () => {
@@ -1255,7 +1259,7 @@ function renderVoiceMap(config) {
 state.catalog = [];
 
 function priceLabel(model) {
-  if (model.free) return 'бесплатно';
+  if (model.free) return t('settings.free');
   return `$${(model.promptPrice * 1e6).toFixed(2)} / $${(model.completionPrice * 1e6).toFixed(2)}`;
 }
 
@@ -1297,9 +1301,9 @@ function renderModelList() {
   combo.items = items;
   if (combo.active >= items.length) combo.active = items.length ? 0 : -1;
   if (!state.catalog.length) {
-    list.innerHTML = '<div class="combo-empty">Каталог не загружен: нужен ключ и сеть. Имя модели можно вписать вручную.</div>';
+    list.innerHTML = `<div class="combo-empty">${t('settings.catalogEmpty')}</div>`;
   } else if (!items.length) {
-    list.innerHTML = '<div class="combo-empty">Ничего не найдено. Значение можно оставить как есть.</div>';
+    list.innerHTML = `<div class="combo-empty">${t('settings.catalogNoMatch')}</div>`;
   } else {
     list.innerHTML =
       items
@@ -1309,7 +1313,7 @@ function renderModelList() {
           <span class="price ${model.free ? 'free' : ''}">${escapeHtml(priceLabel(model))}</span>
         </div>`,
         )
-        .join('') + (total > items.length ? `<div class="combo-empty">…и ещё ${total - items.length}, уточните запрос</div>` : '');
+        .join('') + (total > items.length ? `<div class="combo-empty">${t('settings.catalogMore', { count: total - items.length })}</div>` : '');
   }
   list.querySelectorAll('[data-index]').forEach((item) => {
     // mousedown, а не click: blur поля закрыл бы список раньше клика.
@@ -1317,8 +1321,8 @@ function renderModelList() {
     item.addEventListener('mousemove', () => { combo.active = Number(item.dataset.index); markActive(); });
   });
   $('#settingsModelNote').textContent = state.catalog.length
-    ? `в каталоге моделей: ${state.catalog.length}${input.value.trim() ? `, подходит: ${total}` : ''}`
-    : 'каталог не загружен: нужен ключ и сеть';
+    ? `${t('settings.catalogCount', { count: state.catalog.length })}${input.value.trim() ? t('settings.catalogMatched', { count: total }) : ''}`
+    : t('settings.catalogMissing');
 }
 
 function markActive() {
@@ -1354,7 +1358,7 @@ async function loadSettingsCatalog(refresh = false) {
     state.catalog = data.models;
   } catch (error) {
     state.catalog = [];
-    $('#settingsModelNote').textContent = `каталог недоступен: ${error.message}`;
+    $('#settingsModelNote').textContent = t('settings.catalogFailed', { error: error.message });
   }
 }
 
@@ -1388,27 +1392,27 @@ function renderModelCheck(result) {
   const seconds = (result.elapsedMs / 1000).toFixed(1);
   const cost = result.costUsd != null ? `$${result.costUsd.toFixed(4)}` : '—';
   const head = result.ok
-    ? `<div class="head ok">${icon('check')} Модель переводит: ${seconds} с, ${cost} за 3 реплики</div>`
-    : `<div class="head bad">${icon('x')} Не годится: ${escapeHtml(result.reason ?? 'ответ не получен')}${result.elapsedMs ? ` (${seconds} с)` : ''}</div>`;
+    ? `<div class="head ok">${icon('check')} ${escapeHtml(t('settings.model.works', { seconds, cost }))}</div>`
+    : `<div class="head bad">${icon('x')} ${escapeHtml(t('settings.model.fails', { reason: result.reason ?? t('settings.model.noAnswer') }))}${result.elapsedMs ? ` (${seconds} с)` : ''}</div>`;
   const rows = result.lines
     .map(
       (line) => `<div class="line ${line.text_ru ? (line.fits ? 'fits' : 'long') : 'missing'}">
         <span class="en">${escapeHtml(line.text_en)}</span>
-        <span class="ru">${line.text_ru ? escapeHtml(line.text_ru) : '— нет перевода —'}</span>
+        <span class="ru">${line.text_ru ? escapeHtml(line.text_ru) : t('settings.model.noTranslation')}</span>
       </div>`,
     )
     .join('');
-  box.innerHTML = head + rows + (result.ok && result.lines.some((line) => !line.fits) ? '<div class="meta">Часть реплик длиннее слота — на стадии подгонки их сократит корректирующий проход.</div>' : '');
+  box.innerHTML = head + rows + (result.ok && result.lines.some((line) => !line.fits) ? `<div class="meta">${t('settings.model.longNote')}</div>` : '');
 }
 
 $('#settingsModelCheck').addEventListener('click', (event) =>
   withBusy(event.currentTarget, async () => {
     const model = $('#settingsModel').value.trim();
-    if (!model) { toast('Сначала выберите модель', 'warn'); return; }
+    if (!model) { toast(t('settings.model.pickFirst'), 'warn'); return; }
     $('#settingsModelCheckResult').hidden = true;
     const result = await post('/api/models/check', { model });
     renderModelCheck(result);
-    toast(result.ok ? `Модель ${model} переводит` : `Модель ${model}: ${result.reason}`, result.ok ? 'ok' : 'error', 7000);
+    toast(result.ok ? t('settings.model.ok', { model }) : t('settings.model.bad', { model, reason: result.reason }), result.ok ? 'ok' : 'error', 7000);
   }).catch(showError),
 );
 
@@ -1416,7 +1420,7 @@ $('#settingsModelRefresh').addEventListener('click', (event) =>
   withBusy(event.currentTarget, async () => {
     await loadSettingsCatalog(true);
     renderModelList();
-    toast(`Каталог обновлён: ${state.catalog.length} моделей`, 'ok');
+    toast(t('settings.catalogRefreshed', { count: state.catalog.length }), 'ok');
   }).catch(showError),
 );
 
@@ -1426,7 +1430,7 @@ async function loadSettings() {
   ]);
   state.voices = voices.voices;
   $('#defaultVoice').innerHTML = voices.voices.map((v) => `<option value="${v.name}">${escapeHtml(v.name)} — ${v.gender}, ${escapeHtml(v.note)}</option>`).join('');
-  $('#configPath').textContent = configData.path + (configData.exists ? '' : ' (будет создан при сохранении)');
+  $('#configPath').textContent = configData.path + (configData.exists ? '' : t('settings.willBeCreated'));
   $('#configText').value = configData.text;
   $('#cacheDir').textContent = stateData.cacheDir;
   state.yamlDirty = false;
@@ -1437,24 +1441,24 @@ async function loadSettings() {
 }
 
 function renderHfToken(token) {
-  $('#hfTokenStatus').textContent = token.set ? `сохранён: ${token.masked}` : 'не задан';
+  $('#hfTokenStatus').textContent = token.set ? t('settings.savedAs', { masked: token.masked }) : t('settings.notSet');
   $('#hfTokenRemove').disabled = !token.set;
 }
 
 $('#hfTokenToggle').addEventListener('click', () => {
   const field = $('#hfTokenInput');
   field.type = field.type === 'password' ? 'text' : 'password';
-  $('#hfTokenToggle').textContent = field.type === 'password' ? 'показать' : 'скрыть';
+  $('#hfTokenToggle').textContent = t(field.type === 'password' ? 'common.show' : 'common.hide');
 });
 $('#hfTokenSave').addEventListener('click', (event) =>
   withBusy(event.currentTarget, async () => {
     const value = $('#hfTokenInput').value.trim();
-    if (!value) { toast('Вставьте токен', 'warn'); return; }
+    if (!value) { toast(t('settings.pasteToken'), 'warn'); return; }
     const result = await put('/api/hf-token', { token: value });
     $('#hfTokenInput').value = '';
     renderHfToken(result);
     renderReadiness(result.readiness);
-    toast('Токен сохранён. Веса модели загрузятся по кнопке «Догрузить недостающее»', 'ok', 7000);
+    toast(t('settings.tokenSaved'), 'ok', 7000);
   }).catch(showError),
 );
 $('#hfTokenRemove').addEventListener('click', (event) =>
@@ -1462,12 +1466,12 @@ $('#hfTokenRemove').addEventListener('click', (event) =>
     const result = await put('/api/hf-token', { token: null });
     renderHfToken(result);
     renderReadiness(result.readiness);
-    toast('Токен удалён', 'ok');
+    toast(t('settings.tokenRemoved'), 'ok');
   }).catch(showError),
 );
 
 function renderKey(key) {
-  $('#keyStatus').textContent = key.set ? `сохранён: ${key.masked}` : 'не задан';
+  $('#keyStatus').textContent = key.set ? t('settings.savedAs', { masked: key.masked }) : t('settings.notSet');
   $('#keyStatus').className = `meta ${key.set ? '' : ''}`;
   $('#keyRemove').disabled = !key.set;
 }
@@ -1475,23 +1479,23 @@ function renderKey(key) {
 $('#keyToggle').addEventListener('click', () => {
   const field = $('#keyInput');
   field.type = field.type === 'password' ? 'text' : 'password';
-  $('#keyToggle').textContent = field.type === 'password' ? 'показать' : 'скрыть';
+  $('#keyToggle').textContent = t(field.type === 'password' ? 'common.show' : 'common.hide');
 });
 $('#keySave').addEventListener('click', (event) =>
   withBusy(event.currentTarget, async () => {
     const value = $('#keyInput').value.trim();
-    if (!value) { toast('Вставьте ключ', 'warn'); return; }
+    if (!value) { toast(t('settings.pasteKey'), 'warn'); return; }
     const result = await put('/api/key', { key: value });
     $('#keyInput').value = '';
     renderKey(result);
     renderReadiness(result.readiness);
-    toast('Ключ сохранён и применён', 'ok');
+    toast(t('settings.keySaved'), 'ok');
   }).catch(showError),
 );
 $('#keyCheck').addEventListener('click', (event) =>
   withBusy(event.currentTarget, async () => {
     const result = await post('/api/key/check');
-    toast(result.ok ? 'Ключ работает: шлюз ответил' : `Ключ не принят: ${result.reason}`, result.ok ? 'ok' : 'error', 7000);
+    toast(result.ok ? t('settings.keyWorks') : t('settings.keyRejected', { reason: result.reason }), result.ok ? 'ok' : 'error', 7000);
   }).catch(showError),
 );
 $('#keyRemove').addEventListener('click', (event) =>
@@ -1499,7 +1503,7 @@ $('#keyRemove').addEventListener('click', (event) =>
     const result = await put('/api/key', { key: null });
     renderKey(result);
     renderReadiness(result.readiness);
-    toast('Ключ удалён', 'ok');
+    toast(t('settings.keyRemoved'), 'ok');
   }).catch(showError),
 );
 
@@ -1516,7 +1520,7 @@ $('#previewVoice').addEventListener('click', (event) =>
 $('#clearAllCache').addEventListener('click', (event) =>
   withBusy(event.currentTarget, async () => {
     const result = await post('/api/cache/clear');
-    toast(`Очищено: ${result.removed}`, 'ok');
+    toast(t('settings.cleared', { count: result.removed }), 'ok');
     await refreshState();
   }).catch(showError),
 );
@@ -1532,7 +1536,7 @@ $('#saveSettings').addEventListener('click', (event) =>
       } else {
         await put('/api/config/values', { values: state.dirty });
       }
-      toast('Настройки сохранены', 'ok');
+      toast(t('settings.saved'), 'ok');
       await loadSettings();
       await loadReadiness();
       await refreshState();
@@ -1554,7 +1558,7 @@ $('#saveSettings').addEventListener('click', (event) =>
 // --- окружение -------------------------------------------------------------
 
 async function loadEnvironment() {
-  $('#envList').innerHTML = '<div class="notice">Проверяю компоненты…</div>';
+  $('#envList').innerHTML = `<div class="notice">${t('env.checking')}</div>`;
   const [readiness, env] = await Promise.all([api('/api/readiness'), api('/api/environment')]);
   renderReadiness(readiness);
 
@@ -1571,7 +1575,7 @@ async function loadEnvironment() {
 
   const tools = env.tools.filter((tool) => tool.path).map((tool) => `<div class="card row-card"><div class="grow"><div class="name">${tool.name}</div><div class="meta mono">${escapeHtml(tool.path)}</div></div><span class="pill ok">${tool.source === 'local' ? 'в служебном каталоге' : 'в системе'}</span></div>`);
 
-  $('#envList').innerHTML = items.join('') + '<h2>Расположение программ</h2>' + (tools.join('') || '<div class="notice">Ничего не загружено.</div>');
+  $('#envList').innerHTML = items.join('') + `<h2>${t('env.toolsTitle')}</h2>` + (tools.join('') || `<div class="notice">${t('env.noTools')}</div>`);
 }
 
 $('#refreshEnv').addEventListener('click', (event) => withBusy(event.currentTarget, loadEnvironment).catch(showError));
@@ -1593,7 +1597,7 @@ async function refreshState() {
   state.job = data.job;
   state.workingDir = data.workingDir ?? state.workingDir;
   $('#version').textContent = `v${data.version}`;
-  $('#profileNote').textContent = data.profile === 'offline' ? 'перевод: локально' : 'перевод: облачная модель';
+  $('#profileNote').textContent = t(data.profile === 'offline' ? 'profile.local' : 'profile.cloud');
   $('#legalText').textContent = data.legalNotice;
   fillStageSelects();
   renderProjects();
@@ -1619,7 +1623,7 @@ function connectEvents() {
     state.job = JSON.parse(event.data);
     renderJob();
     if (state.job.status !== 'running' && previous === 'running') {
-      toast(state.job.status === 'done' ? 'Готово — файл озвучен' : `Обработка: ${state.job.status}`, state.job.status === 'done' ? 'ok' : 'error', 8000);
+      toast(state.job.status === 'done' ? t('job.finishedOk') : t('job.finishedOther', { status: state.job.status }), state.job.status === 'done' ? 'ok' : 'error', 8000);
       refreshState().catch(() => {});
       loadLibrary().catch(() => {});
       if (state.project === state.job.input) {
@@ -1631,8 +1635,29 @@ function connectEvents() {
   source.onerror = () => setTimeout(connectEvents, 3000);
 }
 
+// --- язык интерфейса -------------------------------------------------------
+
+/** Всё, что рисуется кодом, а не разметкой, нужно перерисовать после смены языка. */
+function rerenderAll() {
+  window.i18n.applyTranslations();
+  fillStageSelects();
+  renderSegments();
+  renderJob();
+  renderOutPlace();
+  if (subs.data) renderSubtitles();
+  loadReadiness().catch(() => {});
+  loadLibrary().catch(() => {});
+  refreshState().catch(() => {});
+}
+
+$('#uiLang').value = window.i18n.language();
+$('#uiLang').addEventListener('change', (event) => {
+  if (window.i18n.setLanguage(event.target.value)) rerenderAll();
+});
+
 // --- запуск ----------------------------------------------------------------
 
+window.i18n.applyTranslations();
 renderSegments();
 renderJob();
 connectEvents();
