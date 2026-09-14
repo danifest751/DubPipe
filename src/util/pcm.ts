@@ -156,6 +156,12 @@ export interface EnvelopeOptions {
   duckDb: number;
   fadeMs: number;
   channels: number;
+  /**
+   * Значение вне речевых окон. По умолчанию 1 — оригинал за окнами не трогаем.
+   * Ноль превращает кривую в обратную: она показывает, где мы говорим, и
+   * нужна, чтобы убирать исходный голос только под своими репликами.
+   */
+  outsideGain?: number;
 }
 
 /**
@@ -170,21 +176,22 @@ export function envelopeValueAt(
   windows: SpeechWindow[],
   duckGain: number,
   fadeSeconds: number,
+  outsideGain = 1,
 ): number {
   for (const window of windows) {
     if (timeSeconds < window.start - fadeSeconds || timeSeconds > window.end + fadeSeconds) continue;
 
     if (timeSeconds < window.start) {
       const progress = (timeSeconds - (window.start - fadeSeconds)) / fadeSeconds;
-      return 1 - (1 - duckGain) * progress;
+      return outsideGain - (outsideGain - duckGain) * progress;
     }
     if (timeSeconds > window.end) {
       const progress = (timeSeconds - window.end) / fadeSeconds;
-      return duckGain + (1 - duckGain) * progress;
+      return duckGain + (outsideGain - duckGain) * progress;
     }
     return duckGain;
   }
-  return 1;
+  return outsideGain;
 }
 
 export async function buildDuckEnvelope(
@@ -201,6 +208,7 @@ export async function buildDuckEnvelope(
   writeWavHeader(stream, { sampleRate, channels, dataLength: totalSamples * channels * BYTES_PER_SAMPLE });
 
   const duckGain = 10 ** (options.duckDb / 20);
+  const outside = options.outsideGain ?? 1;
   const fadeSeconds = Math.max(options.fadeMs / 1000, 1 / sampleRate);
   const sorted = [...windows].sort((a, b) => a.start - b.start);
 
@@ -215,7 +223,7 @@ export async function buildDuckEnvelope(
       const time = (cursor + i) / sampleRate;
       // Windows are sorted, so the search only ever moves forward.
       while (windowIndex < sorted.length && time > sorted[windowIndex]!.end + fadeSeconds) windowIndex++;
-      const value = envelopeValueAt(time, sorted.slice(windowIndex, windowIndex + 2), duckGain, fadeSeconds);
+      const value = envelopeValueAt(time, sorted.slice(windowIndex, windowIndex + 2), duckGain, fadeSeconds, outside);
       const sample = Math.max(-32768, Math.min(32767, Math.round(value * 32767)));
       for (let channel = 0; channel < channels; channel++) {
         chunk.writeInt16LE(sample, (i * channels + channel) * BYTES_PER_SAMPLE);
@@ -227,4 +235,28 @@ export async function buildDuckEnvelope(
 
   await finish(stream);
   return outputPath;
+}
+
+/**
+ * Огибающая присутствия нашей речи: единица под репликами, ноль вне их, с теми
+ * же плавными переходами, что и у приглушения.
+ *
+ * Нужна, чтобы убирать исходный голос точечно: `оригинал − α·выделенный_голос`.
+ * Вне реплик α равна нулю, и оригинал остаётся нетронутым до последнего бита —
+ * песня звучит со всем вокалом, эффекты не страдают.
+ */
+export function buildSpeechPresenceEnvelope(
+  windows: SpeechWindow[],
+  totalSeconds: number,
+  sampleRate: number,
+  options: { fadeMs: number; channels: number },
+  outputPath: string,
+): Promise<string> {
+  return buildDuckEnvelope(
+    windows,
+    totalSeconds,
+    sampleRate,
+    { duckDb: 0, fadeMs: options.fadeMs, channels: options.channels, outsideGain: 0 },
+    outputPath,
+  );
 }

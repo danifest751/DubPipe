@@ -11,7 +11,7 @@ import { run } from '../util/exec.js';
 import { requireTool } from '../util/tools.js';
 import { probeMedia } from '../util/ffmpeg.js';
 import { readWavFormat } from '../util/wav.js';
-import { buildDuckEnvelope, buildVoiceTrack, type SpeechWindow, type TrackClip } from '../util/pcm.js';
+import { buildDuckEnvelope, buildSpeechPresenceEnvelope, buildVoiceTrack, type SpeechWindow, type TrackClip } from '../util/pcm.js';
 
 /**
  * S7 — mixing and muxing (SPEC FR-7).
@@ -60,6 +60,69 @@ async function measureLoudness(ffmpeg: string, input: string, targetLufs: number
 export function speechWindows(segments: Segment[], vadWindows: SpeechWindow[] | null): SpeechWindow[] {
   if (vadWindows && vadWindows.length > 0) return vadWindows;
   return segments.map((segment) => ({ start: segment.start, end: segment.end }));
+}
+
+/**
+ * Как поступить с оригинальной дорожкой под русской речью.
+ *
+ * `duck` — приглушить её целиком: просто и надёжно, но вместе с чужим голосом
+ * приседает и музыка.
+ * `subtract` — вычесть из оригинала выделенный голос, и только там, где мы
+ * говорим. Музыка остаётся в полной громкости, а между репликами оригинал
+ * вообще не тронут: песни сохраняют вокал.
+ * `separated` — заменить оригинал пересобранным фоном целиком. Убирает исходный
+ * голос везде, но и песни лишаются вокала.
+ */
+export type MixMode = 'duck' | 'subtract' | 'separated';
+
+/**
+ * Граф фильтров сведения. Отделён от запуска ffmpeg, чтобы его можно было
+ * проверить тестами: ошибка в номере входа стоит дорого, а видна не сразу.
+ *
+ * Порядок входов задан режимом:
+ * `duck` — оригинал, речь, огибающая приглушения;
+ * `subtract` — оригинал, речь, выделенный голос, огибающая присутствия речи;
+ * `separated` — пересобранный фон, речь.
+ */
+export function mixFilters(mode: MixMode, backgroundGainDb: number, voiceGainDb: number): string[] {
+  const filters: string[] = [];
+  let background = '[0:a]';
+
+  if (mode === 'duck') {
+    filters.push('[0:a][2:a]amultiply[ducked]');
+    background = '[ducked]';
+  } else if (mode === 'subtract') {
+    // Вычитание в ffmpeg делается инверсией фазы и суммированием: проверено на
+    // тоне, сигнал минус он же даёт ровно ноль. Через `amix=weights=1 -1` не
+    // работает — там веса нормируются, и остаётся половина сигнала.
+    filters.push('[2:a][3:a]amultiply[removable]');
+    filters.push('[removable]volume=-1[inverted]');
+    filters.push('[0:a][inverted]amix=inputs=2:duration=first:normalize=0[clean]');
+    background = '[clean]';
+  }
+
+  filters.push(`${background}volume=${backgroundGainDb}dB[bg]`);
+  filters.push(`[1:a]volume=${voiceGainDb}dB,aformat=channel_layouts=stereo[voice]`);
+  filters.push('[bg][voice]amix=inputs=2:duration=first:normalize=0[mixed]');
+  return filters;
+}
+
+/**
+ * Где в итоговой дорожке звучит наша речь.
+ *
+ * Не то же самое, что речевые окна детектора: те показывают, где говорят **в
+ * оригинале**, и по ним приглушают. Убирать же исходный голос нужно строго там,
+ * где поверх него ложится русский, — иначе из песни, которую мы не дублируем,
+ * пропал бы вокал.
+ */
+export function spokenWindows(segments: Segment[]): SpeechWindow[] {
+  return segments
+    .filter((segment) => (segment.aligned_file ?? segment.tts_file) !== null && (segment.tts_duration ?? 0) > 0)
+    .map((segment) => {
+      const start = segment.start + (segment.shift_ms ?? 0) / 1000;
+      return { start, end: start + segment.tts_duration! };
+    })
+    .sort((a, b) => a.start - b.start);
 }
 
 export async function runS7(
@@ -115,8 +178,15 @@ export async function runS7(
   }
 
   const separated = workspace.file('background.wav');
-  const useSeparated = config.separation.enabled && existsSync(separated);
-  const background = useSeparated ? separated : workspace.file('original.wav');
+  const vocals = workspace.file('vocals.wav');
+  const separationReady = config.separation.enabled && existsSync(separated);
+  const mode: MixMode = !separationReady
+    ? 'duck'
+    : config.separation.apply === 'under_speech' && existsSync(vocals)
+      ? 'subtract'
+      : 'separated';
+
+  const background = mode === 'separated' ? separated : workspace.file('original.wav');
   if (!existsSync(background)) {
     throw new StageError('s7', 'не найдена фоновая дорожка', {
       artifact: background,
@@ -124,31 +194,41 @@ export async function runS7(
     });
   }
 
-  const filters: string[] = [];
   const inputs = ['-i', background, '-i', voiceTrack.path];
-  let backgroundLabel = '[0:a]';
 
-  if (!useSeparated) {
-    // S4 is off: duck the original inside speech windows instead (SPEC FR-4).
-    const windows = speechWindows(segments, await workspace.readJson<SpeechWindow[]>(workspace.file('speech.json')));
+  if (mode !== 'separated') {
     const backgroundFormat = await readWavFormat(background);
-    log.step(`дакинг оригинала на ${config.mix.duck_db} дБ в ${windows.length} речевых окнах`);
-    log.progress('приглушение оригинала под речью', 35);
-    const envelope = await buildDuckEnvelope(
-      windows,
-      duration,
-      backgroundFormat.sampleRate,
-      { duckDb: config.mix.duck_db, fadeMs: config.mix.duck_fade_ms, channels: backgroundFormat.channels },
-      workspace.file('duck.wav'),
-    );
-    inputs.push('-i', envelope);
-    filters.push('[0:a][2:a]amultiply[ducked]');
-    backgroundLabel = '[ducked]';
+    if (mode === 'subtract') {
+      const windows = spokenWindows(segments);
+      // Огибающая присутствия речи: единица под репликами, ноль вне их. Между
+      // репликами оригинал остаётся нетронутым, поэтому вокал песен не страдает.
+      log.step(`убираю исходный голос под речью в ${windows.length} окнах, музыку оставляю`);
+      log.progress('вычитание исходного голоса', 35);
+      const presence = await buildSpeechPresenceEnvelope(
+        windows,
+        duration,
+        backgroundFormat.sampleRate,
+        { fadeMs: config.mix.duck_fade_ms, channels: backgroundFormat.channels },
+        workspace.file('presence.wav'),
+      );
+      inputs.push('-i', vocals, '-i', presence);
+    } else {
+      // S4 выключена или не отработала: приглушаем оригинал целиком (ТЗ FR-4).
+      const windows = speechWindows(segments, await workspace.readJson<SpeechWindow[]>(workspace.file('speech.json')));
+      log.step(`дакинг оригинала на ${config.mix.duck_db} дБ в ${windows.length} речевых окнах`);
+      log.progress('приглушение оригинала под речью', 35);
+      const envelope = await buildDuckEnvelope(
+        windows,
+        duration,
+        backgroundFormat.sampleRate,
+        { duckDb: config.mix.duck_db, fadeMs: config.mix.duck_fade_ms, channels: backgroundFormat.channels },
+        workspace.file('duck.wav'),
+      );
+      inputs.push('-i', envelope);
+    }
   }
 
-  filters.push(`${backgroundLabel}volume=${config.mix.background_gain_db}dB[bg]`);
-  filters.push(`[1:a]volume=${config.mix.voice_gain_db}dB,aformat=channel_layouts=stereo[voice]`);
-  filters.push('[bg][voice]amix=inputs=2:duration=first:normalize=0[mixed]');
+  const filters = mixFilters(mode, config.mix.background_gain_db, config.mix.voice_gain_db);
 
   const mixed = workspace.file('mixed.wav');
   await run(

@@ -169,7 +169,7 @@ export async function runS4(workspace: Workspace, config: DubConfig): Promise<S4
   );
 
   const instrumental = workspace.file('separate-instrumental.wav');
-  const vocals = workspace.file('vocals.wav');
+  const separatedVocals = workspace.file('separate-vocals.wav');
 
   log.step(`разделение моделью ${config.separation.model} (Python + onnxruntime)`);
   try {
@@ -184,7 +184,7 @@ export async function runS4(workspace: Workspace, config: DubConfig): Promise<S4
         '--output-instrumental',
         instrumental,
         '--output-vocals',
-        vocals,
+        separatedVocals,
         '--device',
         config.separation.device,
       ],
@@ -219,7 +219,16 @@ export async function runS4(workspace: Workspace, config: DubConfig): Promise<S4
     ['-y', '-v', 'error', '-i', instrumental, '-ar', '48000', '-acodec', 'pcm_s16le', background],
     { timeoutMs: 1_800_000 },
   );
+  // Голос приводится к той же частоте, что и оригинал: сведение вычитает его
+  // из оригинала, а вычитать дорожки разной частоты нельзя.
+  const vocals = workspace.file('vocals.wav');
+  await run(
+    ffmpeg,
+    ['-y', '-v', 'error', '-i', separatedVocals, '-ar', '48000', '-acodec', 'pcm_s16le', vocals],
+    { timeoutMs: 1_800_000 },
+  );
   await rm(modelInput, { force: true });
+  await rm(separatedVocals, { force: true });
   await rm(instrumental, { force: true });
 
   return {
