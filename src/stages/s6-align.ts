@@ -15,6 +15,7 @@ import { run } from '../util/exec.js';
 import { requireTool } from '../util/tools.js';
 import { wavDuration } from '../util/wav.js';
 import { estimateSpeechSeconds, profanityRule } from './s3-translate.js';
+import { effectiveCharsPerSecond } from '../core/calibration.js';
 
 /**
  * S6 — fitting synthesis to the timeline (SPEC FR-6).
@@ -211,13 +212,6 @@ export interface S6Result {
   warnings: string[];
   stats: AlignmentStats;
   provider: string;
-}
-
-/** Calibrated speech rate from S5, falling back to the configured estimate. */
-export async function effectiveCharsPerSecond(workspace: Workspace, config: DubConfig): Promise<number> {
-  const calibration = await workspace.readJson<{ chars_per_second?: number }>(workspace.file('calibration.json'));
-  const measured = calibration?.chars_per_second;
-  return measured && measured >= 5 && measured <= 30 ? measured : config.translate.chars_per_second;
 }
 
 export async function runS6(workspace: Workspace, baseConfig: DubConfig, segments: Segment[]): Promise<S6Result> {

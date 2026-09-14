@@ -172,6 +172,19 @@ That is the default, `separation.apply: under_speech`.
 `everywhere` replaces the original with the rebuilt background for the whole
 film. It removes the original voice everywhere, and strips songs of their vocals.
 
+### The speech rate is measured, not guessed
+
+How many characters the synthesizer speaks per second decides how long a
+translation to ask for. The setting is an approximation, and every voice differs:
+on `ru_RU-irina-medium` the measurement came out at 13.2 characters per second
+against the default 11.5 — the slot held 15% more text than the model was asked
+for.
+
+So the rate is measured on every run and remembered, both for that recording and
+for the voice itself, so the first run of the next video aims correctly. A
+measurement taken on a different voice is never used: it is worse than an honest
+default.
+
 ### Fitting to the timing
 
 A replica that does not fit its slot used to be rewritten shorter by the model,

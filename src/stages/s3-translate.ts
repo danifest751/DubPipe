@@ -10,6 +10,7 @@ import { slotOf, type Segment } from '../core/types.js';
 import type { Workspace } from '../core/workspace.js';
 import { selectChatClient, type ChatClient, type ChatUsage } from '../providers/llm/index.js';
 import { formatCost } from '../providers/llm/catalog.js';
+import { effectiveCharsPerSecond } from '../core/calibration.js';
 
 /**
  * S3 — batched EN→RU translation with length control (SPEC FR-3, §3.4).
@@ -619,10 +620,22 @@ export interface S3Result {
   usage: RunUsage;
 }
 
-export async function runS3(workspace: Workspace, config: DubConfig, segments: Segment[]): Promise<S3Result> {
-  const selection = await selectChatClient(config);
+export async function runS3(workspace: Workspace, baseConfig: DubConfig, segments: Segment[]): Promise<S3Result> {
+  const selection = await selectChatClient(baseConfig);
   const client = selection.client;
   log.step(`перевод через ${client.name}, модель ${client.model}`);
+
+  // Длину перевода заказываем по измеренному темпу голоса, а не по умолчанию:
+  // на ru_RU-irina-medium это 13.2 знака в секунду против 11.5 в настройках,
+  // то есть в слот влезает на 15% больше текста, чем мы просим.
+  const charsPerSecond = await effectiveCharsPerSecond(workspace, baseConfig);
+  if (Math.abs(charsPerSecond - baseConfig.translate.chars_per_second) > 0.05) {
+    log.step(`темп речи по замеру: ${charsPerSecond} симв/с (в настройках ${baseConfig.translate.chars_per_second})`);
+  }
+  const config: DubConfig = {
+    ...baseConfig,
+    translate: { ...baseConfig.translate, chars_per_second: charsPerSecond },
+  };
 
   const run = await translateSegments(client, config, segments, {
     // Persist after every batch so a crash never loses completed work (SPEC §7).

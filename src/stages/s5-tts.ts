@@ -7,6 +7,7 @@ import { slotOf, type Segment } from '../core/types.js';
 import type { Workspace } from '../core/workspace.js';
 import { applyOverrides } from '../core/overrides.js';
 import { createTtsProvider, voiceForSpeaker } from '../providers/tts/index.js';
+import { rememberCalibration } from '../core/calibration.js';
 
 /**
  * S5 — speech synthesis, one clip per replica (SPEC FR-5).
@@ -106,7 +107,7 @@ export async function runS5(workspace: Workspace, baseConfig: DubConfig, segment
   if (measuredCps !== null) {
     // Later stages size their targets from the real rate of this voice rather
     // than the configured guess (SPEC FR-5).
-    await workspace.writeJson(workspace.file('calibration.json'), {
+    await rememberCalibration(workspace, {
       chars_per_second: measuredCps,
       voice: config.tts.default_voice,
       measured_at: new Date().toISOString(),
