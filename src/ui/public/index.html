@@ -329,6 +329,15 @@
                 <fieldset data-group="voice">
                   <legend data-i18n="settings.group.voice">Голос</legend>
                   <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.voiceMode">Голоса персонажей</b><span data-i18n="settings.voiceModeNote">Многоголосый дубляж раздаёт голоса по полу говорящих; одноголосый читает весь фильм голосом по умолчанию.</span></div>
+                    <div class="opt-ctl">
+                      <select data-key="tts.voice_mode">
+                        <option value="per_speaker" data-i18n="settings.voiceMode.perSpeaker">Многоголосый: голос на каждого</option>
+                        <option value="single" data-i18n="settings.voiceMode.single">Одноголосый: один на весь фильм</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="opt">
                     <div class="opt-text"><b data-i18n="settings.defaultVoice">Голос по умолчанию</b><span data-i18n="settings.defaultVoiceNote">Русские голоса piper. Работают без сети.</span></div>
                     <div class="opt-ctl row nowrap">
                       <select data-key="tts.default_voice" id="defaultVoice"></select>

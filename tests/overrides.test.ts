@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { applyOverrides, autoVoiceMap, EMPTY_OVERRIDES, effectiveVoice, normalizeOverrides, planReview } from '../src/core/overrides.js';
 import { parseConfig } from '../src/config/load.js';
 import { makeSegment } from '../src/core/types.js';
+import { stageConfigSlice } from '../src/core/workspace.js';
 
 const config = parseConfig(
   { tts: { default_voice: 'ru_RU-irina-medium', voice_map: { speaker_1: 'ru_RU-dmitri-medium' } }, mix: { background_gain_db: -6, voice_gain_db: 0, duck_db: -18 } },
@@ -97,5 +98,42 @@ describe('§16.4: план пересведения после правок', ()
     expect(plan.fromStage).toBe('s7');
     // Громкость, равная настройке по умолчанию, — не изменение.
     expect(planReview(config, previous, previous, EMPTY_OVERRIDES, { voices: {}, mix: { duck_db: -18 } }).fromStage).toBeNull();
+  });
+});
+
+describe('FR-5: одноголосый и многоголосый режимы', () => {
+  const speakers = {
+    speaker_0: { gender: 'м' as const, f0: 120, voicedSeconds: 9 },
+    speaker_1: { gender: 'ж' as const, f0: 220, voicedSeconds: 9 },
+  };
+
+  it('многоголосый раздаёт голоса по полу', () => {
+    const config = parseConfig({ tts: { voice_mode: 'per_speaker', default_voice: 'ru_RU-irina-medium' } }, 'test');
+    expect(effectiveVoice(config, EMPTY_OVERRIDES, 'speaker_0', speakers)).toBe('ru_RU-denis-medium');
+    expect(effectiveVoice(config, EMPTY_OVERRIDES, 'speaker_1', speakers)).toBe('ru_RU-irina-medium');
+  });
+
+  it('одноголосый читает всё голосом по умолчанию', () => {
+    // Ни автоподбор по полу, ни карта голосов из настроек в этом режиме не в счёт.
+    const config = parseConfig(
+      { tts: { voice_mode: 'single', default_voice: 'ru_RU-denis-medium', voice_map: { speaker_1: 'ru_RU-dmitri-medium' } } },
+      'test',
+    );
+    expect(effectiveVoice(config, EMPTY_OVERRIDES, 'speaker_0', speakers)).toBe('ru_RU-denis-medium');
+    expect(effectiveVoice(config, EMPTY_OVERRIDES, 'speaker_1', speakers)).toBe('ru_RU-denis-medium');
+  });
+
+  it('прямой выбор человека действует и в одноголосом режиме', () => {
+    const config = parseConfig({ tts: { voice_mode: 'single', default_voice: 'ru_RU-denis-medium' } }, 'test');
+    const overrides = { voices: { speaker_1: 'ru_RU-irina-medium' }, mix: {} };
+    expect(effectiveVoice(config, overrides, 'speaker_1', speakers)).toBe('ru_RU-irina-medium');
+    expect(effectiveVoice(config, overrides, 'speaker_0', speakers)).toBe('ru_RU-denis-medium');
+  });
+
+  it('смена режима переозвучивает файл', () => {
+    // Режим лежит в разделе синтеза, а он целиком входит в ключ кэша стадии.
+    const a = parseConfig({ tts: { voice_mode: 'per_speaker' } }, 'test');
+    const b = parseConfig({ tts: { voice_mode: 'single' } }, 'test');
+    expect(JSON.stringify(stageConfigSlice('s5', a))).not.toBe(JSON.stringify(stageConfigSlice('s5', b)));
   });
 });

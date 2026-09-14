@@ -75,11 +75,28 @@ export function autoVoiceMap(
   return result;
 }
 
+/**
+ * Итоговая карта голосов: автоподбор по полу, поверх — настройки, поверх —
+ * правки этого видео.
+ *
+ * В одноголосом режиме карта пуста: всё читает `default_voice`. Правки видео
+ * действуют и там — это прямой выбор человека для конкретного говорящего, а
+ * не догадка программы.
+ */
+export function voiceMapFor(
+  config: DubConfig,
+  overrides: ProjectOverrides,
+  speakers: SpeakerProfiles,
+): Record<string, string> {
+  if (config.tts.voice_mode === 'single') return { ...overrides.voices };
+  return { ...autoVoiceMap(speakers, config), ...config.tts.voice_map, ...overrides.voices };
+}
+
 /** Конфигурация с наложенными правками видео и голосами по полу. */
 export function applyOverrides(config: DubConfig, overrides: ProjectOverrides, speakers: SpeakerProfiles = {}): DubConfig {
   return {
     ...config,
-    tts: { ...config.tts, voice_map: { ...autoVoiceMap(speakers, config), ...config.tts.voice_map, ...overrides.voices } },
+    tts: { ...config.tts, voice_map: voiceMapFor(config, overrides, speakers) },
     mix: { ...config.mix, ...overrides.mix },
   };
 }
@@ -92,8 +109,8 @@ export function effectiveVoice(
 ): string {
   return (
     overrides.voices[speaker] ??
-    config.tts.voice_map[speaker] ??
-    autoVoiceMap(speakers, config)[speaker] ??
+    (config.tts.voice_mode === 'single' ? undefined : config.tts.voice_map[speaker]) ??
+    (config.tts.voice_mode === 'single' ? undefined : autoVoiceMap(speakers, config)[speaker]) ??
     config.tts.default_voice
   );
 }

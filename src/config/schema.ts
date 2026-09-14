@@ -137,6 +137,16 @@ const ttsSchema = z.object({
   engine: z.enum(['piper', 'edge-tts', 'kilo-gateway']).default('piper'),
   model: z.string().nullable().default(null),
   default_voice: z.string().min(1).default('ru_RU-irina-medium'),
+  /**
+   * Сколько голосов в дубляже.
+   *
+   * `per_speaker` — каждому говорящему свой: голос подбирается по полу,
+   * определённому на S2, и уточняется картой голосов и правками видео.
+   * `single` — весь фильм читает один голос, `default_voice`. Так делают
+   * закадровую озвучку; и это же единственный предсказуемый выход, когда
+   * говорящих находится больше, чем есть голосов нужного пола.
+   */
+  voice_mode: z.enum(['per_speaker', 'single']).default('per_speaker'),
   voice_map: z.record(z.string(), z.string()).default({}),
   endpoint: z.string().url().nullable().default(null),
   api_key_env: z.string().nullable().default(null),
