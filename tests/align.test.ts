@@ -7,7 +7,7 @@ import {
   shortenTargetChars,
   type AlignmentOptions,
 } from '../src/stages/s6-align.js';
-import { measureSpeechRate } from '../src/stages/s5-tts.js';
+import { measureSpeechRate, ttsKey } from '../src/stages/s5-tts.js';
 import { envelopeValueAt } from '../src/util/pcm.js';
 import { speechWindows, defaultOutputName, defaultOutputPath, resolveOutputPath } from '../src/stages/s7-mix.js';
 import { voiceForSpeaker, voiceUrlPath } from '../src/providers/tts/voices.js';
@@ -324,5 +324,21 @@ describe('FR-6.2: пауза после реплики идёт в дело', ()
   it('ноль возвращает прежнее поведение', () => {
     const segments = [seg(0, 0, 2, 3), seg(1, 10, 12, 1)];
     expect(planAlignment(segments, options({ borrowSilenceMs: 0 }))[0]!.slot).toBeCloseTo(2, 3);
+  });
+});
+
+describe('FR-5: что уже озвучено, тем же и остаётся', () => {
+  it('отпечаток меняется вместе с голосом', () => {
+    // Из-за того, что это не проверялось, смена голоса не переозвучивала ничего:
+    // файлы лежали на месте, и стадия считала их годными.
+    expect(ttsKey('ru_RU-irina-medium', 'Привет')).not.toBe(ttsKey('ru_RU-denis-medium', 'Привет'));
+  });
+
+  it('отпечаток меняется вместе с текстом', () => {
+    expect(ttsKey('ru_RU-irina-medium', 'Привет')).not.toBe(ttsKey('ru_RU-irina-medium', 'Прощай'));
+  });
+
+  it('пробелы по краям текста ничего не значат', () => {
+    expect(ttsKey('ru_RU-irina-medium', '  Привет  ')).toBe(ttsKey('ru_RU-irina-medium', 'Привет'));
   });
 });

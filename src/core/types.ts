@@ -39,6 +39,14 @@ export interface Segment {
   text_ru: string | null;
   tts_file: string | null;
   tts_duration: number | null;
+  /**
+   * Чем и из чего озвучена реплика: голос и текст.
+   *
+   * Без этого повторный запуск стадии переиспользовал готовый файл по одному
+   * его существованию — и смена голоса не меняла ничего, потому что файлы были
+   * на месте.
+   */
+  tts_key: string | null;
   tempo: number | null;
   aligned_file: string | null;
   words: WordTiming[] | null;
@@ -77,6 +85,7 @@ export function makeSegment(init: Partial<Segment> & Pick<Segment, 'id' | 'start
     text_ru: null,
     tts_file: null,
     tts_duration: null,
+    tts_key: null,
     tempo: null,
     aligned_file: null,
     words: null,
