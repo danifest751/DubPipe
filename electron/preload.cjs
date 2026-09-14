@@ -14,4 +14,6 @@ contextBridge.exposeInMainWorld('dubpipeNative', {
   available: true,
   pickFolder: (initial) => ipcRenderer.invoke('dubpipe:pick-folder', initial),
   pickFile: (initial) => ipcRenderer.invoke('dubpipe:pick-file', initial),
+  // Меню окна принадлежит приложению, поэтому язык ему сообщает страница.
+  setLanguage: (code) => ipcRenderer.invoke('dubpipe:set-language', code),
 });

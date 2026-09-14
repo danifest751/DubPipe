@@ -46,6 +46,10 @@ async function startServer() {
  * Системные диалоги выбора. Полный путь к файлу веб-странице недоступен
  * в принципе (ограничение браузеров), поэтому его сообщает главный процесс.
  */
+function registerLanguage() {
+  ipcMain.handle('dubpipe:set-language', (_event, code) => setMenuLanguage(code));
+}
+
 function registerDialogs() {
   ipcMain.handle('dubpipe:pick-folder', async (_event, initial) => {
     const result = await dialog.showOpenDialog(window, {
@@ -70,63 +74,127 @@ function registerDialogs() {
   });
 }
 
+/**
+ * Подписи меню окна. Страница переводится своим словарём, но меню принадлежит
+ * приложению, а не странице, поэтому язык ей сообщают через preload.
+ */
+const MENU_TEXT = {
+  ru: {
+    file: 'Файл',
+    pickFolder: 'Выбрать папку с видео…',
+    openWorkdir: 'Открыть служебный каталог',
+    quit: 'Выход',
+    edit: 'Правка',
+    undo: 'Отменить',
+    redo: 'Повторить',
+    cut: 'Вырезать',
+    copy: 'Копировать',
+    paste: 'Вставить',
+    selectAll: 'Выделить всё',
+    view: 'Вид',
+    reload: 'Обновить',
+    devTools: 'Инструменты разработчика',
+    resetZoom: 'Обычный масштаб',
+    zoomIn: 'Крупнее',
+    zoomOut: 'Мельче',
+    fullscreen: 'Во весь экран',
+    help: 'Справка',
+    about: 'О программе',
+    aboutMessage: 'DubPipe — автоматический дубляж видео на русский',
+    aboutDetail:
+      'Инструмент предназначен ИСКЛЮЧИТЕЛЬНО для личного просмотра.\n\n' +
+      'Публикация или распространение полученной дорожки нарушает права\n' +
+      'правообладателя и правила платформ. Программа намеренно не умеет\n' +
+      'ничего никуда выгружать.',
+    ok: 'Понятно',
+  },
+  en: {
+    file: 'File',
+    pickFolder: 'Choose a video folder…',
+    openWorkdir: 'Open the working directory',
+    quit: 'Quit',
+    edit: 'Edit',
+    undo: 'Undo',
+    redo: 'Redo',
+    cut: 'Cut',
+    copy: 'Copy',
+    paste: 'Paste',
+    selectAll: 'Select all',
+    view: 'View',
+    reload: 'Reload',
+    devTools: 'Developer tools',
+    resetZoom: 'Actual size',
+    zoomIn: 'Zoom in',
+    zoomOut: 'Zoom out',
+    fullscreen: 'Full screen',
+    help: 'Help',
+    about: 'About',
+    aboutMessage: 'DubPipe — automatic video dubbing into Russian',
+    aboutDetail:
+      'This tool is for PERSONAL VIEWING ONLY.\n\n' +
+      'Publishing or distributing the produced track infringes the rights of the\n' +
+      'copyright holder and violates platform rules. The tool deliberately cannot\n' +
+      'upload anything anywhere.',
+    ok: 'Got it',
+  },
+};
+
+let menuLanguage = 'ru';
+
 function buildMenu() {
+  const text = MENU_TEXT[menuLanguage] ?? MENU_TEXT.ru;
   const template = [
     {
-      label: 'Файл',
+      label: text.file,
       submenu: [
         {
-          label: 'Выбрать папку с видео…',
+          label: text.pickFolder,
           click: () => window?.webContents.executeJavaScript('window.dubpipePickFolder && window.dubpipePickFolder()'),
         },
         {
-          label: 'Открыть служебный каталог',
+          label: text.openWorkdir,
           click: () => shell.openPath(path.resolve(process.cwd(), '.dubpipe')),
         },
         { type: 'separator' },
-        { role: 'quit', label: 'Выход' },
+        { role: 'quit', label: text.quit },
       ],
     },
     {
-      label: 'Правка',
+      label: text.edit,
       submenu: [
-        { role: 'undo', label: 'Отменить' },
-        { role: 'redo', label: 'Повторить' },
+        { role: 'undo', label: text.undo },
+        { role: 'redo', label: text.redo },
         { type: 'separator' },
-        { role: 'cut', label: 'Вырезать' },
-        { role: 'copy', label: 'Копировать' },
-        { role: 'paste', label: 'Вставить' },
-        { role: 'selectAll', label: 'Выделить всё' },
+        { role: 'cut', label: text.cut },
+        { role: 'copy', label: text.copy },
+        { role: 'paste', label: text.paste },
+        { role: 'selectAll', label: text.selectAll },
       ],
     },
     {
-      label: 'Вид',
+      label: text.view,
       submenu: [
-        { role: 'reload', label: 'Обновить' },
-        { role: 'toggleDevTools', label: 'Инструменты разработчика' },
+        { role: 'reload', label: text.reload },
+        { role: 'toggleDevTools', label: text.devTools },
         { type: 'separator' },
-        { role: 'resetZoom', label: 'Обычный масштаб' },
-        { role: 'zoomIn', label: 'Крупнее' },
-        { role: 'zoomOut', label: 'Мельче' },
-        { role: 'togglefullscreen', label: 'Во весь экран' },
+        { role: 'resetZoom', label: text.resetZoom },
+        { role: 'zoomIn', label: text.zoomIn },
+        { role: 'zoomOut', label: text.zoomOut },
+        { role: 'togglefullscreen', label: text.fullscreen },
       ],
     },
     {
-      label: 'Справка',
+      label: text.help,
       submenu: [
         {
-          label: 'О программе',
+          label: text.about,
           click: () => {
             dialog.showMessageBox(window, {
               type: 'info',
               title: 'DubPipe',
-              message: 'DubPipe — автоматический дубляж видео EN → RU',
-              detail:
-                'Инструмент предназначен ИСКЛЮЧИТЕЛЬНО для личного просмотра.\n\n' +
-                'Публикация или распространение полученной дорожки нарушает права\n' +
-                'правообладателя и правила платформ. Программа намеренно не умеет\n' +
-                'ничего никуда выгружать.',
-              buttons: ['Понятно'],
+              message: text.aboutMessage,
+              detail: text.aboutDetail,
+              buttons: [text.ok],
             });
           },
         },
@@ -134,6 +202,15 @@ function buildMenu() {
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+/** Страница сообщает выбранный язык — меню перестраивается под него. */
+function setMenuLanguage(code) {
+  const next = code === 'en' ? 'en' : 'ru';
+  if (next === menuLanguage) return menuLanguage;
+  menuLanguage = next;
+  buildMenu();
+  return menuLanguage;
 }
 
 async function createWindow() {
@@ -179,6 +256,7 @@ async function createWindow() {
 
 app.whenReady().then(() => {
   registerDialogs();
+  registerLanguage();
   buildMenu();
   void createWindow();
 

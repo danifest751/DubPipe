@@ -1651,8 +1651,13 @@ function rerenderAll() {
 }
 
 $('#uiLang').value = window.i18n.language();
+// Меню окна живёт в приложении, а не на странице: сообщаем ему язык при старте
+// и при каждом переключении.
+window.dubpipeNative?.setLanguage?.(window.i18n.language());
 $('#uiLang').addEventListener('change', (event) => {
-  if (window.i18n.setLanguage(event.target.value)) rerenderAll();
+  if (!window.i18n.setLanguage(event.target.value)) return;
+  window.dubpipeNative?.setLanguage?.(event.target.value);
+  rerenderAll();
 });
 
 // --- запуск ----------------------------------------------------------------
