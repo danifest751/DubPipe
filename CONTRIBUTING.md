@@ -10,7 +10,7 @@ rules keeps it that way.
 ```bash
 npm install
 npm run typecheck
-npm test            # 263 tests; no ffmpeg, no network and no API keys needed
+npm test            # 284 tests; no ffmpeg, no network and no API keys needed
 ```
 
 The tests deliberately need nothing external: if a change forces a test to require ffmpeg,
@@ -54,6 +54,50 @@ caching, progress bars and cancellation for free.
   primary one, `README.ru.md` mirrors it).
 - If you change something that was measured — timings, quality, thresholds — say what you
   measured and on what material. Numbers in this project come from real runs, not estimates.
+
+## Commit messages
+
+A commit message explains a change to someone reading the history a year from now.
+The diff already says *what* changed, so the message says *why*.
+
+```
+Skip diarization when a run has no voicing stage
+
+Speakers are only used to hand out voices on S5, so a subtitles run paid for
+them with minutes of work it could not use: on a 12-minute episode diarization
+took 4m27s of the 5m46s spent on recognition.
+
+The effective configuration now drops diarization when S5 is not in the plan,
+and the S2 fingerprint is computed from it, so a later dubbing run cannot reuse
+a transcript that has no speakers in it.
+
+Fixes #123
+```
+
+The rules:
+
+- **Subject line:** up to 72 characters, imperative mood (`Add`, `Fix`, `Skip` — not
+  `Added` or `Adds`), capitalized, no trailing period. It completes the sentence
+  “Applied, this commit will …”.
+- **Blank line** between the subject and the body. Without it, tools treat the whole
+  message as one paragraph.
+- **Body:** the reason, the defect you found, the decision you made and what you rejected.
+  Wrap at about 72 characters. Skip the body only when the subject genuinely says everything.
+- **Numbers when behaviour was measured.** If you change timings, quality or thresholds,
+  give the measurement and the material it came from. This project’s figures come from real
+  runs, and the history is where they are kept.
+- **One change per commit.** A fix and a refactor belong in two commits.
+- **English**, to match the code and the primary README.
+- **Trailers last**, after a blank line: `Fixes #123`, `Co-Authored-By: Name <email>`.
+
+Do not write `Update files`, `Fixes`, `wip` or a bare file list — a year later such a
+message costs someone an hour of digging.
+
+To get these hints in your editor:
+
+```bash
+git config commit.template .gitmessage
+```
 
 ## Reporting bugs
 
