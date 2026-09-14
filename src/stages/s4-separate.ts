@@ -37,7 +37,30 @@ export interface PythonEnvironment {
   available: boolean;
   executable: string | null;
   missing: string[];
+  /** Исполнители onnxruntime: по ним видно, доступна ли видеокарта стадиям на Python. */
+  providers: string[];
 }
+
+/**
+ * Одна проба на всё: какие модули есть и каких исполнителей видит onnxruntime.
+ * Список исполнителей показывает, доступна ли видеокарта стадиям на Python —
+ * `doctor` печатает это, чтобы человек не гадал, где что считается.
+ */
+const PROBE_SCRIPT = [
+  'import json',
+  'missing = []',
+  'try:',
+  ' import numpy',
+  'except ImportError:',
+  ' missing.append("numpy")',
+  'providers = []',
+  'try:',
+  ' import onnxruntime',
+  ' providers = list(onnxruntime.get_available_providers())',
+  'except ImportError:',
+  ' missing.append("onnxruntime")',
+  'print(json.dumps({"missing": missing, "providers": providers}))',
+].join(String.fromCharCode(10));
 
 /** Checks for Python and the two modules the sidecar needs. */
 export async function probePython(): Promise<PythonEnvironment> {
@@ -47,16 +70,17 @@ export async function probePython(): Promise<PythonEnvironment> {
     try {
       const { stdout } = await run(
         executable,
-        ['-c', 'import json,sys;\nmissing=[]\ntry:\n import numpy\nexcept ImportError:\n missing.append("numpy")\ntry:\n import onnxruntime\nexcept ImportError:\n missing.append("onnxruntime")\nprint(json.dumps(missing))'],
+        ['-c', PROBE_SCRIPT],
         { timeoutMs: 60_000 },
       );
-      const missing = JSON.parse(stdout.trim() || '[]') as string[];
-      return { available: missing.length === 0, executable, missing };
+      const probe = JSON.parse(stdout.trim() || '{}') as { missing?: string[]; providers?: string[] };
+      const missing = probe.missing ?? [];
+      return { available: missing.length === 0, executable, missing, providers: probe.providers ?? [] };
     } catch {
       continue;
     }
   }
-  return { available: false, executable: null, missing: ['python'] };
+  return { available: false, executable: null, missing: ['python'], providers: [] };
 }
 
 export interface S4Result {

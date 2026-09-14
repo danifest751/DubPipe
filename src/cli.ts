@@ -6,6 +6,7 @@ import { loadConfig, initConfig } from './config/load.js';
 import { DubPipeError, EXIT, toExitCode } from './core/errors.js';
 import { showLegalNoticeOnce } from './core/legal.js';
 import { formatDuration, log } from './core/logger.js';
+import { inspectCompute } from './core/compute.js';
 import { runPipeline } from './core/pipeline.js';
 import { STAGE_IDS, STAGE_TITLES, type StageId } from './core/types.js';
 import { TOOL_VERSION, Workspace } from './core/workspace.js';
@@ -191,6 +192,17 @@ program
       if (keySet) log.success(`ключ ${config.kilo_gateway.api_key_env} задан — перевод пойдёт через шлюз`);
       else log.warn(`ключ ${config.kilo_gateway.api_key_env} не задан — перевод деградирует до локального (ТЗ §15.2)`);
     }
+
+    // Карта вычислений: где что считается. Вопрос задают чаще всего после
+    // установки, а ответ до сих пор можно было добыть только из журнала прогона.
+    const compute = await inspectCompute(config);
+    log.info('');
+    log.info(`Видеоадаптеры: ${compute.adapters.length > 0 ? compute.adapters.join(', ') : 'не найдены'}`);
+    for (const stage of compute.stages) {
+      log.info(`  ${stage.stage.padEnd(20)} ${stage.where}${stage.detail ? ` — ${stage.detail}` : ''}`);
+    }
+    for (const hint of compute.hints) log.info(`  → ${hint}`);
+    log.info('');
 
     if (missingRequired > 0) {
       log.error(`Отсутствуют обязательные зависимости: ${missingRequired}`);
