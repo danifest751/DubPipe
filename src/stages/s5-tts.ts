@@ -72,9 +72,17 @@ export function measureSpeechRate(segments: Segment[]): { charsPerSecond: number
   };
 }
 
-/** Отпечаток озвучки: голос и текст, из которых сделан файл. */
-export function ttsKey(voice: string, text: string): string {
-  return sha256(`${voice}\u0000${text.trim()}`).slice(0, 16);
+/**
+ * Отпечаток озвучки: чем, каким голосом и из какого текста сделан файл.
+ *
+ * Отпечаток движка нужен наравне с голосом. Частота дискретизации задаётся
+ * настройкой, а клип сводится именно в ней: сменив её, мы меняли отпечаток
+ * стадии, стадия запускалась — и пропускала каждую реплику, потому что голос
+ * и текст остались прежними. На диске оставались клипы в прежней частоте, и
+ * при выключенной укладке дорожка собиралась из них с чужой скоростью.
+ */
+export function ttsKey(voice: string, text: string, engine: string): string {
+  return sha256(`${engine}\u0000${voice}\u0000${text.trim()}`).slice(0, 16);
 }
 
 /**
@@ -90,10 +98,11 @@ export function recordClip(
   clip: { path: string; durationSeconds: number },
   voice: string,
   text: string,
+  engine: string,
 ): void {
   segment.tts_file = clip.path;
   segment.tts_duration = Number(clip.durationSeconds.toFixed(3));
-  segment.tts_key = ttsKey(voice, text);
+  segment.tts_key = ttsKey(voice, text, engine);
   // Свежий клип ещё не уложен, и прежняя укладка к нему не относится. Без
   // этого при выключенной S6 сведение брало старый уложенный файл: реплика
   // звучала прежним текстом, хотя перевод давно переписан.
@@ -139,10 +148,10 @@ export async function runS5(workspace: Workspace, baseConfig: DubConfig, segment
     const outputPath = path.join(outputDir, `${String(segment.id).padStart(4, '0')}.wav`);
     const voice = voiceForSpeaker(segment.speaker, config.tts.voice_map, config.tts.default_voice);
 
-    // Повторный запуск не переозвучивает то, что уже озвучено тем же голосом и
-    // из того же текста. Проверять только наличие файла нельзя: смена голоса
+    // Повторный запуск не переозвучивает то, что уже озвучено тем же движком,
+    // голосом и текстом. Проверять только наличие файла нельзя: смена голоса
     // тогда не меняет ничего, файлы-то на месте.
-    const key = ttsKey(voice, segment.text_ru!);
+    const key = ttsKey(voice, segment.text_ru!, provider.fingerprint);
     if (
       existsSync(outputPath) &&
       segment.tts_file === outputPath &&
@@ -154,7 +163,7 @@ export async function runS5(workspace: Workspace, baseConfig: DubConfig, segment
     }
 
     const result = await provider.synthesize({ id: segment.id, text: segment.text_ru!, voice, outputPath });
-    recordClip(segment, result, voice, segment.text_ru!);
+    recordClip(segment, result, voice, segment.text_ru!, provider.fingerprint);
 
     done++;
     log.progress(`синтезировано реплик ${counter(done, pending.length)}`, null, { done, total: pending.length });

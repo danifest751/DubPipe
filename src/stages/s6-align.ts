@@ -286,7 +286,7 @@ export async function runS6(workspace: Workspace, baseConfig: DubConfig, segment
           voice,
           outputPath: segment.tts_file ?? path.join(await workspace.subdir('tts'), `${String(segment.id).padStart(4, '0')}.wav`),
         });
-        recordClip(segment, result, voice, shortened);
+        recordClip(segment, result, voice, shortened, tts.fingerprint);
         fixed++;
         log.step(`сокращено ${counter(index + 1, current.length)} (итерация ${iteration})`);
         log.progress(`сокращено реплик ${counter(index + 1, current.length)}, итерация ${iteration}`, null, {

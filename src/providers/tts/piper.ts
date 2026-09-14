@@ -24,6 +24,11 @@ export class PiperProvider implements TtsProvider {
     private readonly config: DubConfig,
   ) {}
 
+  /** Частота входит: клип с ней и сводится, а голос и текст её не выдают. */
+  get fingerprint(): string {
+    return `piper:${this.config.tts.sample_rate}`;
+  }
+
   async listVoices(): Promise<string[]> {
     const { RUSSIAN_VOICES } = await import('./voices.js');
     return RUSSIAN_VOICES.map((voice) => voice.name);

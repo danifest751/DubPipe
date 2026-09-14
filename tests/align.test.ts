@@ -343,18 +343,21 @@ describe('FR-6.2: пауза после реплики идёт в дело', ()
 });
 
 describe('FR-5: что уже озвучено, тем же и остаётся', () => {
+  // Отпечаток движка: чем и в какой частоте сведён клип.
+  const engine = 'piper:48000';
+
   it('отпечаток меняется вместе с голосом', () => {
     // Из-за того, что это не проверялось, смена голоса не переозвучивала ничего:
     // файлы лежали на месте, и стадия считала их годными.
-    expect(ttsKey('ru_RU-irina-medium', 'Привет')).not.toBe(ttsKey('ru_RU-denis-medium', 'Привет'));
+    expect(ttsKey('ru_RU-irina-medium', 'Привет', engine)).not.toBe(ttsKey('ru_RU-denis-medium', 'Привет', engine));
   });
 
   it('отпечаток меняется вместе с текстом', () => {
-    expect(ttsKey('ru_RU-irina-medium', 'Привет')).not.toBe(ttsKey('ru_RU-irina-medium', 'Прощай'));
+    expect(ttsKey('ru_RU-irina-medium', 'Привет', engine)).not.toBe(ttsKey('ru_RU-irina-medium', 'Прощай', engine));
   });
 
   it('пробелы по краям текста ничего не значат', () => {
-    expect(ttsKey('ru_RU-irina-medium', '  Привет  ')).toBe(ttsKey('ru_RU-irina-medium', 'Привет'));
+    expect(ttsKey('ru_RU-irina-medium', '  Привет  ', engine)).toBe(ttsKey('ru_RU-irina-medium', 'Привет', engine));
   });
 
   it('запись клипа подписывает его текстом, который в нём звучит', () => {
@@ -362,19 +365,28 @@ describe('FR-5: что уже озвучено, тем же и остаётся'
     // не отпечаток, клип оставался подписан прежним, длинным текстом: вернись
     // тот текст обратно — и синтез выдал бы запись, в которой сказано другое.
     const segment = makeSegment({ id: 1, start: 0, end: 2, text_en: 'a long line' });
-    recordClip(segment, { path: 'tts/0001.wav', durationSeconds: 1.2345 }, 'ru_RU-irina-medium', 'Длинная реплика');
+    recordClip(segment, { path: 'tts/0001.wav', durationSeconds: 1.2345 }, 'ru_RU-irina-medium', 'Длинная реплика', engine);
     const afterFirst = segment.tts_key;
 
-    recordClip(segment, { path: 'tts/0001.wav', durationSeconds: 0.9 }, 'ru_RU-irina-medium', 'Короче');
+    recordClip(segment, { path: 'tts/0001.wav', durationSeconds: 0.9 }, 'ru_RU-irina-medium', 'Короче', engine);
     expect(segment.tts_key).not.toBe(afterFirst);
-    expect(segment.tts_key).toBe(ttsKey('ru_RU-irina-medium', 'Короче'));
+    expect(segment.tts_key).toBe(ttsKey('ru_RU-irina-medium', 'Короче', engine));
     expect(segment.tts_duration).toBe(0.9);
   });
 
   it('длительность клипа округляется до миллисекунд', () => {
     const segment = makeSegment({ id: 1, start: 0, end: 2, text_en: 'a line' });
-    recordClip(segment, { path: 'tts/0001.wav', durationSeconds: 1.23456 }, 'ru_RU-irina-medium', 'Реплика');
+    recordClip(segment, { path: 'tts/0001.wav', durationSeconds: 1.23456 }, 'ru_RU-irina-medium', 'Реплика', engine);
     expect(segment.tts_duration).toBe(1.235);
+  });
+
+  it('отпечаток меняется вместе с частотой дискретизации', () => {
+    // Клип сводится в частоте из настроек. Пока она не входила в отпечаток, её
+    // смена меняла отпечаток стадии, но каждая реплика пропускалась как уже
+    // озвученная — и дорожка собиралась из клипов прежней частоты.
+    expect(ttsKey('ru_RU-irina-medium', 'Привет', 'piper:48000')).not.toBe(
+      ttsKey('ru_RU-irina-medium', 'Привет', 'piper:22050'),
+    );
   });
 
   it('свежий клип не считается уложенным', () => {
@@ -387,7 +399,7 @@ describe('FR-5: что уже озвучено, тем же и остаётся'
     segment.tempo = 1.25;
     segment.shift_ms = 320;
 
-    recordClip(segment, { path: 'tts/0001.wav', durationSeconds: 2.0 }, 'ru_RU-irina-medium', 'Реплика');
+    recordClip(segment, { path: 'tts/0001.wav', durationSeconds: 2.0 }, 'ru_RU-irina-medium', 'Реплика', engine);
 
     expect(segment.aligned_file).toBeNull();
     expect(segment.aligned_duration).toBeNull();

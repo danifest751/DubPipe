@@ -19,6 +19,12 @@ export interface SynthesisResult {
 
 export interface TtsProvider {
   readonly name: string;
+  /**
+   * Всё, от чего зависит звучание клипа, кроме голоса и текста: движок и то,
+   * как он сводит результат. Входит в отпечаток озвучки, иначе смена этих
+   * настроек оставляет на диске клипы, сделанные по-старому.
+   */
+  readonly fingerprint: string;
   synthesize(request: SynthesisRequest): Promise<SynthesisResult>;
   listVoices(): Promise<string[]>;
 }
