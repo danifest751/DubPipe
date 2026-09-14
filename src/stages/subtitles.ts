@@ -333,14 +333,27 @@ export async function writeSubtitleFiles(
 
   // Оригинал — на языке записи, перевод — всегда русский; правила читаемости
   // у них разные, поэтому опции берутся под каждый язык отдельно.
+  //
+  // Время у них тоже разное. Оригинал стоит на исходных таймкодах, а перевод
+  // идёт вместе с озвучкой: укладка вправе сдвинуть реплику (по умолчанию до
+  // полутора секунд), и русская строка обязана ехать за русским голосом, а не
+  // оставаться там, где говорили на языке оригинала.
   const outputs = [
-    { kind: 'source' as const, code: sourceLanguage, text: (segment: Segment) => segment.text_en },
-    { kind: 'target' as const, code: 'ru', text: (segment: Segment) => segment.text_ru },
+    { kind: 'source' as const, code: sourceLanguage, text: (segment: Segment) => segment.text_en, shifted: false },
+    { kind: 'target' as const, code: 'ru', text: (segment: Segment) => segment.text_ru, shifted: true },
   ];
 
   for (const output of outputs) {
     const items = segments
-      .map((segment) => ({ id: segment.id, start: segment.start, end: segment.end, text: output.text(segment) ?? '' }))
+      .map((segment) => {
+        const shift = output.shifted ? (segment.shift_ms ?? 0) / 1000 : 0;
+        return {
+          id: segment.id,
+          start: segment.start + shift,
+          end: segment.end + shift,
+          text: output.text(segment) ?? '',
+        };
+      })
       .filter((item) => item.text.trim().length > 0);
 
     if (items.length === 0) {

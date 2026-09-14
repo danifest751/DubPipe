@@ -9,10 +9,15 @@ import {
   subtitleFileName,
   subtitleOptionsFrom,
   wrapCueText,
+  writeSubtitleFiles,
   DEFAULT_SUBTITLE_OPTIONS,
   type Cue,
 } from '../src/stages/subtitles.js';
 import { parseConfig } from '../src/config/load.js';
+import { makeSegment } from '../src/core/types.js';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 const item = (id: number, start: number, end: number, text: string) => ({ id, start, end, text });
 
@@ -163,5 +168,57 @@ describe('FR-8: проверка титров и формат файла', () =>
     expect(options.maxLineChars).toBe(38);
     expect(options.maxCps).toBe(20);
     expect(options.minDurationSeconds).toBe(1);
+  });
+});
+
+describe('FR-8: перевод идёт за озвучкой, оригинал остаётся на месте', () => {
+  // Укладка вправе сдвинуть реплику (по умолчанию до 1.5 с). Пока титры
+  // строились строго по исходным таймкодам, русская строка показывалась там,
+  // где говорили на языке оригинала, а русский голос звучал в стороне.
+  const shifted = () => [
+    makeSegment({
+      id: 0,
+      start: 10,
+      end: 12,
+      text_en: 'Get us out of here.',
+      text_ru: 'Уводи нас отсюда.',
+      shift_ms: 900,
+    }),
+  ];
+
+  const cuesOf = async (lang: string, dir: string, files: Awaited<ReturnType<typeof writeSubtitleFiles>>['files']) => {
+    const file = files.find((item) => item.lang === lang)!;
+    expect(file).toBeDefined();
+    return parseSrt((await readFile(path.join(dir, path.basename(file.path)), 'utf8')).replace(/^﻿/, ''));
+  };
+
+  it('русский титр сдвигается вместе с репликой, английский — нет', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'dubpipe-subs-'));
+    try {
+      const { files } = await writeSubtitleFiles(shifted(), 'episode.mkv', dir);
+      const ru = await cuesOf('ru', dir, files);
+      const en = await cuesOf('en', dir, files);
+
+      expect(ru[0]!.start).toBeCloseTo(10.9, 2);
+      expect(ru[0]!.end).toBeCloseTo(12.9, 2);
+      expect(en[0]!.start).toBeCloseTo(10, 2);
+      expect(en[0]!.end).toBeCloseTo(12, 2);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('без укладки сдвига нет и оба титра совпадают по времени', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'dubpipe-subs-'));
+    try {
+      const segments = shifted();
+      segments[0]!.shift_ms = null;
+      const { files } = await writeSubtitleFiles(segments, 'episode.mkv', dir);
+      const ru = await cuesOf('ru', dir, files);
+      const en = await cuesOf('en', dir, files);
+      expect(ru[0]!.start).toBeCloseTo(en[0]!.start, 3);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
