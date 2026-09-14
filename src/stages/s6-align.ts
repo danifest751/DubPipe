@@ -5,7 +5,7 @@ import type { DubConfig } from '../config/schema.js';
 import { cancellation } from '../core/cancel.js';
 import { StageError } from '../core/errors.js';
 import { counter, log } from '../core/logger.js';
-import { slotOf, type Segment } from '../core/types.js';
+import { availableSeconds, slotOf, type Segment } from '../core/types.js';
 import type { Workspace } from '../core/workspace.js';
 import { applyOverrides } from '../core/overrides.js';
 import { selectChatClient, type ChatClient } from '../providers/llm/index.js';
@@ -89,12 +89,7 @@ export function planAlignment(segments: Segment[], options: AlignmentOptions): A
      * секунду. Предел нужен, иначе реплика уедет от картинки: перед длинной
      * паузой занимать все её десять секунд бессмысленно.
      */
-    const next = ordered[index + 1];
-    const room = Math.max(
-      0,
-      Math.min(borrow, (next ? next.start - gap : segment.end + borrow) - segment.end),
-    );
-    const available = slot + room;
+    const available = availableSeconds(ordered, index, { borrowSeconds: borrow, gapSeconds: gap });
     const duration = segment.tts_duration ?? slot;
 
     let tempo = 1;

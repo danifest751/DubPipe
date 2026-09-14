@@ -3,11 +3,12 @@ import { existsSync } from 'node:fs';
 import type { DubConfig } from '../config/schema.js';
 import { cancellation } from '../core/cancel.js';
 import { counter, log } from '../core/logger.js';
-import { availableSeconds, slotOf, type Segment } from '../core/types.js';
+import type { Segment } from '../core/types.js';
 import type { Workspace } from '../core/workspace.js';
 import { applyOverrides } from '../core/overrides.js';
 import { createTtsProvider, voiceForSpeaker } from '../providers/tts/index.js';
 import { effectiveSpeechShape, rememberCalibration } from '../core/calibration.js';
+import { roomFor } from './s3-translate.js';
 import { sha256 } from '../util/hash.js';
 
 /**
@@ -174,20 +175,9 @@ export async function runS5(workspace: Workspace, baseConfig: DubConfig, segment
   // занимаемая пауза. По голому слоту предупреждение пугало впустую — на
   // редком на диалог материале оно насчитывало 39% там, где укладка не
   // сократила ни одной реплики.
-  const ordered = [...segments].sort((a, b) => a.start - b.start);
-  const roomOf = new Map(
-    ordered.map((segment, index) => [
-      segment.id,
-      availableSeconds(ordered, index, {
-        borrowSeconds: config.alignment.borrow_silence_ms / 1000,
-        gapSeconds: config.alignment.gap_ms / 1000,
-      }),
-    ]),
-  );
+  const roomOf = roomFor(config, segments);
   const overlong = pending.filter(
-    (segment) =>
-      segment.tts_duration !== null &&
-      segment.tts_duration > (roomOf.get(segment.id) ?? slotOf(segment)) * config.alignment.max_tempo,
+    (segment) => segment.tts_duration !== null && segment.tts_duration > roomOf(segment) * config.alignment.max_tempo,
   );
   if (overlong.length > 0) {
     const share = ((overlong.length / pending.length) * 100).toFixed(0);

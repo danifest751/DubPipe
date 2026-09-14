@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { availableSeconds, makeSegment, slotOf } from '../src/core/types.js';
 import { parseConfig } from '../src/config/load.js';
 import { fitRuler, lengthVerdict, roomFor, type FitRuler } from '../src/stages/s3-translate.js';
+import { planAlignment } from '../src/stages/s6-align.js';
 
 const seg = (id: number, start: number, end: number) =>
   makeSegment({ id, start, end, text_en: `line ${id}` });
@@ -130,5 +131,31 @@ describe('Мерка длины для интерфейса', () => {
     const ruler = await fitRuler(workspace, config(), segments);
     const text = 'а'.repeat(Math.round((3.2 - 0.51) * 17.8));
     expect(uiVerdict(ruler, segments[0]!, text)).toBe(true);
+  });
+});
+
+describe('Одна формула места на весь конвейер', () => {
+  const settings = () => parseConfig({ alignment: { borrow_silence_ms: 1200, gap_ms: 50 } }, 'test');
+
+  it('укладка отводит реплике ровно то же место, что заказал перевод', () => {
+    // Формула жила в трёх копиях: в общей функции, в укладке и в предупреждении
+    // синтеза. Пока они совпадали дословно — расхождения не было; разъехаться
+    // им ничего не мешало, а такие расхождения и дали половину дефектов.
+    const config = settings();
+    const segments = [seg(0, 0, 2), seg(1, 3, 4), seg(2, 4.2, 6), seg(3, 20, 21)];
+    const room = roomFor(config, segments);
+    const plan = planAlignment(segments, {
+      minTempo: config.alignment.min_tempo,
+      maxTempo: config.alignment.max_tempo,
+      gapMs: config.alignment.gap_ms,
+      borrowSilenceMs: config.alignment.borrow_silence_ms,
+      maxShiftMs: config.alignment.max_shift_ms,
+      driftResetGapMs: config.alignment.drift_reset_gap_ms,
+    });
+
+    for (const item of plan) {
+      const segment = segments.find((candidate) => candidate.id === item.id)!;
+      expect(item.slot).toBeCloseTo(room(segment), 3);
+    }
   });
 });
