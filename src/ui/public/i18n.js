@@ -206,6 +206,8 @@ const DICTIONARY = {
   'segments.character': { ru: 'Персонаж', en: 'Character' },
   'cast.title': { ru: 'Голоса и персонажи', en: 'Voices and characters' },
   'cast.lead': { ru: 'Послушайте реплику и подпишите, кто это. Имя появится во всех строках этого героя.', en: 'Listen to a line and name who it is. The name shows up in every row of that character.' },
+  'segments.genderClash': { ru: 'голос не совпадает с полом по записи', en: 'the voice disagrees with the gender measured' },
+  'cast.clash': { ru: 'по записи {gender}, {hz} Гц — голос выбран другого пола', en: 'measured {gender}, {hz} Hz — the chosen voice is of the other sex' },
   'cast.namePlaceholder': { ru: 'имя героя', en: 'character name' },
   'cast.replicas': { ru: '{count} реплик', en: '{count} replicas' },
   'cast.listen': { ru: 'Послушать', en: 'Listen' },

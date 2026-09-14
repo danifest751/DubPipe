@@ -64,9 +64,12 @@ tts:
   engine: piper              # piper | edge-tts  (kilo-gateway невозможен, ТЗ §3.1.1)
   model: null
   default_voice: ru_RU-irina-medium
-  voice_map:                 # голос на спикера (ТЗ FR-5)
-    speaker_0: ru_RU-irina-medium
-    speaker_1: ru_RU-dmitri-medium
+  voice_map: {}
+    # Голос на спикера (ТЗ FR-5). Пусто — голоса раздаются по полу, определённому
+    # на S2, а поправить их можно в панели «Голоса и персонажи» для конкретного
+    # видео. Вписывать сюда `speaker_0` не стоит: в разных фильмах это разные
+    # люди, а вписанный голос сильнее определённого пола — мужской голос
+    # достанется женщине и наоборот.
   endpoint: null
   api_key_env: null
   concurrency: 2

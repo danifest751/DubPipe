@@ -834,7 +834,9 @@ function renderCast() {
         <div class="cast-who">${genderMark(speaker)}<span class="mono">${escapeHtml(speaker)}</span></div>
         <input class="cast-name" data-cast-name="${escapeAttr(speaker)}" value="${escapeAttr(state.overrides?.names?.[speaker] ?? '')}" placeholder="${escapeAttr(t('cast.namePlaceholder'))}" />
         <select data-cast-voice="${escapeAttr(speaker)}">${voices}</select>
-        <span class="meta">${t('cast.replicas', { count: counts[speaker] ?? 0 })}</span>
+        <span class="meta">${t('cast.replicas', { count: counts[speaker] ?? 0 })}${
+          genderClash(speaker) ? `<br><span class="clash-note">${t('cast.clash', { gender: state.speakers[speaker].gender, hz: state.speakers[speaker].f0 ?? '?' })}</span>` : ''
+        }</span>
         <button class="ghost small" data-cast-play="${escapeAttr(speaker)}">${icon('play')} ${t('cast.listen')}</button>
       </div>`;
     })
@@ -981,15 +983,30 @@ function genderMark(speaker) {
       }).replace(/^ · /, '')
     : t('segments.genderUnknown');
   const active = voiceGender(voiceOf(speaker));
+  // Голос спорит с тем, что намерено по записи. Чаще всего это не ошибка
+  // замера, а голос, вписанный в настройки: вписанный сильнее определённого,
+  // и женский персонаж уходит к мужскому голосу молча.
+  const clash = measured !== '—' && active !== '—' && active !== measured;
 
   return ['м', 'ж']
     .map(
       (gender) =>
-        `<button type="button" class="gender ${gender === 'м' ? 'male' : 'female'}${gender === active ? ' on' : ''}" ` +
+        `<button type="button" class="gender ${gender === 'м' ? 'male' : 'female'}${gender === active ? ' on' : ''}` +
+        `${clash && gender === active ? ' clash' : ''}" ` +
         `data-set-gender="${gender}" data-speaker="${escapeAttr(speaker)}" ` +
-        `title="${escapeAttr(`${t(gender === 'м' ? 'segments.setMale' : 'segments.setFemale')} · ${note}`)}">${gender}</button>`,
+        `title="${escapeAttr(
+          `${t(gender === 'м' ? 'segments.setMale' : 'segments.setFemale')} · ${note}` +
+            (clash ? ` · ${t('segments.genderClash')}` : ''),
+        )}">${gender}</button>`,
     )
     .join('');
+}
+
+/** Спорит ли назначенный голос с полом, определённым по записи. */
+function genderClash(speaker) {
+  const measured = state.speakers?.[speaker]?.gender;
+  const active = voiceGender(voiceOf(speaker));
+  return (measured === 'м' || measured === 'ж') && active !== '—' && active !== measured;
 }
 
 /** Первый голос нужного пола; уже выбранный того же пола остаётся. */

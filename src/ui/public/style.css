@@ -484,6 +484,9 @@ body.col-resizing { cursor: col-resize; user-select: none; }
 .gender:hover { border-color: var(--text-dim); background: var(--surface-2); }
 .gender.male.on { color: #1d6fd0; border-color: #1d6fd0; background: #eaf2fc; }
 .gender.female.on { color: #c0398b; border-color: #c0398b; background: #fceaf5; }
+/* Голос спорит с полом по записи: видно, что выбор не случайный, а чей-то. */
+.gender.on.clash { box-shadow: 0 0 0 2px var(--warn-soft); border-color: var(--warn); }
+.clash-note { color: var(--warn); font-size: 11.5px; }
 
 /* --- обозреватель и окна -------------------------------------------------- */
 
