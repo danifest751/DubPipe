@@ -20,6 +20,9 @@ const options = (overrides: Partial<AlignmentOptions> = {}): AlignmentOptions =>
   gapMs: 50,
   maxShiftMs: 1500,
   driftResetGapMs: 700,
+  // Правила ниже описывают укладку в собственный слот реплики; занятие паузы
+  // проверяется отдельно, своими тестами.
+  borrowSilenceMs: 0,
   ...overrides,
 });
 
@@ -250,5 +253,49 @@ describe('FR-5: голоса', () => {
     const map = { speaker_1: 'ru_RU-dmitri-medium' };
     expect(voiceForSpeaker('speaker_1', map, 'ru_RU-irina-medium')).toBe('ru_RU-dmitri-medium');
     expect(voiceForSpeaker('speaker_0', map, 'ru_RU-irina-medium')).toBe('ru_RU-irina-medium');
+  });
+});
+
+describe('FR-6.2: пауза после реплики идёт в дело', () => {
+  // Сокращение перевода теряет смысл, а сдвиг конца реплики на секунду — нет.
+  // Поэтому тишина после реплики занимается раньше, чем текст режется.
+  const borrowing = options({ borrowSilenceMs: 1200 });
+
+  it('реплика, не влезавшая в слот, укладывается за счёт паузы', () => {
+    // Слот 2 с, синтез 3 с: в свой слот не влезает даже на максимальном темпе.
+    const segments = [seg(0, 0, 2, 3), seg(1, 10, 12, 1)];
+    const strict = planAlignment(segments, options())[0]!;
+    expect(strict.needsShorten).toBe(true);
+
+    const relaxed = planAlignment(segments, borrowing)[0]!;
+    expect(relaxed.needsShorten).toBe(false);
+    // Темпа хватило умеренного: 3 с в 3.2 с доступного места.
+    expect(relaxed.tempo).toBeLessThan(1.05);
+  });
+
+  it('занимает не больше разрешённого, даже если пауза огромная', () => {
+    const segments = [seg(0, 0, 2, 9), seg(1, 60, 62, 1)];
+    const item = planAlignment(segments, borrowing)[0]!;
+    // Доступно 2 с слота плюс 1.2 с паузы, а не все пятьдесят восемь.
+    expect(item.slot).toBeCloseTo(3.2, 3);
+    expect(item.needsShorten).toBe(true);
+  });
+
+  it('не залезает на следующую реплику', () => {
+    // Между репликами всего 0.3 с, из них 0.05 — обязательный зазор.
+    const segments = [seg(0, 0, 2, 3), seg(1, 2.3, 4, 1)];
+    const item = planAlignment(segments, borrowing)[0]!;
+    expect(item.slot).toBeCloseTo(2.25, 3);
+  });
+
+  it('у последней реплики пауза берётся из запаса', () => {
+    const item = planAlignment([seg(0, 0, 2, 2.8)], borrowing)[0]!;
+    expect(item.slot).toBeCloseTo(3.2, 3);
+    expect(item.needsShorten).toBe(false);
+  });
+
+  it('ноль возвращает прежнее поведение', () => {
+    const segments = [seg(0, 0, 2, 3), seg(1, 10, 12, 1)];
+    expect(planAlignment(segments, options({ borrowSilenceMs: 0 }))[0]!.slot).toBeCloseTo(2, 3);
   });
 });

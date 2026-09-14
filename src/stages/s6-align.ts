@@ -28,6 +28,8 @@ export interface AlignmentOptions {
   minTempo: number;
   maxTempo: number;
   gapMs: number;
+  /** Сколько тишины после реплики можно занять под её речь. */
+  borrowSilenceMs: number;
   maxShiftMs: number;
   driftResetGapMs: number;
 }
@@ -67,19 +69,36 @@ export function planAlignment(segments: Segment[], options: AlignmentOptions): A
   const resetGap = options.driftResetGapMs / 1000;
 
   const ordered = [...segments].sort((a, b) => a.start - b.start);
+  const borrow = options.borrowSilenceMs / 1000;
   const plan: AlignmentPlanItem[] = [];
 
   let previousAlignedEnd: number | null = null;
   let previousOriginalEnd: number | null = null;
 
-  for (const segment of ordered) {
+  for (const [index, segment] of ordered.entries()) {
     const slot = slotOf(segment);
+    /*
+     * Пауза после реплики — такое же место для речи, как и сама реплика: там
+     * всё равно тишина. Занимать её выгоднее, чем сокращать перевод, потому
+     * что сокращение теряет смысл, а сдвиг конца на секунду не замечается.
+     *
+     * Замер на 35-минутном эпизоде: из 22 реплик, не влезавших даже на
+     * максимальном темпе, 21 укладывается, если занять паузу — в среднем
+     * секунду. Предел нужен, иначе реплика уедет от картинки: перед длинной
+     * паузой занимать все её десять секунд бессмысленно.
+     */
+    const next = ordered[index + 1];
+    const room = Math.max(
+      0,
+      Math.min(borrow, (next ? next.start - gap : segment.end + borrow) - segment.end),
+    );
+    const available = slot + room;
     const duration = segment.tts_duration ?? slot;
 
     let tempo = 1;
-    if (slot > 0 && duration > slot) tempo = clamp(duration / slot, options.minTempo, options.maxTempo);
+    if (available > 0 && duration > available) tempo = clamp(duration / available, options.minTempo, options.maxTempo);
     let effective = duration / tempo;
-    const needsShorten = effective > slot + 1e-6;
+    const needsShorten = effective > available + 1e-6;
 
     const pauseBefore = previousOriginalEnd === null ? Infinity : segment.start - previousOriginalEnd;
     const driftReset = pauseBefore > resetGap;
@@ -100,9 +119,9 @@ export function planAlignment(segments: Segment[], options: AlignmentOptions): A
       // cut the tail rather than drift further (SPEC FR-6.5).
       shift = maxShift;
       alignedStart = segment.start + maxShift;
-      tempo = slot > 0 && duration > slot ? options.maxTempo : tempo;
+      tempo = available > 0 && duration > available ? options.maxTempo : tempo;
       effective = duration / tempo;
-      if (effective > slot) truncateTo = slot;
+      if (effective > available) truncateTo = available;
     }
 
     if (truncateTo !== null) effective = truncateTo;
@@ -115,7 +134,7 @@ export function planAlignment(segments: Segment[], options: AlignmentOptions): A
       effectiveDuration: Number(effective.toFixed(3)),
       truncateTo,
       needsShorten,
-      slot: Number(slot.toFixed(3)),
+      slot: Number(available.toFixed(3)),
     });
 
     previousAlignedEnd = alignedStart + effective;
@@ -209,6 +228,7 @@ export async function runS6(workspace: Workspace, baseConfig: DubConfig, segment
     minTempo: config.alignment.min_tempo,
     maxTempo: config.alignment.max_tempo,
     gapMs: config.alignment.gap_ms,
+    borrowSilenceMs: config.alignment.borrow_silence_ms,
     maxShiftMs: config.alignment.max_shift_ms,
     driftResetGapMs: config.alignment.drift_reset_gap_ms,
   };

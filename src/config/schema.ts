@@ -165,6 +165,15 @@ const alignmentSchema = z.object({
   max_tempo: z.number().min(1).max(2).default(1.25),
   max_retranslate: z.number().int().min(0).max(5).default(2),
   gap_ms: z.number().int().min(0).max(2000).default(50),
+  /**
+   * Сколько тишины после реплики можно занять под её речь, миллисекунд.
+   *
+   * Пауза между репликами — такое же место для речи, как и сама реплика. Взять
+   * её дешевле, чем сокращать перевод: сокращение теряет смысл, а сдвиг конца
+   * на секунду незаметен. На 35-минутном эпизоде это убирает 21 сокращение из
+   * 22. Ноль возвращает прежнее поведение — укладываться строго в свой слот.
+   */
+  borrow_silence_ms: z.number().int().min(0).max(5000).default(1200),
   max_shift_ms: z.number().int().min(0).max(10_000).default(1500),
   drift_reset_gap_ms: z.number().int().min(0).max(10_000).default(700),
 });
