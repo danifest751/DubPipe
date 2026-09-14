@@ -197,10 +197,13 @@ async function shortenReplica(
   segment: Segment,
   targetChars: number,
   profanity: string,
+  availableSlotSeconds: number,
 ): Promise<string | null> {
   const prompt = template
     .replace('{target_chars}', String(targetChars))
-    .replace('{slot_seconds}', slotOf(segment).toFixed(2))
+    // Модели называется то же место, из которого посчитано число знаков:
+    // иначе ей говорят «у тебя полсекунды», а просят двадцать знаков.
+    .replace('{slot_seconds}', availableSlotSeconds.toFixed(2))
     .replace('{text_ru}', segment.text_ru ?? '')
     .replace('{profanity_rule}', profanity);
 
@@ -268,6 +271,7 @@ export async function runS6(workspace: Workspace, baseConfig: DubConfig, segment
           segment,
           target,
           profanityRule(config.translate.profanity),
+          item.slot,
         );
         if (!shortened) continue;
         cancellation.throwIfCancelled();
