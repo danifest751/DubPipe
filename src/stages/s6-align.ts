@@ -7,7 +7,7 @@ import { StageError } from '../core/errors.js';
 import { counter, log } from '../core/logger.js';
 import { availableSeconds, slotOf, warn, type Segment, type StageWarning } from '../core/types.js';
 import type { Workspace } from '../core/workspace.js';
-import { applyOverrides } from '../core/overrides.js';
+import { applyOverrides, withKnownVoices } from '../core/overrides.js';
 import { selectChatClient, type ChatClient } from '../providers/llm/index.js';
 import { createTtsProvider, voiceForSpeaker } from '../providers/tts/index.js';
 import { recordClip } from './s5-tts.js';
@@ -251,7 +251,9 @@ export interface S6Result {
 }
 
 export async function runS6(workspace: Workspace, baseConfig: DubConfig, segments: Segment[]): Promise<S6Result> {
-  const config = applyOverrides(baseConfig, await workspace.readOverrides(), await workspace.readSpeakers());
+  const overrides = await workspace.readOverrides();
+  const speakers = await workspace.readSpeakers();
+  let config = applyOverrides(baseConfig, overrides, speakers);
   const warnings: StageWarning[] = [];
   const { charsPerSecond, overheadSeconds } = await effectiveSpeechShape(workspace, config);
   const options: AlignmentOptions = {
@@ -279,6 +281,22 @@ export async function runS6(workspace: Workspace, baseConfig: DubConfig, segment
     const selection = await withLimit(selectChatClient(config), 120, 'выбор модели');
     warnings.push(...selection.warnings);
     const tts = createTtsProvider(workspace, config);
+    /*
+     * Сокращённую реплику стадия переозвучивает сама — и на чужом имени голоса
+     * падала так же, как синтез: «движок silero не знает голоса
+     * ru_RU-denis-medium». Отбор тот же самый, что и в S5.
+     */
+    const pruned = withKnownVoices(baseConfig, overrides, new Set(await tts.listVoices().catch(() => [])));
+    for (const gone of pruned.dropped) {
+      warnings.push(
+        warn('warn.s5.foreignVoice', `Голос «${gone.voice}» (${gone.speaker}, ${gone.source}) этому движку неизвестен — выбран по полу`, {
+          voice: gone.voice,
+          speaker: gone.speaker,
+          source: gone.source,
+        }),
+      );
+    }
+    config = applyOverrides(pruned.config, pruned.overrides, speakers);
     const byId = new Map(segments.map((segment) => [segment.id, segment]));
 
     for (let iteration = 1; iteration <= config.alignment.max_retranslate; iteration++) {

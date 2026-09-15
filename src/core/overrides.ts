@@ -148,6 +148,48 @@ export function voiceMapFor(
   return { ...autoVoiceMap(speakers, config), ...config.tts.voice_map, ...overrides.voices };
 }
 
+export interface DroppedVoice {
+  speaker: string;
+  voice: string;
+  /** Откуда взялось имя: из общих настроек или из правок этого видео. */
+  source: 'настройки' | 'правки видео';
+}
+
+/**
+ * Убирает имена голосов, которых у движка нет.
+ *
+ * Имена у движков свои и не пересекаются. Общие настройки при смене движка
+ * чистит интерфейс, а голоса, назначенные **этому видео** в режиме просмотра,
+ * живут отдельно, переживают смену и сильнее всего прочего. Стадия падала на
+ * «движок silero не знает голоса ru_RU-denis-medium» — причём не только синтез,
+ * но и укладка, которая переозвучивает сокращённые реплики своим синтезатором.
+ * Поэтому отбор живёт здесь, где голоса и раздаются, и им пользуются обе стадии.
+ *
+ * Пустой список известных имён означает «спросить не удалось» — тогда не трогаем
+ * ничего: лучше внятная ошибка движка, чем молчаливая подмена голосов.
+ */
+export function withKnownVoices(
+  config: DubConfig,
+  overrides: ProjectOverrides,
+  known: ReadonlySet<string>,
+): { config: DubConfig; overrides: ProjectOverrides; dropped: DroppedVoice[] } {
+  if (known.size === 0) return { config, overrides, dropped: [] };
+  const dropped: DroppedVoice[] = [];
+  const keep = (map: Record<string, string>, source: DroppedVoice['source']): Record<string, string> => {
+    const kept: Record<string, string> = {};
+    for (const [speaker, voice] of Object.entries(map)) {
+      if (known.has(voice)) kept[speaker] = voice;
+      else dropped.push({ speaker, voice, source });
+    }
+    return kept;
+  };
+  return {
+    config: { ...config, tts: { ...config.tts, voice_map: keep(config.tts.voice_map, 'настройки') } },
+    overrides: { ...overrides, voices: keep(overrides.voices, 'правки видео') },
+    dropped,
+  };
+}
+
 /** Конфигурация с наложенными правками видео и голосами по полу. */
 export function applyOverrides(config: DubConfig, overrides: ProjectOverrides, speakers: SpeakerProfiles = {}): DubConfig {
   return {

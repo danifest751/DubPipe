@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyOverrides, autoVoiceMap, EMPTY_OVERRIDES, effectiveVoice, normalizeOverrides, planReview } from '../src/core/overrides.js';
+import { applyOverrides, autoVoiceMap, EMPTY_OVERRIDES, effectiveVoice, normalizeOverrides, planReview, withKnownVoices } from '../src/core/overrides.js';
 import { parseConfig } from '../src/config/load.js';
 import { makeSegment } from '../src/core/types.js';
 import { ttsKey } from '../src/stages/s5-tts.js';
@@ -239,5 +239,44 @@ describe('§16.4: правка судит по клипу, а не по наме
     // Частота дискретизации сменилась — клип сделан по-старому.
     const plan = planReview(config, [clip], [clip], EMPTY_OVERRIDES, EMPTY_OVERRIDES, {}, 'piper:48000');
     expect(plan.affected).toEqual([0]);
+  });
+});
+
+describe('голоса от другого движка', () => {
+  /**
+   * Имена у движков свои и не пересекаются. Общие настройки при смене движка
+   * чистит интерфейс, а голоса, назначенные видео в режиме просмотра, живут
+   * отдельно и переживают смену — и роняли обе стадии, которые синтезируют:
+   * «движок silero не знает голоса ru_RU-denis-medium».
+   */
+  const known = new Set(['ru_kejilgan', 'ru_ekaterina']);
+  const silero = parseConfig(
+    { tts: { engine: 'silero', default_voice: 'ru_kejilgan', voice_map: { speaker_1: 'ru_ekaterina', speaker_2: 'ru_RU-irina-medium' } } },
+    'тест',
+  );
+
+  it('чужие имена уходят, свои остаются', () => {
+    const result = withKnownVoices(silero, { voices: { speaker_0: 'ru_RU-denis-medium' }, names: {}, mix: {} }, known);
+    expect(result.config.tts.voice_map).toEqual({ speaker_1: 'ru_ekaterina' });
+    expect(result.overrides.voices).toEqual({});
+    expect(result.dropped).toEqual([
+      { speaker: 'speaker_2', voice: 'ru_RU-irina-medium', source: 'настройки' },
+      { speaker: 'speaker_0', voice: 'ru_RU-denis-medium', source: 'правки видео' },
+    ]);
+  });
+
+  it('пустой список известных ничего не трогает', () => {
+    // Список не удалось получить — лучше внятная ошибка движка, чем подмена.
+    const overrides = { voices: { speaker_0: 'ru_RU-denis-medium' }, names: {}, mix: {} };
+    const result = withKnownVoices(silero, overrides, new Set());
+    expect(result.overrides.voices).toEqual({ speaker_0: 'ru_RU-denis-medium' });
+    expect(result.dropped).toEqual([]);
+  });
+
+  it('после отбора голос выбирается по полу, а не по чужому имени', () => {
+    const speakers = { speaker_0: { gender: 'ж' as const, f0: 292, voicedSeconds: 11 } };
+    const result = withKnownVoices(silero, { voices: { speaker_0: 'ru_RU-denis-medium' }, names: {}, mix: {} }, known);
+    const applied = applyOverrides(result.config, result.overrides, speakers);
+    expect(applied.tts.voice_map['speaker_0']).not.toBe('ru_RU-denis-medium');
   });
 });

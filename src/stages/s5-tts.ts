@@ -6,7 +6,7 @@ import { cancellation } from '../core/cancel.js';
 import { counter, log } from '../core/logger.js';
 import { slotOf, warn, type Segment, type StageWarning } from '../core/types.js';
 import type { Workspace } from '../core/workspace.js';
-import { applyOverrides } from '../core/overrides.js';
+import { applyOverrides, withKnownVoices } from '../core/overrides.js';
 import { createTtsProvider, voiceForSpeaker, type TtsProvider } from '../providers/tts/index.js';
 import { effectiveSpeechShape, rememberCalibration } from '../core/calibration.js';
 import { roomFor } from './s3-translate.js';
@@ -136,37 +136,20 @@ export async function runS5(workspace: Workspace, baseConfig: DubConfig, segment
   const provider = createTtsProvider(workspace, baseConfig);
   const stale: StageWarning[] = [];
   try {
-    /*
-     * Имена голосов от прежнего движка выбрасываются, а не роняют стадию.
-     *
-     * Имена у движков свои и не пересекаются. Настройки при смене движка чистит
-     * интерфейс, а назначения голосов **этого видео** живут отдельно и остаются
-     * от piper — стадия падала на «движок silero не знает голоса
-     * ru_RU-denis-medium», и человек не понимал, при чём тут видео, которое он
-     * не трогал. Неизвестное имя теперь просто уступает раздаче по полу.
-     */
+    // Имена голосов от прежнего движка отбрасываются, а не роняют стадию:
+    // отбор общий с укладкой, она переозвучивает сокращённые реплики.
     const known = new Set(await provider.listVoices().catch(() => []));
-    const drop = (map: Record<string, string>, source: string): Record<string, string> => {
-      const kept: Record<string, string> = {};
-      for (const [speaker, voice] of Object.entries(map)) {
-        if (known.size === 0 || known.has(voice)) kept[speaker] = voice;
-        else
-          stale.push(
-            warn('warn.s5.foreignVoice', `Голос «${voice}» (${speaker}, ${source}) этому движку неизвестен — выбран по полу`, {
-              voice,
-              speaker,
-              source,
-            }),
-          );
-      }
-      return kept;
-    };
-
-    const config = applyOverrides(
-      { ...baseConfig, tts: { ...baseConfig.tts, voice_map: drop(baseConfig.tts.voice_map, 'настройки') } },
-      { ...overrides, voices: drop(overrides.voices, 'правки видео') },
-      speakers,
-    );
+    const pruned = withKnownVoices(baseConfig, overrides, known);
+    for (const gone of pruned.dropped) {
+      stale.push(
+        warn('warn.s5.foreignVoice', `Голос «${gone.voice}» (${gone.speaker}, ${gone.source}) этому движку неизвестен — выбран по полу`, {
+          voice: gone.voice,
+          speaker: gone.speaker,
+          source: gone.source,
+        }),
+      );
+    }
+    const config = applyOverrides(pruned.config, pruned.overrides, speakers);
     const result = await synthesizeAll(workspace, config, segments, provider);
     return { ...result, warnings: [...stale, ...result.warnings] };
   } finally {
