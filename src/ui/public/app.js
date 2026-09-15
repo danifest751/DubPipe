@@ -27,12 +27,13 @@ const state = {
   fit: { charsPerSecond: 17.8, overheadSeconds: 0.51, tolerance: 0.15, toleranceFloorSeconds: 0.25, room: {} },
   job: null,
   progress: new Map(),
-  // Загрузки по ссылке: разобранный ролик, идущая загрузка, её прогресс и история.
+  // Загрузки по ссылке: разобранный ролик, очередь (активная, ожидающие, история)
+  // и прогресс активной.
   download: null,
   downloadInput: null,
-  downloadJob: null,
+  downloadLinks: null,
+  downloads: { active: null, queue: [], history: [] },
   downloadProgress: null,
-  downloadHistory: [],
   downloadDir: null,
   dirty: {},              // изменённые настройки: 'translate.model' → значение
 };
@@ -212,7 +213,7 @@ function applyProgress(event) {
   // название, полоса и кнопка «Отменить», а не только строка сверху.
   if (event.kind === 'download') {
     state.downloadProgress = event.status === 'running' ? event : null;
-    if (state.downloadJob) renderDownloadJob();
+    if (state.downloads.active) renderDownloads();
   }
   renderProgress();
 }
@@ -381,57 +382,60 @@ function renderDownloadInfo() {
     </div>`;
 }
 
-function renderDownloadJob() {
+const downloadStatusText = (item) =>
+  ({
+    running: t('downloads.inProgress'),
+    done: t('downloads.done'),
+    cancelled: t('downloads.cancelled'),
+    error: item.error ?? t('downloads.unknown'),
+  })[item.status];
+
+function downloadCard(item, { active = false } = {}) {
+  const progress = active ? state.downloadProgress : null;
+  const bar = active
+    ? `<div class="bar ${progress?.percent == null ? 'indeterminate' : ''}"><i style="width:${progress?.percent == null ? 35 : progress.percent}%"></i></div>`
+    : '';
+  const action = active
+    ? `<button class="ghost" data-cancel-active="1">${t('downloads.cancel')}</button>`
+    : `<button class="ghost small" data-cancel-queued="${escapeAttr(item.id)}">${t('downloads.cancel')}</button>`;
+  const file = (item.files ?? [])[0];
+  const dub = !active && file ? `<button class="ghost small" data-dub="${escapeAttr(file)}">${t('downloads.dub')}</button>` : '';
+  return `
+    <div class="card dl-job ${item.status}">
+      <div class="grow">
+        <div class="name">${escapeHtml(item.title)}</div>
+        <div class="meta">${escapeHtml(downloadStatusText(item))}</div>
+        ${bar}
+      </div>
+      ${action}${dub}
+    </div>`;
+}
+
+function renderDownloads() {
+  const { active, queue, history } = state.downloads;
+  // В меню — точка, пока идёт загрузка, и число ссылок, пока очередь ждёт.
+  $('#dlBadge').textContent = active ? '●' : queue.length ? String(queue.length) : '';
+
   const box = $('#dlActive');
-  const job = state.downloadJob;
-  const badge = $('#dlBadge');
-  const active = job?.status === 'running';
-  badge.textContent = active ? '●' : '';
+  box.innerHTML = [
+    active ? downloadCard(active, { active: true }) : '',
+    ...queue.map((item) => downloadCard(item)),
+  ].join('');
 
-  if (!job) {
-    box.innerHTML = '';
-  } else {
-    const status = {
-      running: t('downloads.inProgress'),
-      done: t('downloads.done'),
-      cancelled: t('downloads.cancelled'),
-      error: job.error ?? t('downloads.unknown'),
-    }[job.status];
-    const progress = state.downloadProgress;
-    const bar =
-      job.status === 'running'
-        ? `<div class="bar ${progress?.percent == null ? 'indeterminate' : ''}"><i style="width:${progress?.percent == null ? 35 : progress.percent}%"></i></div>`
-        : '';
-    box.innerHTML = `
-      <div class="card dl-job ${job.status}">
-        <div class="grow">
-          <div class="name">${escapeHtml(job.title)}</div>
-          <div class="meta">${escapeHtml(status)}</div>
-          ${bar}
-        </div>
-        ${active ? `<button id="dlCancel" class="ghost">${t('downloads.cancel')}</button>` : ''}
-      </div>`;
-    if (active) $('#dlCancel').addEventListener('click', () => post('/api/download/jobs/cancel').catch(showError));
-  }
+  box.querySelectorAll('[data-cancel-active]').forEach((button) =>
+    button.addEventListener('click', () => post('/api/download/jobs/cancel').catch(showError)),
+  );
+  box.querySelectorAll('[data-cancel-queued]').forEach((button) =>
+    button.addEventListener('click', () =>
+      post('/api/download/jobs/cancel', { id: button.dataset.cancelQueued }).catch(showError),
+    ),
+  );
 
-  const history = state.downloadHistory ?? [];
   $('#dlHistoryBlock').hidden = history.length === 0;
-  $('#dlHistory').innerHTML = history
-    .map(
-      (item) => `
-      <div class="card row-card">
-        <div class="grow">
-          <div class="name">${escapeHtml(item.title)}</div>
-          <div class="meta mono">${escapeHtml(item.files[0] ?? item.input)}</div>
-        </div>
-        <button class="ghost small" data-dub="${escapeAttr(item.files[0] ?? '')}">${t('downloads.dub')}</button>
-      </div>`,
-    )
-    .join('');
+  $('#dlHistory').innerHTML = history.map((item) => downloadCard(item)).join('');
   $$('#dlHistory [data-dub]').forEach((button) =>
     button.addEventListener('click', () => {
-      const file = button.dataset.dub;
-      if (file) openProject(file);
+      if (button.dataset.dub) openProject(button.dataset.dub);
     }),
   );
 }
@@ -439,28 +443,37 @@ function renderDownloadJob() {
 async function loadDownloads() {
   fillDownloadControls();
   state.downloadDir = state.workingDir ?? null;
-  const data = await api('/api/download/jobs');
-  state.downloadJob = data.active;
-  state.downloadHistory = data.history;
+  state.downloads = await api('/api/download/jobs');
   renderDownloadInfo();
-  renderDownloadJob();
+  renderDownloads();
 }
 
+/** Ссылки из поля: одна в строке; запятые разделяют так же. */
+const downloadLinks = () =>
+  $('#dlInput')
+    .value.split(/[\n,]+/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+
 async function resolveDownload() {
-  const input = $('#dlInput').value.trim();
-  if (!input) return;
+  const links = downloadLinks();
+  if (links.length === 0) return;
   const button = $('#dlResolve');
   button.disabled = true;
   $('#dlInfo').innerHTML = `<div class="meta">${t('downloads.resolving')}</div>`;
   try {
-    const data = await post('/api/download/resolve', { input });
+    // Разбирается только первая: очередь скачивается без показа каждой ссылки,
+    // а карточка отвечает на вопрос «что это такое», и одного примера хватает.
+    const data = await post('/api/download/resolve', { input: links[0] });
     state.download = data.info;
-    state.downloadInput = input;
+    state.downloadInput = links[0];
+    state.downloadLinks = links;
     renderDownloadInfo();
     fillDownloadControls();
     $('#dlStart')?.addEventListener('click', () => startDownload().catch(showError));
   } catch (error) {
     state.download = null;
+    state.downloadLinks = null;
     $('#dlInfo').innerHTML = `<div class="notice error">${escapeHtml(error.message)}</div>`;
   } finally {
     button.disabled = false;
@@ -468,24 +481,39 @@ async function resolveDownload() {
 }
 
 async function startDownload() {
-  const input = state.downloadInput;
-  if (!input) return;
+  /*
+   * Ссылки берутся из поля, а не из разобранного: разбор идёт по первой строке,
+   * и если человек вставил три ссылки, а потом нажал «Скачать», в очереди должны
+   * оказаться все три. Поле же остаётся источником правды о том, что он ввёл.
+   */
+  const links = downloadLinks();
+  const targets = links.length > 0 ? links : state.downloadInput ? [state.downloadInput] : [];
+  if (targets.length === 0) return;
   const items = $('#dlItems').value.trim();
   state.downloadProgress = null;
-  await post('/api/download/jobs', {
-    input,
+  const snapshot = await post('/api/download/jobs', {
+    inputs: targets,
     quality: $('#dlQuality').value,
     audioOnly: $('#dlAudioOnly').checked,
     // Номера важнее переключателя: если человек их вписал, он сказал точно.
     ...(items ? { playlistItems: items } : { playlist: $('#dlWholePlaylist').checked }),
     cookiesFromBrowser: $('#dlCookies').value || null,
+    writeThumbnail: $('#dlThumbnail').checked,
+    writeSubtitles: $('#dlSubtitles').checked,
   });
-  renderDownloadJob();
+  state.downloads = snapshot;
+  state.download = null;
+  state.downloadLinks = null;
+  $('#dlInput').value = '';
+  renderDownloadInfo();
+  renderDownloads();
+  if (targets.length > 1) toast(t('downloads.queued', { count: targets.length }), 'ok');
 }
 
 $('#dlResolve').addEventListener('click', () => resolveDownload().catch(showError));
 $('#dlInput').addEventListener('keydown', (event) => {
-  if (event.key === 'Enter') resolveDownload().catch(showError);
+  // Ctrl+Enter — разобрать: обычный Enter в многострочном поле переносит строку.
+  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) resolveDownload().catch(showError);
 });
 $('#dlAudioOnly').addEventListener('change', () => {
   // «Только звук» и качество видео — одно и то же решение, и второе поле при
@@ -2916,11 +2944,11 @@ function connectEvents() {
   source.addEventListener('log', (event) => appendLog(JSON.parse(event.data)));
     source.addEventListener('progress', (event) => applyProgress(JSON.parse(event.data)));
     source.addEventListener('download', (event) => {
-      state.downloadJob = JSON.parse(event.data);
+      state.downloads = JSON.parse(event.data);
       // Прогресс приходит отдельным событием и относится к активной загрузке:
       // держим последний, чтобы карточка не рисовала полосу без числа.
-      if (state.downloadJob.status !== 'running') state.downloadProgress = null;
-      renderDownloadJob();
+      if (state.downloads.active?.status !== 'running') state.downloadProgress = null;
+      renderDownloads();
     });
   source.addEventListener('readiness', (event) => renderReadiness(JSON.parse(event.data)));
   source.addEventListener('job', (event) => {

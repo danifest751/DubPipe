@@ -39,12 +39,20 @@ async function main() {
   });
   const run = (code) => window.webContents.executeJavaScript(code, true);
   const errors = [];
-  window.webContents.on('console-message', (_event, level, message) => {
+  /*
+   * Электрон перевёл это событие на объект с полями, но старый вызов с
+   * аргументами ещё жив. Читаем оба вида: иначе проверка «ошибок нет» тихо
+   * ничего не проверяла бы — а это хуже, чем отсутствие проверки.
+   */
+  window.webContents.on('console-message', (first, level, message) => {
+    const params = first && typeof first === 'object' ? first : null;
+    const text = params?.message ?? message ?? '';
+    const severity = params?.level ?? level;
+    const isProblem = severity === 'error' || severity === 'warning' || severity === 2 || severity === 3;
     // Предупреждение Electron о CSP — про среду запуска, а не про страницу: в
-    // собранном приложении его нет. За свой код отвечаем здесь, за политику
-    // безопасности — отдельно.
-    if (level >= 2 && !/Electron Security Warning|Content-Security-Policy/i.test(message)) {
-      errors.push(message);
+    // собранном приложении его нет.
+    if (isProblem && !/Electron Security Warning|Content-Security-Policy/i.test(text)) {
+      errors.push(text);
     }
   });
 
@@ -106,42 +114,67 @@ async function main() {
   check('поле номеров плейлиста есть и для одиночного видео выключено', items.exists && items.disabled === true);
   fs.writeFileSync(path.join(outDir, 'downloads-resolve.png'), (await window.webContents.capturePage()).toPNG());
 
-  console.log('\n3. Загрузка и прогресс');
+  console.log('\n3. Очередь: две ссылки сразу');
   // Только звук: проверяем интерфейс, а не канал.
   await run(`(() => {
     const audio = document.getElementById('dlAudioOnly');
     audio.checked = true;
     audio.dispatchEvent(new Event('change'));
+    document.getElementById('dlInput').value = ${JSON.stringify(LINK)} + '\\n' + ${JSON.stringify(LINK)};
     document.getElementById('dlStart').click();
   })()`);
-  let job = null;
-  for (let i = 0; i < 30; i++) {
+  let cards = [];
+  let maxCards = 0;
+  for (let i = 0; i < 40; i++) {
     await sleep(400);
-    job = await run(`(() => {
-      const el = document.querySelector('#dlActive .dl-job');
-      return el ? { text: el.textContent.replace(/\\s+/g, ' ').trim(), hasCancel: Boolean(document.getElementById('dlCancel')) } : null;
-    })()`);
-    if (job) break;
+    cards = await run(`[...document.querySelectorAll('#dlActive .dl-job')].map((el) => ({
+      text: el.textContent.replace(/\\s+/g, ' ').trim(),
+      cancel: Boolean(el.querySelector('[data-cancel-active]') || el.querySelector('[data-cancel-queued]')),
+    }))`);
+    maxCards = Math.max(maxCards, cards.length);
+    if (maxCards >= 2) break;
   }
-  check('карточка загрузки появилась', job !== null, job ? job.text.slice(0, 80) : 'нет');
-  check('есть кнопка отмены', Boolean(job && job.hasCancel));
+  if (maxCards < 2) {
+    const diag = await run(`({
+      downloads: state.downloads,
+      hasStart: Boolean(document.getElementById('dlStart')),
+      badge: document.getElementById('dlBadge').textContent,
+    })`);
+    console.log('   диагностика:', JSON.stringify(diag).slice(0, 400));
+    console.log('   ошибки страницы:', errors.slice(0, 3).join(' | ').slice(0, 300));
+  }
+  check('карточка активной загрузки появилась', maxCards >= 1, cards[0] ? cards[0].text.slice(0, 70) : 'нет');
+  check('вторая ссылка встала в очередь', maxCards >= 2, `одновременно карточек: ${maxCards}`);
+  check('у обеих есть отмена', cards.every((item) => item.cancel));
   const badge = await run(`document.getElementById('dlBadge').textContent.trim()`);
   check('в меню виден значок идущей работы', badge.length > 0, badge);
-  await sleep(2500);
+  await sleep(2000);
   fs.writeFileSync(path.join(outDir, 'downloads-job.png'), (await window.webContents.capturePage()).toPNG());
 
-  console.log('\n4. Отмена');
-  await run(`document.getElementById('dlCancel') && document.getElementById('dlCancel').click()`);
+  console.log('\n4. Отмена активной и переход к следующей');
+  await run(`document.querySelector('#dlActive [data-cancel-active]').click()`);
   let status = '';
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 60; i++) {
     await sleep(500);
     status = await run(`(() => {
+      const active = document.querySelector('#dlActive .dl-job [data-cancel-active]');
       const el = document.querySelector('#dlActive .dl-job');
-      return el ? el.textContent.replace(/\\s+/g, ' ').trim() : '';
+      return active && el ? 'идёт' : el ? el.textContent.replace(/\\s+/g, ' ').trim() : '';
     })()`);
-    if (!status || /отмен|cancel/i.test(status)) break;
+    if (!status) break;
   }
-  check('загрузка остановлена', !status || /отмен|cancel/i.test(status), status.slice(0, 80) || 'карточка убрана');
+  // Первая отменилась, вторая либо уже пошла, либо отменилась следом — важно,
+  // что очередь не зависла и карточки не остались висеть «идёт».
+  const finalCards = await run(`document.querySelectorAll('#dlActive .dl-job').length`);
+  check('очередь не зависла', finalCards <= 1, `карточек осталось: ${finalCards}`);
+  // Останавливаем и вторую, если она успела начаться.
+  await run(`(() => {
+    const button = document.querySelector('#dlActive [data-cancel-active]');
+    if (button) button.click();
+    const queued = document.querySelector('#dlActive [data-cancel-queued]');
+    if (queued) queued.click();
+  })()`);
+  await sleep(1500);
 
   check('ошибок в консоли страницы нет', errors.length === 0, errors.slice(0, 2).join(' | '));
 

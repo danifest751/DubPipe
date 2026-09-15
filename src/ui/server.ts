@@ -126,6 +126,15 @@ interface DownloadJobState {
   expectedBytes: number | null;
   error: string | null;
   hints: string[];
+  /** Что выбрано на вкладке для этой ссылки; настройки подставляются при запуске. */
+  options: {
+    quality: DownloadQuality;
+    playlistItems?: string;
+    playlist?: boolean;
+    cookiesFromBrowser?: string | null;
+    writeThumbnail?: boolean;
+    writeSubtitles?: boolean;
+  };
 }
 
 export interface UiServerOptions {
@@ -345,8 +354,9 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
   let job: JobState | null = null;
   let cancelRequested = false;
   /** Текущая загрузка по ссылке и её сигнал остановки — свои, не конвейерные. */
-  let downloadJob: DownloadJobState | null = null;
+  let activeDownload: DownloadJobState | null = null;
   let downloadAbort: AbortController | null = null;
+  const downloadQueue: DownloadJobState[] = [];
   const downloadHistory: DownloadJobState[] = [];
   /** Итоговые файлы открытых проектов: их можно отдавать плееру и после перезапуска. */
   const knownOutputs = new Set<string>();
@@ -388,6 +398,76 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
     // История нужна, чтобы вечером вспомнить, что и откуда скачивалось.
     downloadHistory.unshift(state);
     if (downloadHistory.length > 10) downloadHistory.length = 10;
+  };
+
+  const downloadSnapshot = (): {
+    active: DownloadJobState | null;
+    queue: DownloadJobState[];
+    history: DownloadJobState[];
+  } => ({ active: activeDownload, queue: downloadQueue, history: downloadHistory });
+
+  const publishDownloads = (): void => broadcast('download', downloadSnapshot());
+
+  /**
+   * Запуск следующей загрузки из очереди.
+   *
+   * Очередь живёт на сервере, а не в странице: вкладку можно закрыть, экран
+   * погасить — загрузки продолжатся. Идёт всегда одна: канал один, и
+   * предсказуемость важнее скорости.
+   */
+  const pumpDownloads = (): void => {
+    if (activeDownload || downloadQueue.length === 0) return;
+
+    const state = downloadQueue.shift()!;
+    const controller = new AbortController();
+    activeDownload = state;
+    downloadAbort = controller;
+    publishDownloads();
+
+    void (async () => {
+      const current = state;
+      const options = current.options;
+      try {
+        const info = await resolveYt(current.input, downloadToolsDir(), options.quality);
+        current.title = info.title;
+        current.height = info.height;
+        current.expectedBytes = info.bytes;
+        publishDownloads();
+
+        current.files = await downloadYt(info.url || current.input, downloadTargetDir(), downloadToolsDir(), {
+          quality: options.quality,
+          container: config.download.container,
+          filenameTemplate: config.download.filename_template,
+          ...(options.playlistItems ? { playlistItems: options.playlistItems } : {}),
+          ...(options.playlist && !options.playlistItems ? { playlist: true } : {}),
+          cookiesFromBrowser: options.cookiesFromBrowser ?? config.download.cookies_from_browser,
+          cookiesFile: config.download.cookies_file,
+          writeThumbnail: options.writeThumbnail ?? config.download.write_thumbnail,
+          writeSubtitles: options.writeSubtitles ?? config.download.write_subtitles,
+          subtitleLanguages: config.download.subtitle_languages,
+          concurrentFragments: config.download.concurrent_fragments,
+          expectedBytes: info.bytes,
+          videoId: info.id,
+          label: info.title,
+          signal: controller.signal,
+        });
+        current.status = 'done';
+      } catch (error) {
+        current.status = isCancelled(error) ? 'cancelled' : 'error';
+        if (current.status === 'error') {
+          current.error = (error as Error).message;
+          current.hints = (error as { hints?: string[] }).hints ?? [];
+        }
+      } finally {
+        current.finishedAt = new Date().toISOString();
+        rememberDownload(current);
+        activeDownload = null;
+        downloadAbort = null;
+        publishDownloads();
+        // Следующая — сразу: человек поставил несколько ссылок и ждёт их.
+        pumpDownloads();
+      }
+    })();
   };
 
   log.subscribe((record) => {
@@ -1523,102 +1603,80 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
     }
 
     if (route === '/api/download/jobs' && method === 'GET') {
-      sendJson(response, 200, { active: downloadJob, history: downloadHistory });
+      sendJson(response, 200, downloadSnapshot());
       return true;
     }
 
     if (route === '/api/download/jobs/cancel' && method === 'POST') {
-      downloadAbort?.abort();
-      sendJson(response, 200, { ok: true });
+      const body = (await readBody(request)) as { id?: string };
+      if (body.id) {
+        // Отмена ещё не начатой: убрать из очереди и запомнить как отменённую.
+        const at = downloadQueue.findIndex((item) => item.id === body.id);
+        if (at >= 0) {
+          const dropped = downloadQueue.splice(at, 1)[0];
+          if (dropped) {
+            dropped.status = 'cancelled';
+            dropped.finishedAt = new Date().toISOString();
+            rememberDownload(dropped);
+          }
+          publishDownloads();
+        }
+      } else {
+        downloadAbort?.abort();
+      }
+      sendJson(response, 200, downloadSnapshot());
       return true;
     }
 
     if (route === '/api/download/jobs' && method === 'POST') {
-      if (downloadJob?.status === 'running') {
-        sendJson(response, 409, { error: 'уже идёт загрузка — дождитесь её или остановите' });
-        return true;
-      }
       const body = (await readBody(request)) as {
         input?: string;
+        /** Несколько ссылок сразу: вставили три строки — скачаются три. */
+        inputs?: string[];
         quality?: DownloadQuality;
         audioOnly?: boolean;
         playlistItems?: string;
         playlist?: boolean;
         cookiesFromBrowser?: string | null;
+        writeThumbnail?: boolean;
+        writeSubtitles?: boolean;
       };
-      const input = body.input?.trim();
-      if (!input) {
+      const requested = (body.inputs ?? [body.input ?? ''])
+        .map((value) => (value ?? '').trim())
+        .filter(Boolean);
+      if (requested.length === 0) {
         sendJson(response, 400, { error: 'не указана ссылка' });
         return true;
       }
 
       const quality: DownloadQuality = body.audioOnly ? 'audio' : (body.quality ?? config.download.quality);
-      const state: DownloadJobState = {
-        id: randomBytes(8).toString('hex'),
-        input,
-        // До разбора в карточке показывается сама ссылка: пустая строка выглядела
-        // бы хуже, чем длинный адрес на секунду.
-        title: input,
-        status: 'running',
-        startedAt: new Date().toISOString(),
-        finishedAt: null,
-        files: [],
-        height: null,
-        expectedBytes: null,
-        error: null,
-        hints: [],
-      };
-      downloadJob = state;
-      downloadAbort = new AbortController();
-      broadcast('download', state);
-      sendJson(response, 202, state);
-
-      void (async () => {
-        const current = state;
-        try {
-          const info = await resolveYt(input, downloadToolsDir(), quality);
-          current.title = info.title;
-          current.height = info.height;
-          current.expectedBytes = info.bytes;
-          broadcast('download', current);
-
-          current.files = await downloadYt(info.url || input, downloadTargetDir(), downloadToolsDir(), {
+      for (const input of requested) {
+        downloadQueue.push({
+          id: randomBytes(8).toString('hex'),
+          input,
+          // До разбора в карточке показывается сама ссылка: пустая строка
+          // выглядела бы хуже, чем длинный адрес на секунду.
+          title: input,
+          status: 'running',
+          startedAt: new Date().toISOString(),
+          finishedAt: null,
+          files: [],
+          height: null,
+          expectedBytes: null,
+          error: null,
+          hints: [],
+          options: {
             quality,
-            container: config.download.container,
-            filenameTemplate: config.download.filename_template,
             ...(body.playlistItems ? { playlistItems: body.playlistItems } : {}),
             ...(body.playlist && !body.playlistItems ? { playlist: true } : {}),
-            cookiesFromBrowser: body.cookiesFromBrowser ?? config.download.cookies_from_browser,
-            cookiesFile: config.download.cookies_file,
-            writeThumbnail: config.download.write_thumbnail,
-            writeSubtitles: config.download.write_subtitles,
-            subtitleLanguages: config.download.subtitle_languages,
-            concurrentFragments: config.download.concurrent_fragments,
-            expectedBytes: info.bytes,
-            videoId: info.id,
-            label: info.title,
-            signal: downloadAbort.signal,
-          });
-          current.status = 'done';
-        } catch (error) {
-          current.status = isCancelled(error) ? 'cancelled' : 'error';
-          if (current.status === 'error') {
-            current.error = (error as Error).message;
-            current.hints = (error as { hints?: string[] }).hints ?? [];
-          }
-        } finally {
-          current.finishedAt = new Date().toISOString();
-          rememberDownload(current);
-          downloadAbort = null;
-          broadcast('download', current);
-          const stateId = current.id;
-          // Завершённая карточка уходит из активной сама: она уже в истории, а
-          // висеть в «идёт сейчас» готовой загрузке незачем.
-          setTimeout(() => {
-            if (downloadJob?.id === stateId && downloadJob.status !== 'running') downloadJob = null;
-          }, 60_000).unref();
-        }
-      })();
+            ...(body.cookiesFromBrowser !== undefined ? { cookiesFromBrowser: body.cookiesFromBrowser } : {}),
+            ...(body.writeThumbnail !== undefined ? { writeThumbnail: body.writeThumbnail } : {}),
+            ...(body.writeSubtitles !== undefined ? { writeSubtitles: body.writeSubtitles } : {}),
+          },
+        });
+      }
+      pumpDownloads();
+      sendJson(response, 202, downloadSnapshot());
       return true;
     }
 

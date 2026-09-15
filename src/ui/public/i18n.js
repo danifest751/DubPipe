@@ -36,7 +36,11 @@ const DICTIONARY = {
     ru: 'Вставьте ссылку на YouTube: покажу название, длительность и размер до начала загрузки, а файл положу туда же, где лежат остальные видео.',
     en: 'Paste a YouTube link: the title, length and size are shown before the download starts, and the file lands where the other videos are.',
   },
-  'downloads.placeholder': { ru: 'https://youtu.be/…', en: 'https://youtu.be/…' },
+  'downloads.placeholder': {
+    ru: 'https://youtu.be/… — по одной ссылке в строке',
+    en: 'https://youtu.be/… — one link per line',
+  },
+  'downloads.queued': { ru: 'В очереди ссылок: {count}', en: 'Links queued: {count}' },
   'downloads.resolve': { ru: 'Разобрать', en: 'Look up' },
   'downloads.resolving': { ru: 'Смотрю, что по ссылке…', en: 'Looking up the link…' },
   'downloads.quality': { ru: 'Качество', en: 'Quality' },
@@ -323,7 +327,64 @@ const DICTIONARY = {
   'settings.group.asr': { ru: 'Распознавание', en: 'Recognition' },
   'settings.group.audio': { ru: 'Звук', en: 'Audio' },
   'settings.group.fit': { ru: 'Подгонка', en: 'Fitting' },
+  'settings.group.download': { ru: 'Загрузки', en: 'Downloads' },
   'settings.group.system': { ru: 'Система', en: 'System' },
+
+  // --- загрузки: значения по умолчанию --------------------------------------
+  'settings.dlNote': {
+    ru: 'Значения по умолчанию для ссылок. На вкладке «Загрузки» их можно переопределить для одного раза.',
+    en: 'Defaults for links. The Downloads tab can override them for a single run.',
+  },
+  'settings.dlQuality': { ru: 'Качество', en: 'Quality' },
+  'settings.dlQualityNote': {
+    ru: 'Для дубляжа важно только разрешение файла: видео копируется без перекодирования. «Только звук» хватает для субтитров.',
+    en: 'For dubbing only the file resolution matters: the video is copied without re-encoding. Audio only is enough for subtitles.',
+  },
+  'settings.dlContainer': { ru: 'Контейнер', en: 'Container' },
+  'settings.dlContainerNote': {
+    ru: 'Во что сводить дорожки видео и звука. mkv терпимее к редким кодекам.',
+    en: 'Where the video and audio tracks are merged. mkv is more tolerant of rare codecs.',
+  },
+  'settings.dlPlaylist': { ru: 'Плейлист', en: 'Playlist' },
+  'settings.dlPlaylistNote': {
+    ru: 'Что делать, если ссылка ведёт на список видео.',
+    en: 'What to do when the link points at a list of videos.',
+  },
+  'settings.dlPlaylist.ask': {
+    ru: 'первое видео и сказать о плейлисте',
+    en: 'the first video, reporting the playlist',
+  },
+  'settings.dlPlaylist.first': { ru: 'только первое видео, молча', en: 'the first video, silently' },
+  'settings.dlPlaylist.all': { ru: 'весь плейлист', en: 'the whole playlist' },
+  'settings.dlDir': { ru: 'Папка для скачанного', en: 'Folder for downloads' },
+  'settings.dlDirNote': {
+    ru: 'Пусто — рабочая папка библиотеки. Скачанное переживает очистку кэша.',
+    en: 'Empty means the library working folder. Downloads survive clearing the cache.',
+  },
+  'settings.dlDir.placeholder': { ru: 'рабочая папка', en: 'working folder' },
+  'settings.dlConcurrent': { ru: 'Фрагментов одновременно', en: 'Concurrent fragments' },
+  'settings.dlConcurrentNote': {
+    ru: 'Сколько частей файла тянуть сразу. Помогает на быстром канале.',
+    en: 'How many parts of the file to fetch at once. Helps on a fast connection.',
+  },
+  'settings.dlThumbnail': { ru: 'Сохранять превью', en: 'Save the thumbnail' },
+  'settings.dlThumbnailNote': { ru: 'Картинка ролика рядом с видеофайлом.', en: 'The video picture next to the file.' },
+  'settings.dlSubtitles': { ru: 'Скачивать субтитры YouTube', en: 'Download YouTube subtitles' },
+  'settings.dlSubtitlesNote': {
+    ru: 'Оригинальные субтитры рядом с видео. Языки — в config.yaml, поле subtitle_languages. Для дубляжа они не используются: речь распознаёт Whisper.',
+    en: 'The original subtitles next to the video. Languages live in config.yaml, field subtitle_languages. Dubbing does not use them: Whisper recognises the speech.',
+  },
+  'settings.dlUpdateCheck': { ru: 'Напоминать об обновлении yt-dlp', en: 'Remind about yt-dlp updates' },
+  'settings.dlUpdateCheckNote': {
+    ru: 'YouTube меняется, и загрузчик старше 45 дней перестаёт работать. Обновление: dub tools update yt-dlp.',
+    en: 'YouTube changes, and a downloader older than 45 days stops working. Update with: dub tools update yt-dlp.',
+  },
+  'settings.dlCookies': { ru: 'Куки браузера', en: 'Browser cookies' },
+  'settings.dlCookiesFile': { ru: 'Файл cookies.txt', en: 'cookies.txt file' },
+  'settings.dlCookiesFileNote': {
+    ru: 'Путь вместо браузера, для тех, кто не хочет пускать программу в браузер. DubPipe сам этот файл не читает — его открывает только yt-dlp.',
+    en: 'A path instead of a browser, for those who would rather not let the program into it. DubPipe never reads this file — only yt-dlp does.',
+  },
   'settings.group.yaml': { ru: 'Файл YAML', en: 'YAML file' },
   'settings.where': { ru: 'Где переводить', en: 'Where to translate' },
   'settings.whereNote': { ru: 'Облачная модель качественнее и требует ключ. Локальный вариант работает без сети через Ollama.', en: 'The cloud model is better and needs a key. The local one works offline through Ollama.' },

@@ -476,6 +476,10 @@ What happens, step by step:
 - **Playlists** under `download.playlist: ask` are treated as a single video, but the number
   of others is reported. `all` fetches the whole list, `--playlist-items 1-3,7` fetches a
   selection. Only the first file is dubbed: the pipeline takes one input.
+- **Several links at once** — one per line. The queue lives on the server, so the tab can be
+  closed and the downloads continue. One runs at a time, so the connection is not split.
+- **Defaults** live in the Downloads group of Settings: quality, container, folder, playlist
+  mode, cookies, thumbnail and subtitles. The Downloads tab overrides them for a single run.
 - **Age-restricted videos and “confirm you are not a bot”** need browser cookies:
   `--cookies-from-browser chrome`, or `download.cookies_from_browser` in `config.yaml`.
   That is account access, so it is off by default.

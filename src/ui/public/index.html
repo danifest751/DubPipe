@@ -92,15 +92,17 @@
 
             <div class="card">
               <div class="row nowrap">
-                <input id="dlInput" type="text" placeholder="https://youtu.be/…" data-i18n-placeholder="downloads.placeholder" />
+                <textarea id="dlInput" rows="2" placeholder="https://youtu.be/… — по одной ссылке в строке" data-i18n-placeholder="downloads.placeholder"></textarea>
                 <button id="dlResolve" class="primary" data-i18n="downloads.resolve">Разобрать</button>
               </div>
               <div class="row">
                 <label class="field"><span data-i18n="downloads.quality">Качество</span><select id="dlQuality"></select></label>
                 <label class="check"><input type="checkbox" id="dlAudioOnly" /> <span data-i18n="downloads.audioOnly">Только звук</span></label>
                 <label class="check"><input type="checkbox" id="dlWholePlaylist" /> <span data-i18n="downloads.wholePlaylist">Весь плейлист</span></label>
-                <label class="field"><span data-i18n="downloads.items">Номера из плейлиста</span><input id="dlItems" type="text" placeholder="1-3,7" readonly title="" /></label>
+                <label class="check"><input type="checkbox" id="dlThumbnail" /> <span data-i18n="settings.dlThumbnail">Сохранять превью</span></label>
+                <label class="check"><input type="checkbox" id="dlSubtitles" /> <span data-i18n="settings.dlSubtitles">Скачивать субтитры YouTube</span></label>
                 <label class="field"><span data-i18n="downloads.cookies">Куки браузера</span><select id="dlCookies"></select></label>
+                <label class="field"><span data-i18n="downloads.items">Номера из плейлиста</span><input id="dlItems" type="text" placeholder="1-3,7" readonly title="" /></label>
                 <span class="grow"></span>
                 <span class="meta" id="dlFolder"></span>
               </div>
@@ -292,8 +294,9 @@
                 <button data-group="voice" data-i18n="settings.group.voice">Голос</button>
                 <button data-group="asr" data-i18n="settings.group.asr">Распознавание</button>
                 <button data-group="audio" data-i18n="settings.group.audio">Звук</button>
-                <button data-group="fit" data-i18n="settings.group.fit">Подгонка</button>
-                <button data-group="system" data-i18n="settings.group.system">Система</button>
+  <button data-group="fit" data-i18n="settings.group.fit">Подгонка</button>
+  <button data-group="download" data-i18n="settings.group.download">Загрузки</button>
+  <button data-group="system" data-i18n="settings.group.system">Система</button>
                 <button data-group="yaml" data-i18n="settings.group.yaml">Файл YAML</button>
               </nav>
 
@@ -562,6 +565,75 @@
                   <div class="opt">
                     <div class="opt-text"><b data-i18n="settings.maxShift">Предел сдвига реплики, мс</b><span data-i18n="settings.maxShiftNote">Насколько реплика может опоздать, чтобы не наехать на предыдущую.</span></div>
                     <div class="opt-ctl"><input data-key="alignment.max_shift_ms" type="number" min="0" max="10000" step="100" /></div>
+                  </div>
+                </fieldset>
+
+                <!-- Загрузки -->
+                <fieldset data-group="download">
+                  <legend data-i18n="settings.group.download">Загрузки</legend>
+                  <p class="lead" data-i18n="settings.dlNote">Значения по умолчанию для ссылок. На вкладке «Загрузки» их можно переопределить для одного раза.</p>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.dlQuality">Качество</b><span data-i18n="settings.dlQualityNote">Для дубляжа важно только разрешение файла: видео копируется без перекодирования. «Только звук» хватает для субтитров.</span></div>
+                    <div class="opt-ctl"><select data-key="download.quality">
+                      <option value="1080p">1080p</option>
+                      <option value="720p">720p</option>
+                      <option value="480p">480p</option>
+                      <option value="best" data-i18n="downloads.quality.best">лучшее доступное</option>
+                      <option value="audio" data-i18n="downloads.quality.audio">только звук</option>
+                    </select></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.dlContainer">Контейнер</b><span data-i18n="settings.dlContainerNote">Во что сводить дорожки видео и звука. mkv терпимее к редким кодекам.</span></div>
+                    <div class="opt-ctl"><select data-key="download.container">
+                      <option value="mp4">mp4</option>
+                      <option value="mkv">mkv</option>
+                    </select></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.dlPlaylist">Плейлист</b><span data-i18n="settings.dlPlaylistNote">Что делать, если ссылка ведёт на список видео.</span></div>
+                    <div class="opt-ctl"><select data-key="download.playlist">
+                      <option value="ask" data-i18n="settings.dlPlaylist.ask">первое видео и сказать о плейлисте</option>
+                      <option value="first" data-i18n="settings.dlPlaylist.first">только первое видео, молча</option>
+                      <option value="all" data-i18n="settings.dlPlaylist.all">весь плейлист</option>
+                    </select></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.dlDir">Папка для скачанного</b><span data-i18n="settings.dlDirNote">Пусто — рабочая папка библиотеки. Скачанное переживает очистку кэша.</span></div>
+                    <div class="opt-ctl"><input data-key="download.dir" type="text" placeholder="рабочая папка" data-i18n-placeholder="settings.dlDir.placeholder" /></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.dlConcurrent">Фрагментов одновременно</b><span data-i18n="settings.dlConcurrentNote">Сколько частей файла тянуть сразу. Помогает на быстром канале.</span></div>
+                    <div class="opt-ctl"><input data-key="download.concurrent_fragments" type="number" min="1" max="16" /></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.dlThumbnail">Сохранять превью</b><span data-i18n="settings.dlThumbnailNote">Картинка ролика рядом с видеофайлом.</span></div>
+                    <div class="opt-ctl"><label class="switch"><input data-key="download.write_thumbnail" type="checkbox" /><i></i></label></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.dlSubtitles">Скачивать субтитры YouTube</b><span data-i18n="settings.dlSubtitlesNote">Оригинальные субтитры рядом с видео. Языки — в config.yaml, поле subtitle_languages. Для дубляжа они не используются: речь распознаёт Whisper.</span></div>
+                    <div class="opt-ctl"><label class="switch"><input data-key="download.write_subtitles" type="checkbox" /><i></i></label></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.dlUpdateCheck">Напоминать об обновлении yt-dlp</b><span data-i18n="settings.dlUpdateCheckNote">YouTube меняется, и загрузчик старше 45 дней перестаёт работать. Обновление: dub tools update yt-dlp.</span></div>
+                    <div class="opt-ctl"><label class="switch"><input data-key="download.update_check" type="checkbox" /><i></i></label></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.dlCookies">Куки браузера</b><span data-i18n="downloads.cookies.hint">Нужны только для видео с возрастным ограничением и проверки «вы не робот». Это доступ к аккаунту.</span></div>
+                    <div class="opt-ctl"><select data-key="download.cookies_from_browser">
+                      <option value="" data-i18n="downloads.cookies.none">не использовать</option>
+                      <option value="chrome">chrome</option>
+                      <option value="chromium">chromium</option>
+                      <option value="firefox">firefox</option>
+                      <option value="edge">edge</option>
+                      <option value="brave">brave</option>
+                      <option value="opera">opera</option>
+                      <option value="vivaldi">vivaldi</option>
+                      <option value="safari">safari</option>
+                    </select></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.dlCookiesFile">Файл cookies.txt</b><span data-i18n="settings.dlCookiesFileNote">Путь вместо браузера, для тех, кто не хочет пускать программу в браузер. DubPipe сам этот файл не читает — его открывает только yt-dlp.</span></div>
+                    <div class="opt-ctl"><input data-key="download.cookies_file" type="text" placeholder="C:\cookies.txt" /></div>
                   </div>
                 </fieldset>
 
