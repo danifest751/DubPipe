@@ -101,12 +101,6 @@ function sidecarPath(): string {
 export async function runS4(workspace: Workspace, config: DubConfig): Promise<S4Result> {
   const warnings: string[] = [];
 
-  if (config.separation.engine !== 'mdx-onnx') {
-    throw new StageError('s4', `движок разделения ${config.separation.engine} не реализован`, {
-      hints: ['Используйте separation.engine: mdx-onnx'],
-    });
-  }
-
   const python = await probePython();
   if (!python.available) {
     const reason =

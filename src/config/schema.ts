@@ -157,7 +157,13 @@ const ttsSchema = z.object({
 
 const separationSchema = z.object({
   enabled: z.boolean().default(false),
-  engine: z.enum(['mdx-onnx', 'demucs']).default('mdx-onnx'),
+  /**
+   * Движок один. `demucs` тут когда-то стоял рядом, но реализован не был:
+   * настройки предлагали выбор, а стадия на нём падала. Demucs — только
+   * PyTorch, и на машине без CUDA он считает на процессоре, тогда как MDX идёт
+   * через onnxruntime и берёт видеокарту (Radeon 780M: в 5.3 раза быстрее).
+   */
+  engine: z.enum(['mdx-onnx']).default('mdx-onnx'),
   model: z.string().min(1).default('UVR-MDX-NET-Inst_HQ_3'),
   /**
    * Где считать разделение. Сеть тяжёлая, и видеокарта даёт много: на Radeon
