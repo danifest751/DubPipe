@@ -23,6 +23,14 @@ export interface RunOptions {
    */
   captureStdout?: boolean;
   input?: Buffer | string;
+  /**
+   * Called with each stdout chunk, e.g. to parse progress.
+   *
+   * В отличие от `captureStdout`, поток не накапливается: yt-dlp за час
+   * загрузки печатает тысячи строк, и держать их в памяти незачем — из каждой
+   * нужны только числа.
+   */
+  onStdout?: (chunk: string) => void;
   /** Called with each stderr chunk, e.g. to parse progress. */
   onStderr?: (chunk: string) => void;
   /** Сигнал остановки; по умолчанию — сигнал текущего прогона. */
@@ -118,7 +126,9 @@ export async function run(file: string, args: string[], options: RunOptions = {}
     }
 
     child.stdout?.on('data', (chunk: Buffer) => {
-      if (captureStdout) stdout += chunk.toString('utf8');
+      const text = chunk.toString('utf8');
+      options.onStdout?.(text);
+      if (captureStdout) stdout += text;
     });
     child.stderr?.on('data', (chunk: Buffer) => {
       const text = chunk.toString('utf8');

@@ -57,6 +57,18 @@ export class MissingDependencyError extends DubPipeError {
   }
 }
 
+/**
+ * Загрузка по ссылке не удалась.
+ *
+ * Отдельный класс, а не StageError: причина уже переведена на человеческий
+ * язык в `util/ytdlp.ts`, где о ссылках знают всё, а стадия лишь добавляет к
+ * ней свой номер. Ловится и в CLI, и в интерфейсе, поэтому подсказки важнее
+ * кода возврата.
+ */
+export class DownloadError extends DubPipeError {
+  readonly exitCode = EXIT.STAGE_ERROR;
+}
+
 export function toExitCode(error: unknown): ExitCode {
   return error instanceof DubPipeError ? error.exitCode : EXIT.STAGE_ERROR;
 }
