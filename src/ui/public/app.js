@@ -437,21 +437,16 @@ async function startJob() {
 
 $('#startJob').addEventListener('click', () => startJob().catch(showError));
 $('#cancelJob').addEventListener('click', (event) => {
+  // Остановка чужой задачи — с вопросом: кнопка теперь следует за задачей,
+  // а не за открытым файлом, и остановить можно не то, что смотришь.
   const job = state.job;
-  if (job && state.project && job.input !== state.project && !window.confirm(t('job.stopOther', { name: job.input.split(/[\/]/).pop() }))) return;
-  return onCancelJob(event);
-});
-
-const onCancelJob = (event) =>
+  const name = job?.input ? job.input.split(/[\/]/).pop() : '';
+  if (job && state.project && job.input !== state.project && !window.confirm(t('job.stopOther', { name }))) return;
   withBusy(event.currentTarget, async () => {
     const result = await post('/api/jobs/cancel');
-    toast(
-      result.ok ? t('job.stopped') : result.note,
-      result.ok ? 'warn' : 'ok',
-      5000,
-    );
-  }).catch(showError),
-);
+    toast(result.ok ? t('job.stopped') : result.note, result.ok ? 'warn' : 'ok', 5000);
+  }).catch(showError);
+});
 $('#clearProjectCache').addEventListener('click', (event) =>
   withBusy(event.currentTarget, async () => {
     await post('/api/cache/clear', { input: state.project });
