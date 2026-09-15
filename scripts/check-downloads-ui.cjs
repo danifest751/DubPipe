@@ -178,6 +178,30 @@ async function main() {
 
   check('ошибок в консоли страницы нет', errors.length === 0, errors.slice(0, 2).join(' | '));
 
+  console.log('\n5. Настройки: группа «Загрузки»');
+  await run(`document.querySelector('#nav button[data-view="settings"]').click()`);
+  await sleep(900);
+  const settings = await run(`(() => {
+    const group = document.querySelector('#settingsNav button[data-group="download"]');
+    if (group) group.click();
+    return {
+      group: Boolean(group),
+      quality: document.querySelector('[data-key="download.quality"]')?.value ?? null,
+      container: document.querySelector('[data-key="download.container"]')?.value ?? null,
+      fragments: document.querySelector('[data-key="download.concurrent_fragments"]')?.value ?? null,
+      playlist: document.querySelector('[data-key="download.playlist"]')?.value ?? null,
+      cookies: document.querySelector('[data-key="download.cookies_from_browser"]')?.value ?? null,
+      thumbnail: document.querySelector('[data-key="download.write_thumbnail"]')?.checked ?? null,
+    };
+  })()`);
+  check('группа есть в списке настроек', settings.group);
+  check('качество подставлено из настроек', settings.quality === '1080p', String(settings.quality));
+  check('контейнер подставлен', settings.container === 'mp4', String(settings.container));
+  check('число фрагментов не пустое', Number(settings.fragments) >= 1, String(settings.fragments));
+  check('режим плейлиста подставлен', ['ask', 'first', 'all'].includes(settings.playlist), String(settings.playlist));
+  check('переключатель превью читается', typeof settings.thumbnail === 'boolean', String(settings.thumbnail));
+  check('куки по умолчанию не выбраны', settings.cookies === '', JSON.stringify(settings.cookies));
+
   await server.close();
   console.log(failures === 0 ? '\nВСЁ ПРОШЛО' : `\nПРОВАЛЕНО ПРОВЕРОК: ${failures}`);
   app.exit(failures === 0 ? 0 : 1);
