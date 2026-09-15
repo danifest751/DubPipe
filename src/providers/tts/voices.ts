@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { downloadFile } from '../../util/download.js';
 import { StageError } from '../../core/errors.js';
+import { SILERO_VOICES } from './silero-voices.js';
 
 /**
  * Piper voice management (SPEC FR-5). Voices are ONNX files fetched on first use
@@ -17,6 +18,13 @@ export interface VoiceInfo {
   quality: string;
   gender: 'ж' | 'м' | '—';
   note: string;
+  /**
+   * Медиана основного тона голоса, Гц; нет — значит не мерили.
+   *
+   * По нему героине подбирается голос её высоты, а не «женский вообще». Там,
+   * где тона нет, автоподбор раздаёт голоса нужного пола по кругу, как и раньше.
+   */
+  f0?: number;
 }
 
 /** Russian voices known to exist upstream; any other name is still accepted. */
@@ -72,6 +80,17 @@ export async function ensureVoice(voice: string, modelsDir: string): Promise<Res
   }
 
   return { name: voice, modelPath, configPath };
+}
+
+/**
+ * Каталог голосов того движка, которым сейчас озвучивают.
+ *
+ * Имена голосов у движков свои и не пересекаются: `ru_RU-irina-medium` у piper,
+ * `ru_zhadyra` у silero. Раздавать голоса по полу, не глядя на движок, значит
+ * назначить спикеру имя, которого выбранный движок не знает.
+ */
+export function voicesForEngine(engine: string): VoiceInfo[] {
+  return engine === 'silero' ? SILERO_VOICES : RUSSIAN_VOICES;
 }
 
 /** Voice for a speaker, falling back to the default (SPEC FR-5). */

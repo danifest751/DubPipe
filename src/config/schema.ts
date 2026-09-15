@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SILERO_DEFAULT_VOICE, SILERO_VOICES } from '../providers/tts/silero-voices.js';
 
 /**
  * Configuration contract (SPEC §5.3) plus execution profiles (SPEC §15).
@@ -134,7 +135,7 @@ const translateSchema = z.object({
 });
 
 const ttsSchema = z.object({
-  engine: z.enum(['piper', 'edge-tts', 'kilo-gateway']).default('piper'),
+  engine: z.enum(['piper', 'silero', 'edge-tts', 'kilo-gateway']).default('piper'),
   model: z.string().nullable().default(null),
   default_voice: z.string().min(1).default('ru_RU-irina-medium'),
   /**
@@ -263,6 +264,20 @@ export const configSchema = z
         message: `должно быть не меньше alignment.min_tempo (${cfg.alignment.min_tempo})`,
       });
     }
+    /*
+     * Имена голосов у движков свои и не пересекаются: `ru_RU-irina-medium` у
+     * piper, `ru_zhadyra` у silero. Переключив движок и забыв про голос, человек
+     * получил бы отказ на каждой реплике — сказать об этом надо один раз и здесь.
+     */
+    if (cfg.tts.engine === 'silero' && !SILERO_VOICES.some((voice) => voice.name === cfg.tts.default_voice)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['tts', 'default_voice'],
+        message:
+          `движок silero не знает голоса «${cfg.tts.default_voice}» — это имя из каталога piper. ` +
+          `Его голоса называются иначе, например ${SILERO_DEFAULT_VOICE}; полный список: dub voices list`,
+      });
+    }
     // SPEC §3.1.1: the gateway has no speech synthesis at all, so this engine can never work.
     if (cfg.tts.engine === 'kilo-gateway') {
       ctx.addIssue({
@@ -270,7 +285,7 @@ export const configSchema = z
         path: ['tts', 'engine'],
         message:
           'синтез речи через Kilo Gateway не поддерживается: у шлюза нет эндпоинта /audio/speech ' +
-          'и нет моделей с аудио на выходе (ТЗ §3.1.1). Используйте "piper" или "edge-tts"',
+          'и нет моделей с аудио на выходе (ТЗ §3.1.1). Используйте "piper" или "silero"',
       });
     }
     // SPEC §3.1.1: the gateway returns no timestamps, so FR-2 cannot be satisfied through it.

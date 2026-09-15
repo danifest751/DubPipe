@@ -6,7 +6,7 @@ import { counter, log } from '../core/logger.js';
 import type { Segment } from '../core/types.js';
 import type { Workspace } from '../core/workspace.js';
 import { applyOverrides } from '../core/overrides.js';
-import { createTtsProvider, voiceForSpeaker } from '../providers/tts/index.js';
+import { createTtsProvider, voiceForSpeaker, type TtsProvider } from '../providers/tts/index.js';
 import { effectiveSpeechShape, rememberCalibration } from '../core/calibration.js';
 import { roomFor } from './s3-translate.js';
 import { sha256 } from '../util/hash.js';
@@ -129,8 +129,23 @@ async function withConcurrency<T>(items: T[], limit: number, worker: (item: T) =
 export async function runS5(workspace: Workspace, baseConfig: DubConfig, segments: Segment[]): Promise<S5Result> {
   // Голоса, назначенные в режиме просмотра этого видео, важнее общих настроек.
   const config = applyOverrides(baseConfig, await workspace.readOverrides(), await workspace.readSpeakers());
-  const warnings: string[] = [];
   const provider = createTtsProvider(workspace, config);
+  try {
+    return await synthesizeAll(workspace, config, segments, provider);
+  } finally {
+    // Движок мог держать поднятую модель в отдельном процессе. Отпускаем и на
+    // ошибке тоже: иначе процесс переживёт стадию и удержит программу.
+    provider.close?.();
+  }
+}
+
+async function synthesizeAll(
+  workspace: Workspace,
+  config: DubConfig,
+  segments: Segment[],
+  provider: TtsProvider,
+): Promise<S5Result> {
+  const warnings: string[] = [];
   const outputDir = await workspace.subdir('tts');
 
   const pending = segments.filter((segment) => segment.text_ru && segment.text_ru.trim().length > 0);
