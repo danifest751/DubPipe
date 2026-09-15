@@ -232,7 +232,7 @@ const DICTIONARY = {
   'segments.genderClash': { ru: 'голос не совпадает с полом по записи', en: 'the voice disagrees with the gender measured' },
   'cast.clash': { ru: 'по записи {gender}, {hz} Гц — голос выбран другого пола', en: 'measured {gender}, {hz} Hz — the chosen voice is of the other sex' },
   'cast.namePlaceholder': { ru: 'имя героя', en: 'character name' },
-  'cast.replicas': { ru: '{count} реплик', en: '{count} replicas' },
+  'cast.replicas': { ru: '{count} {реплика|реплики|реплик}', en: '{count} {replica|replicas}' },
   'cast.try': { ru: 'Проба', en: 'Try' },
   'cast.tryHint': { ru: 'Озвучить первую реплику героя выбранным голосом прямо сейчас', en: 'Voice the character’s first line in the chosen voice right now' },
   'cast.listen': { ru: 'Послушать', en: 'Listen' },
@@ -572,7 +572,7 @@ const DICTIONARY = {
   'segments.original': { ru: 'ориг.', en: 'orig.' },
   'segments.tts': { ru: 'синтез', en: 'synthesis' },
   'segments.noAudio': { ru: 'Оригинальное аудио появится после первой стадии', en: 'The original audio appears after the first stage' },
-  'segments.count': { ru: '{count} реплик', en: '{count} replicas' },
+  'segments.count': { ru: '{count} {реплика|реплики|реплик}', en: '{count} {replica|replicas}' },
   'segments.nothingToSave': { ru: 'Нечего сохранять', en: 'Nothing to save' },
   'segments.saved': { ru: 'Сохранено реплик: {count}. Чтобы переозвучить, запустите со стадии «Синтез» в «Дополнительно».', en: 'Saved {count} replicas. To re-voice them, start from the Synthesis stage under Advanced.' },
   'review.byRecordMale': { ru: ' · по записи мужчина, {hz} Гц', en: ' · male by the recording, {hz} Hz' },
@@ -752,9 +752,29 @@ function hasPhrase(key) {
   return Object.prototype.hasOwnProperty.call(DICTIONARY, key);
 }
 
+/**
+ * Склонение по числу: `{реплика|реплики|реплик}` — одна, две, пять.
+ *
+ * Строка «4 реплик» стояла в панели героев и в списке смены говорящего, то есть
+ * ровно там, где её читают чаще всего. Полноценные правила Intl тут не нужны:
+ * форм три, и выбираются они по последним цифрам.
+ */
+function plural(count, forms) {
+  if (current !== 'ru') return forms[Math.abs(count) === 1 ? 0 : forms.length - 1];
+  const number = Math.abs(count) % 100;
+  if (number >= 11 && number <= 14) return forms[2] ?? forms[forms.length - 1];
+  const last = number % 10;
+  if (last === 1) return forms[0];
+  if (last >= 2 && last <= 4) return forms[1] ?? forms[0];
+  return forms[2] ?? forms[forms.length - 1];
+}
+
 function t(key, values) {
   const entry = DICTIONARY[key];
   let text = entry ? entry[current] ?? entry.ru ?? key : key;
+  if (values && values.count !== undefined) {
+    text = text.replace(/\{([^{}|]*\|[^{}]*)\}/g, (_, forms) => plural(Number(values.count), forms.split('|')));
+  }
   if (values) {
     for (const [name, value] of Object.entries(values)) {
       text = text.replaceAll(`{${name}}`, String(value));

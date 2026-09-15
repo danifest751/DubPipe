@@ -1007,19 +1007,35 @@ function speakerLabel(speaker) {
 }
 
 /**
- * Имя спикера с пометкой, чьим голосом он зазвучит: «Юкаи · denis (м)».
+ * Как назван говорящий: имя героя, если оно вписано, и голос, которым он
+ * зазвучит — «Юкаи · denis (м)», а без вписанного имени просто «denis (м)».
  *
- * Одно имя не говорит ничего о звучании, а перепутанный голос слышно только
- * после синтеза всего фильма. Голос виден и в своём выпадающем списке, но там
- * он оторван от имени: в строке выбирают говорящего, а не голос, и решение
- * «этот ли здесь говорит» принимается по тому, кем он звучит.
+ * Служебного `speaker_0` в подписи нет: он ничего не говорит ни о герое, ни о
+ * звучании, а перепутанный голос слышно только после синтеза всего фильма.
+ * Запасной вариант — всё же `speaker_0`: без голоса и без имени ячейка иначе
+ * осталась бы пустой.
  */
 function speakerVoiceLabel(speaker) {
+  const named = state.overrides?.names?.[speaker];
   const voice = voiceOf(speaker);
-  if (!voice) return speakerLabel(speaker);
-  const named = (state.voices ?? []).find((item) => item.name === voice);
+  const catalogued = (state.voices ?? []).find((item) => item.name === voice);
   const gender = voiceGender(voice);
-  return `${speakerLabel(speaker)} · ${named?.speaker ?? voice}${gender === '—' ? '' : ` (${gender})`}`;
+  const title = voice ? `${catalogued?.speaker ?? voice}${gender === '—' ? '' : ` (${gender})`}` : '';
+  if (named && title) return `${named} · ${title}`;
+  return named || title || speaker;
+}
+
+/**
+ * Та же подпись для списка смены говорящего, но различимая.
+ *
+ * Без служебного номера двое героев с одним голосом дают два одинаковых пункта
+ * — на этом эпизоде speaker_1 и speaker_2 оба звучат голосом irina. Разводит их
+ * число реплик: оно и различает, и подсказывает, кто здесь главный.
+ */
+function speakerPickLabel(speaker, counts) {
+  const label = speakerVoiceLabel(speaker);
+  const twins = Object.keys(counts).filter((other) => speakerVoiceLabel(other) === label);
+  return twins.length > 1 ? `${label} · ${t('cast.replicas', { count: counts[speaker] ?? 0 })}` : label;
 }
 
 function setSpeakerName(speaker, name) {
@@ -1168,8 +1184,15 @@ ${entry.reason}` : ''}`;
 function speakerCell(segment) {
   const index = state.segments.indexOf(segment);
   const known = [...new Set([...state.segments.map((item) => item.speaker), segment.speaker])].sort();
+  const counts = state.segments.reduce((acc, item) => {
+    acc[item.speaker] = (acc[item.speaker] ?? 0) + 1;
+    return acc;
+  }, {});
   const options = known
-    .map((name) => `<option value="${escapeAttr(name)}" ${name === segment.speaker ? 'selected' : ''}>${escapeHtml(speakerVoiceLabel(name))}</option>`)
+    .map(
+      (name) =>
+        `<option value="${escapeAttr(name)}" ${name === segment.speaker ? 'selected' : ''}>${escapeHtml(speakerPickLabel(name, counts))}</option>`,
+    )
     .join('');
   const voice = voiceOf(segment.speaker);
   const voices = (state.voices ?? [])
