@@ -523,6 +523,14 @@ edits always win over the automatic choice.
 
 Measured on the same 136-line episode: piper voiced it in a minute, silero in twelve seconds.
 
+**They also differ in how clearly they finish a line, and that was found by ear.** Piper
+swallows a short final word of a short line: «Это всё твоё» comes out as «Это всё тво…», and
+so do «Это моё», «Это моя», «Это мой». The letter ё has nothing to do with it — «Это оно» and
+«Это она» are the same length and come out clean, and so does «Я сказал, что это твоё». What
+gets swallowed is a short possessive pronoun at the end. Silero says the same lines clearly.
+Checked against the audio: the clip is whole and neither alignment nor mixing cuts it — that
+is how the voice says it.
+
 Pick one with `tts.engine`. Voice names do not overlap between the engines
 (`ru_RU-irina-medium` for piper, `ru_zhadyra` for silero), so change `tts.default_voice`
 along with the engine — otherwise the configuration is rejected and says so. The silero
