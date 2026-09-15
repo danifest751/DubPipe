@@ -62,7 +62,6 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "src/ui/public/**/*",
       "prompts/**/*",
       "python/**/*",
       "config.yaml.example",
