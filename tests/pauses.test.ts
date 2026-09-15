@@ -50,6 +50,21 @@ describe('паузы внутри клипа', () => {
     expect(findPauses(samples, SR)).toEqual([]);
   });
 
+  it('стыки слов по 100–150 мс паузами не считаются', () => {
+    // Настоящий случай: «О да, теперь ты мой» — 1.3 с речи, а прежний порог в
+    // 90 мс нашёл там три «паузы» и получил полторы секунды тишины внутри.
+    const samples = clip([
+      { speech: true, seconds: 0.35 },
+      { speech: false, seconds: 0.16 },
+      { speech: true, seconds: 0.12 },
+      { speech: false, seconds: 0.1 },
+      { speech: true, seconds: 0.12 },
+      { speech: false, seconds: 0.12 },
+      { speech: true, seconds: 0.34 },
+    ]);
+    expect(findPauses(samples, SR)).toEqual([]);
+  });
+
   it('у сплошной речи пауз нет', () => {
     expect(findPauses(clip([{ speech: true, seconds: 1 }]), SR)).toEqual([]);
   });
@@ -99,6 +114,24 @@ describe('раскладка недостающего времени', () => {
     const plan = spreadPlan([{ start: 0.5, end: 0.7 }], [], 3, { maxPerPause: 0.5 });
     expect(plan).toHaveLength(1);
     expect(plan[0]!.seconds).toBeCloseTo(0.5, 2);
+  });
+
+  it('больше заданного всего не кладёт, как бы много места ни было', () => {
+    // Доля от длительности самой реплики: короткая фраза не должна утонуть
+    // в паузах длиннее себя.
+    const plan = spreadPlan(clipPauses, [], 5, { maxTotal: 0.5 });
+    expect(plan.reduce((sum, item) => sum + item.seconds, 0)).toBeCloseTo(0.5, 2);
+  });
+
+  it('трогает не больше двух пауз, и самые длинные', () => {
+    const many = [
+      { start: 0.5, end: 0.6 },
+      { start: 1.0, end: 1.4 },
+      { start: 2.0, end: 2.5 },
+    ];
+    const plan = spreadPlan(many, [], 2);
+    expect(plan).toHaveLength(2);
+    expect(plan.map((item) => item.at)).toEqual([1.2, 2.25]);
   });
 
   it('без пауз в клипе и на крошечной нехватке не делает ничего', () => {

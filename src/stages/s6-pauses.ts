@@ -34,7 +34,16 @@ export interface Pause {
 export interface FindPauseOptions {
   /** Тише этой доли от громкости клипа — тишина. */
   threshold?: number;
-  /** Короче этого паузой не считается: это стык слов, а не вдох. */
+  /**
+   * Короче этого паузой не считается.
+   *
+   * Было 90 мс, и это оказалось разрушительно: на 113 клипах настоящего фильма
+   * нашлось 542 промежутка тишины, но пауз длиннее 250 мс — всего 29. Остальное
+   * — стыки слов и смычки согласных внутри слова, по 100–150 мс. Растягивая их,
+   * стадия резала слова пополам: «О да, [пауза] те…перь ты [пауза] мой» вместо
+   * «О да, теперь ты мой». Это слышно как съеденные окончания, и именно так
+   * пользователь и услышал.
+   */
   minSeconds?: number;
   /** Кадр анализа. */
   frameSeconds?: number;
@@ -46,7 +55,7 @@ export interface FindPauseOptions {
  */
 export function findPauses(samples: Float32Array, sampleRate: number, options: FindPauseOptions = {}): Pause[] {
   const frame = Math.max(1, Math.round((options.frameSeconds ?? 0.02) * sampleRate));
-  const minSeconds = options.minSeconds ?? 0.09;
+  const minSeconds = options.minSeconds ?? 0.25;
   const threshold = options.threshold ?? 0.06;
 
   let peak = 0;
@@ -113,6 +122,16 @@ export interface SpreadOptions {
   maxPerPause?: number;
   /** Мельче этого не возимся: на слух разницы нет. */
   minInsertion?: number;
+  /**
+   * Сколько тишины реплика способна вынести всего.
+   *
+   * Реплика на 1.3 секунды получила полторы секунды пауз — больше, чем в ней
+   * самой речи, — и распалась на куски. Доля от собственной длительности держит
+   * добавку соразмерной: короткая реплика получает немного, длинная больше.
+   */
+  maxTotal?: number;
+  /** Больше этого числа пауз в одной реплике не трогаем. */
+  maxPauses?: number;
 }
 
 /**
@@ -128,22 +147,26 @@ export function spreadPlan(
   slackSeconds: number,
   options: SpreadOptions = {},
 ): Insertion[] {
-  const maxPerPause = options.maxPerPause ?? 0.5;
+  const maxPerPause = options.maxPerPause ?? 0.4;
   const minInsertion = options.minInsertion ?? 0.08;
-  if (slackSeconds <= minInsertion || clipPauses.length === 0) return [];
+  const maxPauses = options.maxPauses ?? 2;
+  const slack = Math.min(slackSeconds, options.maxTotal ?? slackSeconds);
+  if (slack <= minInsertion || clipPauses.length === 0) return [];
 
+  // Самые длинные паузы — самые настоящие: их и растягиваем, остальные не трогаем.
+  const chosen = [...clipPauses].sort((a, b) => b.end - b.start - (a.end - a.start)).slice(0, maxPauses).sort((a, b) => a.start - b.start);
   const weights =
-    original.length === clipPauses.length && original.length > 0
+    original.length === chosen.length && original.length > 0
       ? original.map((pause) => pause.end - pause.start)
-      : clipPauses.map(() => 1);
+      : chosen.map(() => 1);
   const total = weights.reduce((sum, value) => sum + value, 0);
   if (total <= 0) return [];
 
   const insertions: Insertion[] = [];
-  let left = slackSeconds;
-  for (const [index, pause] of clipPauses.entries()) {
+  let left = slack;
+  for (const [index, pause] of chosen.entries()) {
     if (left <= minInsertion) break;
-    const share = Math.min(maxPerPause, (slackSeconds * weights[index]!) / total, left);
+    const share = Math.min(maxPerPause, (slack * weights[index]!) / total, left);
     if (share < minInsertion) continue;
     // Вставляем в середину паузы: на стыке со словом щелчка не будет.
     insertions.push({ at: Number(((pause.start + pause.end) / 2).toFixed(3)), seconds: Number(share.toFixed(3)) });
@@ -191,7 +214,17 @@ export async function spreadPausesInClip(
   options: SpreadOptions = {},
 ): Promise<SpreadResult> {
   const { samples, sampleRate } = await readClip(filePath);
-  const plan = spreadPlan(findPauses(samples, sampleRate), originalPauses(words), slackSeconds, options);
+  /*
+   * Больше трети собственной длительности реплика не получает.
+   *
+   * Иначе короткая фраза тонет в паузах: «О да, теперь ты мой» — 1.3 секунды
+   * речи — получила полторы секунды тишины и распалась на куски.
+   */
+  const speech = samples.length / sampleRate;
+  const plan = spreadPlan(findPauses(samples, sampleRate), originalPauses(words), slackSeconds, {
+    maxTotal: speech * 0.35,
+    ...options,
+  });
   if (plan.length === 0) return { added: 0, pauses: 0 };
   await writeClip(filePath, insertSilence(samples, sampleRate, plan), sampleRate);
   return { added: Number(plan.reduce((sum, item) => sum + item.seconds, 0).toFixed(3)), pauses: plan.length };
