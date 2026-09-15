@@ -436,6 +436,8 @@ recognition and synthesis always run locally.
 | Command | Purpose |
 |---|---|
 | `dub process INPUT [--out FILE] [--out-dir DIR] [--subtitles] [--model ID] [--from-stage ID] [--to-stage ID]` | process an input |
+| `dub fetch URL [--quality Q] [--audio-only] [--list-formats] [--all-playlist] [--playlist-items SPEC] [--cookies-from-browser B] [--out-dir DIR]` | download a link, without dubbing |
+| `dub tools update [NAME]` | update an external component (yt-dlp by default) |
 | `dub config init [--force]` | create `config.yaml` from the example |
 | `dub cache clear [INPUT]` | clear the stage cache |
 | `dub doctor [--fetch]` | check and install dependencies |
@@ -448,6 +450,42 @@ recognition and synthesis always run locally.
 
 Exit codes: `0` success, `1` stage error, `2` configuration error, `3` missing external
 dependency, `130` cancelled by the user.
+
+### Downloading from YouTube
+
+A link does not have to be a preface to dubbing: `dub fetch` downloads and stops.
+
+```bash
+dub fetch "https://youtu.be/…"                  # best up to 1080p, mp4
+dub fetch "https://youtu.be/…" --audio-only     # audio only — enough for subtitles
+dub fetch "https://youtu.be/…" --list-formats   # what tracks exist at all
+dub fetch "https://youtu.be/…" --all-playlist   # the whole playlist
+```
+
+What happens, step by step:
+
+- **The link is resolved before downloading.** Title, channel, length and approximate size
+  are printed, instead of the earlier hour of silence. A live stream is refused at once:
+  it cannot be downloaded as a whole.
+- **Progress is visible while it downloads** — percent, megabytes, time left. `Ctrl+C`
+  interrupts it, the unfinished pieces are removed and the folder stays clean.
+- **The file lands in the working folder** (or `download.dir`, or `--out-dir`), not in the
+  cache: it is still wanted after the run — to watch, to re-run stages, to hand to another
+  tool. The name is `Title [id].ext`: the id keeps same-named videos apart, and a repeat run
+  recognises what is already there and does not download it twice.
+- **Playlists** under `download.playlist: ask` are treated as a single video, but the number
+  of others is reported. `all` fetches the whole list, `--playlist-items 1-3,7` fetches a
+  selection. Only the first file is dubbed: the pipeline takes one input.
+- **Age-restricted videos and “confirm you are not a bot”** need browser cookies:
+  `--cookies-from-browser chrome`, or `download.cookies_from_browser` in `config.yaml`.
+  That is account access, so it is off by default.
+- **Errors are explained.** Instead of a tail of someone else’s log — “members-only video”,
+  “not available in your region”, “the file is held by another process” — and what to do.
+- **yt-dlp is updated on demand**: `dub tools update yt-dlp`; `dub doctor` warns when the
+  bundled copy is more than 45 days old, since YouTube changes within that time.
+
+Settings live in the `download:` section of `config.yaml` (quality, container, filename
+template, subtitles and thumbnail, cookies, fragment count).
 
 ### Choosing a translation model
 
