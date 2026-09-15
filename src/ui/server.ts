@@ -48,6 +48,7 @@ import { ensureWhisperModel, whisperModelPath } from '../providers/asr/whispercp
 import { ensureVadModel as ensureSileroVad } from '../providers/vad/silero.js';
 import { ensureVoice } from '../providers/tts/voices.js';
 import { findTool, provisionTool, TOOLS, type ToolName } from '../util/tools.js';
+import { downloadYt, resolveYt, type DownloadQuality } from '../util/ytdlp.js';
 import { sha256 } from '../util/hash.js';
 
 /**
@@ -101,6 +102,30 @@ interface JobState {
   error: string | null;
   /** Файлы субтитров, записанные задачей. */
   subtitles?: Array<{ lang: string; kind: 'source' | 'target'; path: string; cues: number }>;
+}
+
+/**
+ * Загрузка по ссылке.
+ *
+ * Отдельная от конвейера задача: своя очередь, своя отмена, своя история.
+ * Смешивать её с `job` нельзя — конвейер занимает машину часами, а загрузку
+ * человек ставит заранее и хочет видеть независимо от того, дублируется ли
+ * что-то прямо сейчас.
+ */
+interface DownloadJobState {
+  id: string;
+  input: string;
+  title: string;
+  status: 'running' | 'done' | 'error' | 'cancelled';
+  startedAt: string;
+  finishedAt: string | null;
+  /** Готовые файлы: показываются списком с кнопкой «Дублировать». */
+  files: string[];
+  /** Разрешение и ожидаемый размер: по ним рисуется полоса. */
+  height: number | null;
+  expectedBytes: number | null;
+  error: string | null;
+  hints: string[];
 }
 
 export interface UiServerOptions {
@@ -319,6 +344,10 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
 
   let job: JobState | null = null;
   let cancelRequested = false;
+  /** Текущая загрузка по ссылке и её сигнал остановки — свои, не конвейерные. */
+  let downloadJob: DownloadJobState | null = null;
+  let downloadAbort: AbortController | null = null;
+  const downloadHistory: DownloadJobState[] = [];
   /** Итоговые файлы открытых проектов: их можно отдавать плееру и после перезапуска. */
   const knownOutputs = new Set<string>();
   let deviceCache: DeviceOptions | null = null;
@@ -339,6 +368,26 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
   const broadcast = (event: string, data: unknown): void => {
     const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
     for (const client of clients) client.write(payload);
+  };
+
+  /**
+   * Куда кладутся скачанные файлы.
+   *
+   * Порядок: настройка `download.dir`, рабочая папка библиотеки, текущий каталог.
+   * Человек ищет скачанное там же, где остальные видео, и находит его в списке
+   * сразу — файл из кэша не видел никто.
+   */
+  const downloadTargetDir = (): string =>
+    config.download.dir ? path.resolve(config.download.dir) : (workingDir ?? process.cwd());
+
+  const downloadToolsDir = (): string => path.join(cacheRoot, 'tools');
+
+  const rememberDownload = (state: DownloadJobState): void => {
+    const done = state.status !== 'running';
+    if (!done) return;
+    // История нужна, чтобы вечером вспомнить, что и откуда скачивалось.
+    downloadHistory.unshift(state);
+    if (downloadHistory.length > 10) downloadHistory.length = 10;
   };
 
   log.subscribe((record) => {
@@ -1451,6 +1500,125 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
         return true;
       }
       serveFile(request, response, resolved);
+      return true;
+    }
+
+    if (route === '/api/download/resolve' && method === 'POST') {
+      const body = (await readBody(request)) as { input?: string };
+      const input = body.input?.trim();
+      if (!input) {
+        sendJson(response, 400, { error: 'не указана ссылка' });
+        return true;
+      }
+      try {
+        const info = await resolveYt(input, downloadToolsDir(), config.download.quality);
+        sendJson(response, 200, { info });
+      } catch (error) {
+        sendJson(response, 400, {
+          error: (error as Error).message,
+          hints: (error as { hints?: string[] }).hints ?? [],
+        });
+      }
+      return true;
+    }
+
+    if (route === '/api/download/jobs' && method === 'GET') {
+      sendJson(response, 200, { active: downloadJob, history: downloadHistory });
+      return true;
+    }
+
+    if (route === '/api/download/jobs/cancel' && method === 'POST') {
+      downloadAbort?.abort();
+      sendJson(response, 200, { ok: true });
+      return true;
+    }
+
+    if (route === '/api/download/jobs' && method === 'POST') {
+      if (downloadJob?.status === 'running') {
+        sendJson(response, 409, { error: 'уже идёт загрузка — дождитесь её или остановите' });
+        return true;
+      }
+      const body = (await readBody(request)) as {
+        input?: string;
+        quality?: DownloadQuality;
+        audioOnly?: boolean;
+        playlistItems?: string;
+        playlist?: boolean;
+        cookiesFromBrowser?: string | null;
+      };
+      const input = body.input?.trim();
+      if (!input) {
+        sendJson(response, 400, { error: 'не указана ссылка' });
+        return true;
+      }
+
+      const quality: DownloadQuality = body.audioOnly ? 'audio' : (body.quality ?? config.download.quality);
+      const state: DownloadJobState = {
+        id: randomBytes(8).toString('hex'),
+        input,
+        // До разбора в карточке показывается сама ссылка: пустая строка выглядела
+        // бы хуже, чем длинный адрес на секунду.
+        title: input,
+        status: 'running',
+        startedAt: new Date().toISOString(),
+        finishedAt: null,
+        files: [],
+        height: null,
+        expectedBytes: null,
+        error: null,
+        hints: [],
+      };
+      downloadJob = state;
+      downloadAbort = new AbortController();
+      broadcast('download', state);
+      sendJson(response, 202, state);
+
+      void (async () => {
+        const current = state;
+        try {
+          const info = await resolveYt(input, downloadToolsDir(), quality);
+          current.title = info.title;
+          current.height = info.height;
+          current.expectedBytes = info.bytes;
+          broadcast('download', current);
+
+          current.files = await downloadYt(info.url || input, downloadTargetDir(), downloadToolsDir(), {
+            quality,
+            container: config.download.container,
+            filenameTemplate: config.download.filename_template,
+            ...(body.playlistItems ? { playlistItems: body.playlistItems } : {}),
+            ...(body.playlist && !body.playlistItems ? { playlist: true } : {}),
+            cookiesFromBrowser: body.cookiesFromBrowser ?? config.download.cookies_from_browser,
+            cookiesFile: config.download.cookies_file,
+            writeThumbnail: config.download.write_thumbnail,
+            writeSubtitles: config.download.write_subtitles,
+            subtitleLanguages: config.download.subtitle_languages,
+            concurrentFragments: config.download.concurrent_fragments,
+            expectedBytes: info.bytes,
+            videoId: info.id,
+            label: info.title,
+            signal: downloadAbort.signal,
+          });
+          current.status = 'done';
+        } catch (error) {
+          current.status = isCancelled(error) ? 'cancelled' : 'error';
+          if (current.status === 'error') {
+            current.error = (error as Error).message;
+            current.hints = (error as { hints?: string[] }).hints ?? [];
+          }
+        } finally {
+          current.finishedAt = new Date().toISOString();
+          rememberDownload(current);
+          downloadAbort = null;
+          broadcast('download', current);
+          const stateId = current.id;
+          // Завершённая карточка уходит из активной сама: она уже в истории, а
+          // висеть в «идёт сейчас» готовой загрузке незачем.
+          setTimeout(() => {
+            if (downloadJob?.id === stateId && downloadJob.status !== 'running') downloadJob = null;
+          }, 60_000).unref();
+        }
+      })();
       return true;
     }
 
