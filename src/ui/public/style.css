@@ -970,3 +970,14 @@ button.danger { color: var(--bad); }
   border-radius: 6px; cursor: pointer;
 }
 .lang-switch:hover { color: var(--text); border-color: var(--accent); }
+
+/* --- загрузки по ссылке --------------------------------------------------- */
+.dl-card { display: flex; gap: 14px; align-items: center; padding-top: 12px; }
+.dl-thumb {
+  flex: 0 0 auto; width: 160px; height: 90px; object-fit: cover;
+  border-radius: var(--radius-sm); background: var(--surface-3);
+}
+.dl-job { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.dl-job .bar { margin-top: 8px; }
+.dl-job.error { border-color: var(--bad); }
+.dl-job.cancelled .name { color: var(--text-dim); }

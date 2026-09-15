@@ -14,6 +14,7 @@
 const DICTIONARY = {
   // --- оболочка
   'nav.library': { ru: 'Видео', en: 'Videos' },
+  'nav.downloads': { ru: 'Загрузки', en: 'Downloads' },
   'nav.settings': { ru: 'Настройки', en: 'Settings' },
   'nav.environment': { ru: 'Окружение', en: 'Environment' },
   'lang.label': { ru: 'Язык интерфейса', en: 'Interface language' },
@@ -28,6 +29,45 @@ const DICTIONARY = {
   'library.pickFolder': { ru: 'Выбрать папку', en: 'Choose folder' },
   'library.refresh': { ru: 'Обновить', en: 'Refresh' },
   'library.other': { ru: 'Другой файл или ссылка', en: 'Another file or link' },
+
+  // --- загрузки по ссылке ---------------------------------------------------
+  'downloads.title': { ru: 'Загрузки', en: 'Downloads' },
+  'downloads.lead': {
+    ru: 'Вставьте ссылку на YouTube: покажу название, длительность и размер до начала загрузки, а файл положу туда же, где лежат остальные видео.',
+    en: 'Paste a YouTube link: the title, length and size are shown before the download starts, and the file lands where the other videos are.',
+  },
+  'downloads.placeholder': { ru: 'https://youtu.be/…', en: 'https://youtu.be/…' },
+  'downloads.resolve': { ru: 'Разобрать', en: 'Look up' },
+  'downloads.resolving': { ru: 'Смотрю, что по ссылке…', en: 'Looking up the link…' },
+  'downloads.quality': { ru: 'Качество', en: 'Quality' },
+  'downloads.quality.best': { ru: 'лучшее доступное', en: 'best available' },
+  'downloads.quality.audio': { ru: 'только звук', en: 'audio only' },
+  'downloads.audioOnly': { ru: 'Только звук', en: 'Audio only' },
+  'downloads.wholePlaylist': { ru: 'Весь плейлист', en: 'Whole playlist' },
+  'downloads.cookies': { ru: 'Куки браузера', en: 'Browser cookies' },
+  'downloads.cookies.none': { ru: 'не использовать', en: 'not used' },
+  'downloads.cookies.hint': {
+    ru: 'Нужны только для видео с возрастным ограничением и проверки «вы не робот». Это доступ к аккаунту.',
+    en: 'Needed only for age-restricted videos and the “confirm you are not a bot” check. This is account access.',
+  },
+  'downloads.start': { ru: 'Скачать', en: 'Download' },
+  'downloads.cancel': { ru: 'Отменить', en: 'Cancel' },
+  'downloads.dub': { ru: 'Дублировать', en: 'Dub' },
+  'downloads.playlist': { ru: 'Плейлист: {count} видео', en: 'Playlist: {count} videos' },
+  'downloads.playlistHint': { ru: 'Весь плейлист: {count} видео', en: 'Whole playlist: {count} videos' },
+  'downloads.unknown': { ru: 'неизвестно', en: 'unknown' },
+  'downloads.live': { ru: 'Прямой эфир скачать нельзя', en: 'A live stream cannot be downloaded' },
+  'downloads.folder': { ru: 'Файлы кладутся в: {path}', en: 'Files go to: {path}' },
+  'downloads.folder.none': { ru: 'папка не выбрана — файл ляжет рядом с программой', en: 'no folder chosen — the file will land next to the program' },
+  'downloads.history': { ru: 'Ранее скачанное', en: 'Previously downloaded' },
+  'downloads.size': { ru: 'около {size}', en: 'about {size}' },
+  'downloads.cancelled': { ru: 'Загрузка отменена', en: 'Download cancelled' },
+  'downloads.done': { ru: 'Скачано', en: 'Downloaded' },
+  'downloads.inProgress': { ru: 'Загрузка идёт', en: 'Downloading' },
+  'downloads.hint': {
+    ru: 'Ссылку можно вставлять в поле «Видео» — там она работает как раньше, только без предварительного просмотра.',
+    en: 'A link can also be pasted into the Videos field: it still works, only without the preview.',
+  },
   'library.empty': {
     ru: 'В этой папке нет видеофайлов. Выберите другую папку или откройте файл по пути.',
     en: 'No video files in this folder. Pick another folder, or open a file by path.',

@@ -27,6 +27,13 @@ const state = {
   fit: { charsPerSecond: 17.8, overheadSeconds: 0.51, tolerance: 0.15, toleranceFloorSeconds: 0.25, room: {} },
   job: null,
   progress: new Map(),
+  // Загрузки по ссылке: разобранный ролик, идущая загрузка, её прогресс и история.
+  download: null,
+  downloadInput: null,
+  downloadJob: null,
+  downloadProgress: null,
+  downloadHistory: [],
+  downloadDir: null,
   dirty: {},              // изменённые настройки: 'translate.model' → значение
 };
 
@@ -110,8 +117,9 @@ function showView(name) {
   $$('.view').forEach((view) => view.classList.toggle('active', view.dataset.view === name));
   if (name === 'library') $$('#nav button[data-view="library"]')[0].classList.add('active');
   if (name === 'project') $$('#nav button[data-view="library"]')[0].classList.add('active');
-  if (name === 'environment') loadEnvironment().catch(showError);
-  if (name === 'settings') loadSettings().catch(showError);
+    if (name === 'environment') loadEnvironment().catch(showError);
+    if (name === 'settings') loadSettings().catch(showError);
+    if (name === 'downloads') loadDownloads().catch(showError);
   window.scrollTo(0, 0);
 }
 
@@ -200,6 +208,12 @@ function applyProgress(event) {
   else state.progress.delete(event.id);
   if (event.status === 'error') toast(`${event.label}: ${event.detail ?? t('common.error')}`, 'error', 9000);
   if (event.status === 'done' && event.kind === 'download') toast(`${event.label} — ${t('progress.downloaded')}`, 'ok', 3500);
+  // Загрузка по ссылке рисуется и в карточке вкладки «Загрузки»: там видны
+  // название, полоса и кнопка «Отменить», а не только строка сверху.
+  if (event.kind === 'download') {
+    state.downloadProgress = event.status === 'running' ? event : null;
+    if (state.downloadJob) renderDownloadJob();
+  }
   renderProgress();
 }
 
@@ -299,6 +313,177 @@ $('#otherOpen').addEventListener('click', () => {
   if (!value) return;
   $('#otherDialog').hidden = true;
   openProject(value);
+});
+
+// --- загрузки по ссылке ----------------------------------------------------
+
+const DOWNLOAD_QUALITIES = ['1080p', '720p', '480p', 'best'];
+const DOWNLOAD_BROWSERS = ['', 'chrome', 'chromium', 'firefox', 'edge', 'brave', 'opera', 'vivaldi', 'safari'];
+
+const formatClock = (seconds) =>
+  `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, '0')}`;
+
+function fillDownloadControls() {
+  const quality = $('#dlQuality');
+  if (quality.options.length === 0) {
+    quality.innerHTML = DOWNLOAD_QUALITIES.map(
+      (value) => `<option value="${value}">${value === 'best' ? t('downloads.quality.best') : value}</option>`,
+    ).join('');
+  }
+  const cookies = $('#dlCookies');
+  if (cookies.options.length === 0) {
+    cookies.innerHTML = DOWNLOAD_BROWSERS.map(
+      (value) => `<option value="${value}">${value || t('downloads.cookies.none')}</option>`,
+    ).join('');
+    cookies.title = t('downloads.cookies.hint');
+  }
+  const folder = $('#dlFolder');
+  const dir = state.downloadDir;
+  folder.textContent = dir ? t('downloads.folder', { path: dir }) : t('downloads.folder.none');
+}
+
+/**
+ * Карточка разобранной ссылки.
+ *
+ * Смысл всей затеи: до запуска видно, что это за видео и сколько займёт. Превью
+ * грузится с ютубовского домена — это единственный внешний запрос страницы, и он
+ * уместен: разговор с YouTube уже идёт.
+ */
+function renderDownloadInfo() {
+  const box = $('#dlInfo');
+  const info = state.download;
+  if (!info) {
+    box.innerHTML = '';
+    return;
+  }
+  const parts = [];
+  if (info.durationSeconds) parts.push(formatClock(info.durationSeconds));
+  if (info.height) parts.push(`${info.height}p`);
+  if (info.bytes) parts.push(t('downloads.size', { size: formatBytes(info.bytes) }));
+
+  box.innerHTML = `
+    <div class="dl-card">
+      ${info.thumbnailUrl ? `<img class="dl-thumb" src="${escapeAttr(info.thumbnailUrl)}" alt="" referrerpolicy="no-referrer" loading="lazy" />` : ''}
+      <div class="grow">
+        <div class="name">${escapeHtml(info.title)}</div>
+        ${info.uploader ? `<div class="meta">${escapeHtml(info.uploader)}</div>` : ''}
+        <div class="meta">${escapeHtml(parts.join(' · ') || t('downloads.unknown'))}</div>
+        ${info.isPlaylist ? `<div class="meta">${t('downloads.playlist', { count: info.entries.length })}</div>` : ''}
+      </div>
+      ${info.isLive
+        ? `<span class="pill bad">${t('downloads.live')}</span>`
+        : `<button id="dlStart" class="primary">${icon('down')} ${t('downloads.start')}</button>`}
+    </div>`;
+}
+
+function renderDownloadJob() {
+  const box = $('#dlActive');
+  const job = state.downloadJob;
+  const badge = $('#dlBadge');
+  const active = job?.status === 'running';
+  badge.textContent = active ? '●' : '';
+
+  if (!job) {
+    box.innerHTML = '';
+  } else {
+    const status = {
+      running: t('downloads.inProgress'),
+      done: t('downloads.done'),
+      cancelled: t('downloads.cancelled'),
+      error: job.error ?? t('downloads.unknown'),
+    }[job.status];
+    const progress = state.downloadProgress;
+    const bar =
+      job.status === 'running'
+        ? `<div class="bar ${progress?.percent == null ? 'indeterminate' : ''}"><i style="width:${progress?.percent == null ? 35 : progress.percent}%"></i></div>`
+        : '';
+    box.innerHTML = `
+      <div class="card dl-job ${job.status}">
+        <div class="grow">
+          <div class="name">${escapeHtml(job.title)}</div>
+          <div class="meta">${escapeHtml(status)}</div>
+          ${bar}
+        </div>
+        ${active ? `<button id="dlCancel" class="ghost">${t('downloads.cancel')}</button>` : ''}
+      </div>`;
+    if (active) $('#dlCancel').addEventListener('click', () => post('/api/download/jobs/cancel').catch(showError));
+  }
+
+  const history = state.downloadHistory ?? [];
+  $('#dlHistoryBlock').hidden = history.length === 0;
+  $('#dlHistory').innerHTML = history
+    .map(
+      (item) => `
+      <div class="card row-card">
+        <div class="grow">
+          <div class="name">${escapeHtml(item.title)}</div>
+          <div class="meta mono">${escapeHtml(item.files[0] ?? item.input)}</div>
+        </div>
+        <button class="ghost small" data-dub="${escapeAttr(item.files[0] ?? '')}">${t('downloads.dub')}</button>
+      </div>`,
+    )
+    .join('');
+  $$('#dlHistory [data-dub]').forEach((button) =>
+    button.addEventListener('click', () => {
+      const file = button.dataset.dub;
+      if (file) openProject(file);
+    }),
+  );
+}
+
+async function loadDownloads() {
+  fillDownloadControls();
+  state.downloadDir = state.workingDir ?? null;
+  const data = await api('/api/download/jobs');
+  state.downloadJob = data.active;
+  state.downloadHistory = data.history;
+  renderDownloadInfo();
+  renderDownloadJob();
+}
+
+async function resolveDownload() {
+  const input = $('#dlInput').value.trim();
+  if (!input) return;
+  const button = $('#dlResolve');
+  button.disabled = true;
+  $('#dlInfo').innerHTML = `<div class="meta">${t('downloads.resolving')}</div>`;
+  try {
+    const data = await post('/api/download/resolve', { input });
+    state.download = data.info;
+    state.downloadInput = input;
+    renderDownloadInfo();
+    $('#dlStart')?.addEventListener('click', () => startDownload().catch(showError));
+  } catch (error) {
+    state.download = null;
+    $('#dlInfo').innerHTML = `<div class="notice error">${escapeHtml(error.message)}</div>`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function startDownload() {
+  const input = state.downloadInput;
+  if (!input) return;
+  state.downloadProgress = null;
+  await post('/api/download/jobs', {
+    input,
+    quality: $('#dlQuality').value,
+    audioOnly: $('#dlAudioOnly').checked,
+    playlist: $('#dlWholePlaylist').checked,
+    cookiesFromBrowser: $('#dlCookies').value || null,
+  });
+  renderDownloadJob();
+}
+
+$('#dlResolve').addEventListener('click', () => resolveDownload().catch(showError));
+$('#dlInput').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') resolveDownload().catch(showError);
+});
+$('#dlAudioOnly').addEventListener('change', () => {
+  // «Только звук» и качество видео — одно и то же решение, и второе поле при
+  // первом становится бессмысленным.
+  $('#dlQuality').disabled = $('#dlAudioOnly').checked;
+  $('#dlWholePlaylist').disabled = $('#dlAudioOnly').checked;
 });
 
 // --- библиотека ------------------------------------------------------------
@@ -2719,7 +2904,14 @@ function connectEvents() {
     renderProgress();
   });
   source.addEventListener('log', (event) => appendLog(JSON.parse(event.data)));
-  source.addEventListener('progress', (event) => applyProgress(JSON.parse(event.data)));
+    source.addEventListener('progress', (event) => applyProgress(JSON.parse(event.data)));
+    source.addEventListener('download', (event) => {
+      state.downloadJob = JSON.parse(event.data);
+      // Прогресс приходит отдельным событием и относится к активной загрузке:
+      // держим последний, чтобы карточка не рисовала полосу без числа.
+      if (state.downloadJob.status !== 'running') state.downloadProgress = null;
+      renderDownloadJob();
+    });
   source.addEventListener('readiness', (event) => renderReadiness(JSON.parse(event.data)));
   source.addEventListener('job', (event) => {
     const previous = state.job?.status;

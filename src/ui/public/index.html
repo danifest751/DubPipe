@@ -37,6 +37,7 @@
         </div>
         <nav class="nav" id="nav">
           <button data-view="library" class="active"><svg class="ico"><use href="#i-video" /></svg> <span data-i18n="nav.library">Видео</span></button>
+          <button data-view="downloads"><svg class="ico"><use href="#i-down" /></svg> <span data-i18n="nav.downloads">Загрузки</span> <span class="tail" id="dlBadge"></span></button>
           <button data-view="settings"><svg class="ico"><use href="#i-gear" /></svg> <span data-i18n="nav.settings">Настройки</span></button>
           <button data-view="environment"><svg class="ico"><use href="#i-chip" /></svg> <span data-i18n="nav.environment">Окружение</span> <span class="tail" id="envBadge"></span></button>
         </nav>
@@ -77,6 +78,39 @@
             <details class="more" id="historyBlock">
               <summary data-i18n="library.recentFolders">Ранее обработанные файлы из других папок</summary>
               <div id="projectList" class="cards"></div>
+            </details>
+          </section>
+
+          <!-- ================= Загрузки ================= -->
+          <section data-view="downloads" class="view">
+            <div class="view-head">
+              <div>
+                <h1 data-i18n="downloads.title">Загрузки</h1>
+                <p class="lead" data-i18n="downloads.lead">Вставьте ссылку на YouTube: покажу название, длительность и размер до начала загрузки, а файл положу туда же, где лежат остальные видео.</p>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="row nowrap">
+                <input id="dlInput" type="text" placeholder="https://youtu.be/…" data-i18n-placeholder="downloads.placeholder" />
+                <button id="dlResolve" class="primary" data-i18n="downloads.resolve">Разобрать</button>
+              </div>
+              <div class="row">
+                <label class="field"><span data-i18n="downloads.quality">Качество</span><select id="dlQuality"></select></label>
+                <label class="check"><input type="checkbox" id="dlAudioOnly" /> <span data-i18n="downloads.audioOnly">Только звук</span></label>
+                <label class="check"><input type="checkbox" id="dlWholePlaylist" /> <span data-i18n="downloads.wholePlaylist">Весь плейлист</span></label>
+                <label class="field"><span data-i18n="downloads.cookies">Куки браузера</span><select id="dlCookies"></select></label>
+                <span class="grow"></span>
+                <span class="meta" id="dlFolder"></span>
+              </div>
+              <div id="dlInfo"></div>
+            </div>
+
+            <div id="dlActive"></div>
+
+            <details class="more" id="dlHistoryBlock" hidden>
+              <summary data-i18n="downloads.history">Ранее скачанное</summary>
+              <div id="dlHistory" class="cards"></div>
             </details>
           </section>
 
