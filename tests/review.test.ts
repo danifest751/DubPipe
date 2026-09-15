@@ -146,7 +146,17 @@ describe('что рецензент видит и как это режется',
     });
     expect(lines[0]!.gender).toBe('ж');
     expect(lines[0]!.name).toBe('Ева');
-    expect(lines[0]!.off).toBeGreaterThan(0);
+    expect(lines[0]!.over).toBeGreaterThan(0);
+  });
+
+  it('о недолёте рецензии не сообщают вовсе', () => {
+    // Узнав, что реплика короче цели, она добивает её повтором сказанного —
+    // на третьем эпизоде так вышло больше половины правок. Снизу длину добирает
+    // подгонка S6, а пауза дешевле ускорения.
+    const lines = buildReviewLines([line(1, 'Коротко.', 6)], { ...options(), speakers: {}, names: {} });
+    expect(lines[0]!.over).toBe(0);
+    expect(JSON.stringify(lines[0])).not.toContain('min_chars');
+    expect(JSON.stringify(lines[0])).not.toContain('target_chars');
   });
 
   it('непереведённые реплики рецензенту не показываются', () => {
@@ -169,7 +179,10 @@ describe('что рецензент видит и как это режется',
 });
 
 describe('список проверок в промпте', () => {
-  const all = { gender: true, glossary: true, address: true, consistency: true, meaning: true, length: true };
+  const all = {
+    gender: true, glossary: true, address: true, consistency: true,
+    meaning: true, grammar: true, phrasing: true, length: true,
+  };
 
   it('перечисляет только включённое', () => {
     const only = checksSection({ ...all, gender: false, address: false, consistency: false, meaning: false });
@@ -179,8 +192,20 @@ describe('список проверок в промпте', () => {
     expect(only).not.toContain('Ты и вы');
   });
 
+  it('правила языка и строй фразы — отдельные проверки, не часть смысла', () => {
+    // Рецензия правит текст, который произнесут вслух: падеж имени и калька с
+    // оригинала слышны, даже когда смысл передан верно.
+    const both = checksSection(all);
+    expect(both).toContain('Правила языка');
+    expect(both).toContain('Строй фразы');
+    const without = checksSection({ ...all, grammar: false, phrasing: false });
+    expect(without).not.toContain('Правила языка');
+    expect(without).not.toContain('Строй фразы');
+    expect(without).toContain('Смысл');
+  });
+
   it('при всех выключенных честно говорит, что проверять нечего', () => {
-    const none = checksSection({ gender: false, glossary: false, address: false, consistency: false, meaning: false, length: false });
+    const none = checksSection(Object.fromEntries(Object.keys(all).map((name) => [name, false])) as typeof all);
     expect(none).toContain('все проверки отключены');
   });
 });
@@ -210,11 +235,8 @@ describe('переспрос по правкам, не влезшим в сло�
     expect(entry!.ru).toBe('Короткая реплика.');
     expect(entry!.proposed).toBe(tooLong);
     expect(entry!.reason).toBe('род говорящего');
-    expect(entry!.off).toBe(tooLong.length - entry!.max_chars);
-    expect(entry!.off).toBeGreaterThan(0);
-    // Цель и обе границы: одного потолка мало, недолёт — такой же промах.
-    expect(entry!.min_chars).toBeLessThan(entry!.target_chars);
-    expect(entry!.target_chars).toBeLessThan(entry!.max_chars);
+    expect(entry!.over).toBe(tooLong.length - entry!.max_chars);
+    expect(entry!.over).toBeGreaterThan(0);
   });
 
   it('уложившаяся со второго раза правка принимается', () => {
@@ -228,6 +250,35 @@ describe('переспрос по правкам, не влезшим в сло�
     const second = applyReview(segments, [{ id: 1, text_ru: 'Ты начала.', reason: 'род' }], options());
     expect(second.applied).toHaveLength(1);
     expect(second.segments[0]!.text_ru).toBe('Ты начала.');
+  });
+});
+
+describe('цена недолёта и перелёта', () => {
+  /**
+   * Пока обе стороны весили одинаково, предохранитель отклонял языковые правки
+   * за то, что они короче прежнего текста, а модель добивала реплики повтором
+   * сказанного, чтобы пройти проверку. Слышно как раз второе.
+   */
+  it('языковая правка проходит, даже если оставляет паузу', () => {
+    // Прежний текст в слот не влезал; правка исправляет управление глагола и
+    // оказывается короче цели. Пауза дешевле ускорения — правку берём.
+    const segments = [line(1, 'Юкай никогда бы не сдал меня врагам, Калия, клянусь')];
+    const outcome = applyReview(segments, [{ id: 1, text_ru: 'Юкай не сдал меня' }], options());
+    expect(outcome.applied).toHaveLength(1);
+  });
+
+  it('правка, укорачивающая и без того подходящую реплику, отклоняется', () => {
+    // Здесь пауза берётся ниоткуда: прежний текст звучал ровно своё время.
+    const segments = [line(1, 'Юкай не сдавал меня, Калия, честное слово')];
+    const outcome = applyReview(segments, [{ id: 1, text_ru: 'Юкай не сдал меня' }], options());
+    expect(outcome.rejected[0]?.why).toBe('worse_fit');
+  });
+
+  it('правка длиннее слота по-прежнему отклоняется', () => {
+    const segments = [line(1, 'Юкай не сдавал меня')];
+    const longer = 'Юкай никогда в жизни не сдавал меня никому, честное слово, поверь мне сейчас';
+    const outcome = applyReview(segments, [{ id: 1, text_ru: longer }], options());
+    expect(outcome.rejected[0]?.why).toBe('worse_fit');
   });
 });
 

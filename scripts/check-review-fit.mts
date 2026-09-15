@@ -7,7 +7,11 @@
  * рецензию. Поэтому черновик берётся готовый и рецензируется как есть.
  *
  * Запуск (из каталога с config.yaml и .dubpipe):
- *   npx tsx scripts/check-review-fit.mts "<путь к видео>" <модель рецензента> [--share 0.9] [--out <файл>]
+ *   npx tsx scripts/check-review-fit.mts "<путь к видео>" <модель рецензента>
+ *       [--share 0.9] [--checks gender,glossary,meaning] [--out <файл>]
+ *
+ * `--checks` оставляет включёнными только названные проверки: так видно, что
+ * рецензия находит, когда её не занимают длиной.
  *
  * Модель рецензента — по правилу `dub compare`: `ollama:qwen3:14b` локально,
  * `anthropic/claude-sonnet-4.5` через шлюз.
@@ -27,6 +31,8 @@ if (!input || !reviewer) {
   process.exit(2);
 }
 const shareAt = process.argv.indexOf('--share');
+const checksAt = process.argv.indexOf('--checks');
+const onlyChecks = checksAt > 0 ? new Set((process.argv[checksAt + 1] ?? '').split(',').map((name) => name.trim())) : null;
 const outAt = process.argv.indexOf('--out');
 
 const { config: loaded } = await loadConfig();
@@ -39,6 +45,13 @@ const config = {
       enabled: true,
       model: reviewer,
       ...(shareAt > 0 ? { max_changes_share: Number(process.argv[shareAt + 1]) } : {}),
+      ...(onlyChecks
+        ? {
+            checks: Object.fromEntries(
+              Object.keys(loaded.translate.review.checks).map((name) => [name, onlyChecks.has(name)]),
+            ) as typeof loaded.translate.review.checks,
+          }
+        : {}),
     },
   },
 };

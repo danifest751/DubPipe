@@ -153,6 +153,10 @@ const reviewSchema = z.object({
       consistency: z.boolean().default(true),
       /** Смысловые ошибки и недопереведённые куски против оригинала. */
       meaning: z.boolean().default(true),
+      /** Правила русского языка: падежи, согласование, управление, отрицания. */
+      grammar: z.boolean().default(true),
+      /** Строй фразы: русский порядок слов вместо кальки, живая речь вместо канцелярита. */
+      phrasing: z.boolean().default(true),
       /** Переписать то, что не влезает в отведённое время. */
       length: z.boolean().default(true),
     })
