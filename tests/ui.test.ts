@@ -512,3 +512,41 @@ describe('рецензия перевода: умолчание профиля �
     expect(await reviewEnabled()).toBe(false);
   });
 });
+
+/**
+ * Загрузки по ссылке (SPEC FR-1).
+ *
+ * Проверяется лишь то, что не требует сети и самого yt-dlp: разбор ссылки — это
+ * сетевой вызов, и в тестах ему не место. Отказов на пустой ввод и пустой
+ * очереди достаточно, чтобы маршруты существовали и отвечали разборчиво.
+ */
+describe('§FR-1: загрузки по ссылке', () => {
+  const postJson = (route: string, body?: unknown) =>
+    fetch(`${base()}${route}?token=${server.token}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'X-DubPipe-Token': server.token },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+
+  it('очередь и история пусты', async () => {
+    const response = await get('/api/download/jobs');
+    expect(response.status).toBe(200);
+    const body = await asBody(response);
+    expect(body.active).toBeNull();
+    expect(body.history).toEqual([]);
+  });
+
+  it('без ссылки разбор отвечает отказом', async () => {
+    const response = await postJson('/api/download/resolve', { input: '   ' });
+    expect(response.status).toBe(400);
+    expect((await asBody(response)).error).toContain('не указана');
+  });
+
+  it('без ссылки загрузка не ставится', async () => {
+    expect((await postJson('/api/download/jobs', {})).status).toBe(400);
+  });
+
+  it('отмена без идущей загрузки не падает', async () => {
+    expect((await postJson('/api/download/jobs/cancel')).status).toBe(200);
+  });
+});
