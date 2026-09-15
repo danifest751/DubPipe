@@ -1239,6 +1239,10 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
         segments,
         meta,
         dir: workspace.dir,
+        // Открыт наш собственный итог, а не исходник: запуск на нём озвучит
+        // синтетический голос поверх синтетического. В библиотеке об этом
+        // предупреждает кнопка, но карточку открывают и мимо неё.
+        dubbed: isDubbedName(path.basename(input)),
         // Куда ляжет итог, если ничего не выбирать: показывается в «Дополнительно».
         defaultOutputDir: meta
           ? path.dirname(

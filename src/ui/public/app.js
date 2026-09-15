@@ -411,6 +411,9 @@ $('#toggleAdvanced').addEventListener('click', () => { $('#advanced').hidden = !
 
 async function startJob() {
   if (!state.project) return;
+  // Запуск на готовом дубляже спрашивают здесь же: до библиотеки человек может
+  // и не дойти, а цена ошибки — прогон целиком.
+  if (state.dubbed && !window.confirm(t('library.isDubConfirm'))) return;
   // Новый прогон — новые сообщения: закрытые в прошлый раз не должны молчать.
   dismissedNotices.clear();
   // Выбор из «Дополнительно» действует независимо от того, раскрыта ли панель.
@@ -1349,6 +1352,20 @@ async function loadSegments() {
   state.speakers = data.speakers ?? {};
   // Журнал рецензии: по нему в строке видно, что переписано и почему, и есть
   // чем вернуть прежний текст, если правка оказалась выдумкой.
+  /*
+   * Открыт наш же итог, а не исходник.
+   *
+   * В библиотеке кнопка «Дублировать» об этом спрашивает, но карточку открывают
+   * и мимо неё — и тогда запуск шёл молча: заводился пустой рабочий каталог, а
+   * укладке нечего было подгонять. Пользователь видел только слово «ошибка».
+   */
+  state.dubbed = Boolean(data.dubbed);
+  const dubPill = $('#projectIsDub');
+  if (dubPill) {
+    dubPill.hidden = !state.dubbed;
+    dubPill.textContent = t('library.isDub');
+    dubPill.title = t('library.isDubHint');
+  }
   state.review = data.review ?? null;
   state.reviewById = new Map((data.review?.entries ?? []).filter((entry) => entry.verdict === 'applied').map((entry) => [entry.id, entry]));
   state.output = data.output ?? null;
