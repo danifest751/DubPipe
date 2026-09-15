@@ -12,6 +12,7 @@ import { selectChatClient, type ChatClient } from '../providers/llm/index.js';
 import { createTtsProvider, voiceForSpeaker } from '../providers/tts/index.js';
 import { recordClip } from './s5-tts.js';
 import { buildAtempoChain } from '../util/ffmpeg.js';
+import { spreadPausesInClip } from './s6-pauses.js';
 import { run } from '../util/exec.js';
 import { requireTool } from '../util/tools.js';
 import { wavDuration } from '../util/wav.js';
@@ -301,6 +302,8 @@ export async function runS6(workspace: Workspace, baseConfig: DubConfig, segment
   const alignedDir = await workspace.subdir('aligned');
   const byId = new Map(segments.map((segment) => [segment.id, segment]));
   let rendered = 0;
+  let spreadSeconds = 0;
+  let spreadLines = 0;
 
   for (const item of plan) {
     const segment = byId.get(item.id);
@@ -320,6 +323,34 @@ export async function runS6(workspace: Workspace, baseConfig: DubConfig, segment
     args.push('-ar', String(config.tts.sample_rate), '-ac', '1', '-acodec', 'pcm_s16le', target);
     await run(ffmpeg, args, { timeoutMs: 120_000 });
 
+    /*
+     * Недостающее время — по паузам внутри реплики, а не дырой в конце.
+     *
+     * Слот на три секунды и речь на полторы означали полторы секунды тишины под
+     * ещё шевелящимися губами. Раньше эту дыру пытались закрыть текстом, и
+     * модель дописывала отсутствующее в оригинале. Теперь тишина раскладывается
+     * по местам, где синтезатор и сам замолчал, с весом по паузам оригинала —
+     * это и есть «prosodic alignment» из работ по автоматическому дубляжу,
+     * только без пересинтеза фраз. Остаток, как и требует ТЗ FR-6.1, остаётся
+     * в конце.
+     */
+    /*
+     * Нехватка считается от слота, а не от занятой паузы.
+     *
+     * `item.slot` — это слот плюс тишина, взятая взаймы у соседа: она нужна
+     * длинной реплике, чтобы не ускоряться. Если считать нехватку от неё,
+     * тишина дольётся туда, где оригинал уже замолчал, и дубляж будет тянуться
+     * после закрытого рта — ровно та беда, от которой уходим.
+     */
+    const slack = slotOf(segment) - (await wavDuration(target));
+    if (slack > 0) {
+      const spread = await spreadPausesInClip(target, slack, segment.words);
+      if (spread.added > 0) {
+        spreadSeconds += spread.added;
+        spreadLines++;
+      }
+    }
+
     segment.aligned_file = target;
     segment.tempo = item.tempo;
     segment.shift_ms = item.shiftMs;
@@ -335,6 +366,10 @@ export async function runS6(workspace: Workspace, baseConfig: DubConfig, segment
     throw new StageError('s6', 'нет синтезированных реплик для подгонки', {
       hints: ['Сначала выполните стадию s5'],
     });
+  }
+
+  if (spreadLines > 0) {
+    log.step(`пауза разложена внутри реплик: ${spreadLines}, всего ${spreadSeconds.toFixed(2)} с`);
   }
 
   const stats = alignmentStats(plan);
