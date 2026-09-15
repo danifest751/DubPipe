@@ -681,8 +681,13 @@ const SEGMENT_COLUMNS = [
   { key: 'start', width: 92, min: 68 },
   { key: 'end', width: 92, min: 68 },
   { key: 'slot', width: 60, min: 48 },
+  // Ширина прежняя намеренно: подпись с голосом длиннее, чем сюда влезает, но
+  // раздвинуть колонку значит отнять место у текста реплик — на пробе они
+  // схлопнулись в один символ на строку. Целиком подпись стоит в соседнем
+  // «Персонаже», а в самом списке видна при раскрытии.
   { key: 'speaker', width: 150, min: 96 },
-  { key: 'character', width: 120, min: 80 },
+  // Шире прочих справочных: в имени теперь стоит и голос — «Юкаи · denis (м)».
+  { key: 'character', width: 168, min: 96 },
   // Оригинал и перевод ширины не задают: они забирают остаток строки. Задай им
   // ширину в пикселях — и сумма колонок перестанет помещаться в узкое окно,
   // таблица уедет вправо, а кнопки прослушивания окажутся за краем карточки.
@@ -921,7 +926,7 @@ function renderSegments() {
         <td class="num"><input type="text" data-field="end" value="${segment.end.toFixed(2)}" /></td>
         <td>${(segment.end - segment.start).toFixed(2)}</td>
         <td class="speaker">${speakerCell(segment)}</td>
-        <td class="character">${escapeHtml(speakerLabel(segment.speaker))}</td>
+        <td class="character">${escapeHtml(speakerVoiceLabel(segment.speaker))}</td>
         <td><textarea data-field="text_en">${escapeHtml(segment.text_en)}</textarea></td>
         <td><textarea data-field="text_ru">${escapeHtml(segment.text_ru ?? '')}</textarea>${reviewMark(segment, index)}</td>
         <td class="fit ${fit.cls}">${fit.label}${segment.tts_duration ? `<br><span class="meta">${t('segments.synth', { value: segment.tts_duration.toFixed(2) })}</span>` : ''}</td>
@@ -999,6 +1004,22 @@ function nextSpeakerName() {
  */
 function speakerLabel(speaker) {
   return state.overrides?.names?.[speaker] || speaker;
+}
+
+/**
+ * Имя спикера с пометкой, чьим голосом он зазвучит: «Юкаи · denis (м)».
+ *
+ * Одно имя не говорит ничего о звучании, а перепутанный голос слышно только
+ * после синтеза всего фильма. Голос виден и в своём выпадающем списке, но там
+ * он оторван от имени: в строке выбирают говорящего, а не голос, и решение
+ * «этот ли здесь говорит» принимается по тому, кем он звучит.
+ */
+function speakerVoiceLabel(speaker) {
+  const voice = voiceOf(speaker);
+  if (!voice) return speakerLabel(speaker);
+  const named = (state.voices ?? []).find((item) => item.name === voice);
+  const gender = voiceGender(voice);
+  return `${speakerLabel(speaker)} · ${named?.speaker ?? voice}${gender === '—' ? '' : ` (${gender})`}`;
 }
 
 function setSpeakerName(speaker, name) {
@@ -1148,11 +1169,14 @@ function speakerCell(segment) {
   const index = state.segments.indexOf(segment);
   const known = [...new Set([...state.segments.map((item) => item.speaker), segment.speaker])].sort();
   const options = known
-    .map((name) => `<option value="${escapeAttr(name)}" ${name === segment.speaker ? 'selected' : ''}>${escapeHtml(speakerLabel(name))}</option>`)
+    .map((name) => `<option value="${escapeAttr(name)}" ${name === segment.speaker ? 'selected' : ''}>${escapeHtml(speakerVoiceLabel(name))}</option>`)
     .join('');
   const voice = voiceOf(segment.speaker);
   const voices = (state.voices ?? [])
-    .map((item) => `<option value="${escapeAttr(item.name)}" ${item.name === voice ? 'selected' : ''}>${escapeHtml(item.speaker ?? item.name)}</option>`)
+    .map(
+      (item) =>
+        `<option value="${escapeAttr(item.name)}" ${item.name === voice ? 'selected' : ''}>${escapeHtml(item.speaker ?? item.name)} — ${item.gender}</option>`,
+    )
     .join('');
   // S2 пометила реплику, чей собственный тон спорит с говорящим: диаризация
   // могла отдать короткую фразу соседу по сцене. Подсказка стоит у того самого
