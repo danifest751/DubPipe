@@ -46,7 +46,15 @@ const asrSchema = z.object({
   model: z.string().min(1).default('small'),
   /** Пословные таймкоды: `dtw` — выравнивание по вниманию (точное), `heuristic` — по вероятностям токенов (сдвигает первые слова раньше речи). */
   timestamps: z.enum(['dtw', 'heuristic']).default('dtw'),
-  device: z.enum(['cpu', 'gpu']).default('cpu'),
+  /*
+   * Здесь стояли `device`, `endpoint` и `api_key_env` — и не делали ничего.
+   *
+   * Железо распознавания выбирает `backend` (ниже), а не `device`; облачные
+   * распознавание и синтез шлюз не умеет вовсе, и это запрещено в superRefine
+   * ниже. Поля не читались ни одной строкой кода, но печатались в
+   * config.yaml.example и обещали то, чего нет: `device: cpu` рядом с
+   * `model: small` выглядит как выбор процессора или видеокарты.
+   */
   /**
    * Чем считать распознавание: `auto` — официальная сборка под найденное
    * железо, остальное — выбор вручную. `vulkan` задействует видеокарту AMD или
@@ -55,8 +63,6 @@ const asrSchema = z.object({
    */
   backend: z.enum(['auto', 'cpu', 'blas', 'cuda', 'vulkan']).default('auto'),
   language: z.string().min(2).max(5).default('en'),
-  endpoint: z.string().url().nullable().default(null),
-  api_key_env: z.string().nullable().default(null),
   threads: z.number().int().min(1).max(64).nullable().default(null),
   vad: z
     .object({
@@ -252,7 +258,6 @@ const ttsSchema = z.object({
    * предупреждения — поэтому он и не появился. Синтез идёт локально.
    */
   engine: z.enum(['piper', 'silero', 'kilo-gateway']).default('piper'),
-  model: z.string().nullable().default(null),
   default_voice: z.string().min(1).default('ru_RU-irina-medium'),
   /**
    * Сколько голосов в дубляже.
@@ -265,8 +270,11 @@ const ttsSchema = z.object({
    */
   voice_mode: z.enum(['per_speaker', 'single']).default('per_speaker'),
   voice_map: z.record(z.string(), z.string()).default({}),
-  endpoint: z.string().url().nullable().default(null),
-  api_key_env: z.string().nullable().default(null),
+  /*
+   * Здесь стояли `model`, `endpoint` и `api_key_env`. Голос задаётся полями
+   * `default_voice` и `voice_map`, а сетевого синтеза у шлюза нет — engine
+   * `kilo-gateway` отклоняется в superRefine. Поля не читались нигде.
+   */
   concurrency: z.number().int().min(1).max(8).default(2),
   /**
    * Озвучивать ли реплику по фразам оригинала.

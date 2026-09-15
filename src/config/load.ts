@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { z } from 'zod';
 import { ConfigError } from '../core/errors.js';
+import { log } from '../core/logger.js';
 import { configSchema, type DubConfig, type Profile, LOCAL_DEFAULT_MODEL } from './schema.js';
 
 export const DEFAULT_CONFIG_NAME = 'config.yaml';
@@ -64,6 +65,55 @@ function applyProfile(raw: Record<string, unknown>): Record<string, unknown> {
   return { ...raw, profile, translate };
 }
 
+/**
+ * Поля, которые были в схеме и в примере, но ничего не делали, — и убраны.
+ *
+ * Они лежали в `config.yaml.example`, поэтому есть у каждого, кто хоть раз
+ * делал `dub config init`. Схема строгая (`.strict()`), и без этой чистки
+ * такой файл перестал бы разбираться: «неизвестные поля: asr.device» на
+ * осмысленном конфиге — ровно та закрытая дверь, которой проект избегает.
+ *
+ * Молча вычеркнуть тоже нельзя: человек должен знать, что настройка, которую
+ * он когда-то видел в примере, больше ничего не значит. Поэтому — один раз за
+ * процесс, предупреждением.
+ */
+const REMOVED_KEYS: ReadonlyArray<readonly [string, string]> = [
+  ['asr', 'device'],
+  ['asr', 'endpoint'],
+  ['asr', 'api_key_env'],
+  ['tts', 'model'],
+  ['tts', 'endpoint'],
+  ['tts', 'api_key_env'],
+];
+
+const reportedRemoved = new Set<string>();
+
+function dropRemovedKeys(raw: Record<string, unknown>, source: string): Record<string, unknown> {
+  let result = raw;
+  const dropped: string[] = [];
+  for (const [section, key] of REMOVED_KEYS) {
+    const group = result[section];
+    if (typeof group !== 'object' || group === null || Array.isArray(group)) continue;
+    if (!Object.hasOwn(group, key)) continue;
+
+    if (result === raw) result = { ...raw };
+    const copy = { ...(group as Record<string, unknown>) };
+    delete copy[key];
+    result[section] = copy;
+    dropped.push(`${section}.${key}`);
+  }
+
+  // Одна строка на весь список, и только про то, о чём ещё не говорили: шесть
+  // предупреждений подряд на каждом запуске читаются как поломка, а не как
+  // подсказка почистить конфиг.
+  const fresh = dropped.filter((key) => !reportedRemoved.has(key));
+  if (fresh.length > 0) {
+    for (const key of fresh) reportedRemoved.add(key);
+    log.warn(`в настройках ${source} больше не используются: ${fresh.join(', ')} — значения проигнорированы, поля можно удалить`);
+  }
+  return result;
+}
+
 /** Renders a zod issue as "поле: проблема (получено: X)" (SPEC §5.3). */
 function describeIssue(issue: z.ZodIssue): string {
   const field = issue.path.length ? issue.path.join('.') : '(корень)';
@@ -96,7 +146,7 @@ export function parseConfig(raw: unknown, source: string): DubConfig {
   if (typeof raw !== 'object' || Array.isArray(raw)) {
     throw new ConfigError(`Конфигурация ${source} должна быть YAML-объектом`);
   }
-  const result = configSchema.safeParse(applyProfile(raw as Record<string, unknown>));
+  const result = configSchema.safeParse(dropRemovedKeys(applyProfile(raw as Record<string, unknown>), source));
   if (!result.success) {
     const lines = result.error.issues.map(describeIssue).join('\n');
     throw new ConfigError(`Ошибка конфигурации (${source}):\n${lines}`, [

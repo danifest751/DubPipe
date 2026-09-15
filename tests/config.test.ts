@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import YAML from 'yaml';
 import { LOCAL_DEFAULT_MODEL } from '../src/config/schema.js';
-import { parseConfig } from '../src/config/load.js';
+import { parseConfig, packageRoot } from '../src/config/load.js';
 import { ConfigError } from '../src/core/errors.js';
 
 describe('§5.3: валидация конфигурации', () => {
@@ -78,6 +81,36 @@ describe('§5.3: валидация конфигурации', () => {
   it('принимает batch_size в диапазоне 1–50', () => {
     expect(parseConfig({ translate: { batch_size: 12 } }, 'test').translate.batch_size).toBe(12);
     expect(() => parseConfig({ translate: { batch_size: 51 } }, 'test')).toThrow(ConfigError);
+  });
+
+  // Поля стояли в config.yaml.example и потому есть у всех, кто делал
+  // `dub config init`. Убраны из схемы как неработавшие, но чужой файл из-за
+  // этого падать не должен: иначе осмысленный конфиг упирается в «неизвестные
+  // поля», и человеку неоткуда узнать, что делать.
+  it('молча вычёркивает убранные настройки вместо отказа', () => {
+    const config = parseConfig(
+      {
+        asr: { device: 'cpu', endpoint: null, api_key_env: null },
+        tts: { model: null, endpoint: null, api_key_env: null },
+      },
+      'test',
+    );
+    expect(config.asr.engine).toBe('whisper-cpp');
+    expect(config.tts.engine).toBe('piper');
+    expect(Object.hasOwn(config.asr, 'device')).toBe(false);
+    expect(Object.hasOwn(config.tts, 'model')).toBe(false);
+  });
+});
+
+describe('config.yaml.example пригоден для запуска', () => {
+  // Пример копируется командой `dub config init` дословно, поэтому он обязан
+  // проходить ту же проверку, что и конфиг пользователя: иначе обещание
+  // «работает из коробки» проверяется только руками.
+  it('разбирается схемой без ошибок', () => {
+    const text = readFileSync(path.join(packageRoot(), 'config.yaml.example'), 'utf8');
+    const config = parseConfig(YAML.parse(text), 'config.yaml.example');
+    expect(config.translate.engine).toBe('kilo-gateway');
+    expect(config.tts.engine).toBe('piper');
   });
 });
 
