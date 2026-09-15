@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { parseConfig } from '../src/config/load.js';
@@ -37,27 +37,39 @@ describe('Интерфейс: лечение вставленного не ту�
   let server: UiServerHandle;
   let dir: string;
   let configPath: string;
-  const secretsPath = path.resolve(process.cwd(), '.dubpipe', 'secrets.json');
-  let previousSecrets: string | null = null;
+  /*
+   * Свой рабочий каталог, а не общий `.dubpipe` проекта.
+   *
+   * Секрет пишется рядом с кэшем, и на общем каталоге это была гонка: соседний
+   * файл тестов на выходе удаляет `.dubpipe/secrets.json`, если его не было на
+   * старте, — и удалял тот, что записан здесь. На CI это давало ENOENT ровно в
+   * одном задании из четырёх, то есть выглядело случайностью.
+   */
+  let secretsPath = '';
   const previousEnv = process.env['KILO_API_KEY'];
 
   beforeAll(async () => {
-    previousSecrets = existsSync(secretsPath) ? readFileSync(secretsPath, 'utf8') : null;
     dir = mkdtempSync(path.join(os.tmpdir(), 'dubpipe-key-'));
     configPath = path.join(dir, 'config.yaml');
-    writeFileSync(
-      configPath,
-      `# настройки\nkilo_gateway:\n  api_key_env: ${FAKE_TOKEN}   # сюда вставили ключ\ntranslate:\n  batch_size: 9\n`,
-      'utf8',
-    );
+    const cacheDir = path.join(dir, 'cache');
+    secretsPath = path.join(cacheDir, 'secrets.json');
+    const lines = [
+      '# настройки',
+      'kilo_gateway:',
+      `  api_key_env: ${FAKE_TOKEN}   # сюда вставили ключ`,
+      'translate:',
+      '  batch_size: 9',
+      'cache:',
+      `  dir: ${JSON.stringify(cacheDir)}`,
+      '',
+    ];
+    writeFileSync(configPath, lines.join('\n'), 'utf8');
     server = await startUiServer({ port: 0, configPath });
   }, 60_000);
 
   afterAll(async () => {
     await server?.close();
     rmSync(dir, { recursive: true, force: true });
-    if (previousSecrets === null) rmSync(secretsPath, { force: true });
-    else writeFileSync(secretsPath, previousSecrets, 'utf8');
     if (previousEnv === undefined) delete process.env['KILO_API_KEY'];
     else process.env['KILO_API_KEY'] = previousEnv;
   });

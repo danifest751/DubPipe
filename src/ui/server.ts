@@ -155,6 +155,24 @@ const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
  * а в файл возвращается имя переменной. Делается до разбора конфигурации —
  * иначе валидатор отверг бы файл, и пользователь остался бы у закрытой двери.
  */
+/**
+ * `cache.dir` из ещё не разобранного файла настроек.
+ *
+ * Читается отдельно от схемы: файл в этот момент может быть невалиден по
+ * другому полю, а каталог знать уже надо.
+ */
+async function provisionalCacheRoot(configPath: string): Promise<string> {
+  const fallback = path.resolve(process.cwd(), '.dubpipe');
+  if (!existsSync(configPath)) return fallback;
+  try {
+    const doc = YAML.parseDocument(await readFile(configPath, 'utf8'));
+    const dir = doc.getIn(['cache', 'dir']);
+    return typeof dir === 'string' && dir.trim() ? path.resolve(process.cwd(), dir) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 async function healMisplacedKey(configPath: string, cacheRoot: string): Promise<string | null> {
   if (!existsSync(configPath)) return null;
   const text = await readFile(configPath, 'utf8');
@@ -184,10 +202,15 @@ async function healMisplacedKey(configPath: string, cacheRoot: string): Promise<
 export async function startUiServer(options: UiServerOptions = {}): Promise<UiServerHandle> {
   const token = randomBytes(24).toString('hex');
 
-  // Служебный каталог нужен до разбора конфигурации: туда переезжает ключ,
-  // если его вставили не в то поле.
+  /*
+   * Служебный каталог нужен до разбора конфигурации: туда переезжает ключ, если
+   * его вставили не в то поле. Разобрать файл целиком в этот момент нельзя —
+   * он как раз и невалиден, — но `cache.dir` из него прочитать можно, и нужно:
+   * иначе при нестандартном каталоге ключ записывался бы в `.dubpipe` по
+   * умолчанию, а читался из настроенного, то есть пропадал бы молча.
+   */
   const provisionalConfigPath = options.configPath ?? path.resolve(process.cwd(), DEFAULT_CONFIG_NAME);
-  const healed = await healMisplacedKey(provisionalConfigPath, path.resolve(process.cwd(), '.dubpipe'));
+  const healed = await healMisplacedKey(provisionalConfigPath, await provisionalCacheRoot(provisionalConfigPath));
   if (healed) {
     log.warn('В настройках вместо имени переменной был вставлен сам ключ — перенёс его в хранилище ключей');
     process.env['KILO_API_KEY'] = healed;
