@@ -29,6 +29,32 @@ export interface DownloadOptions {
 /** Files smaller than this are not worth splitting across connections. */
 const PARALLEL_THRESHOLD_BYTES = 8 * 1024 * 1024;
 const DEFAULT_CONNECTIONS = 4;
+
+/**
+ * Скачалась ли HTML-заглушка вместо файла.
+ *
+ * Проверка размера ловит её не всегда: страница ошибки CDN или прокси бывает
+ * и крупнее `minBytes`, а модель после этого «распаковывается» и падает на
+ * разборе чужой формат. HTML не начинается ни с одного формата, который
+ * проект качает (zip, gz, onnx, pt, ggml, exe), поэтому по первым байтам это
+ * видно сразу и до распаковки.
+ *
+ * Контрольная сумма надёжнее, но её здесь нет намеренно: компоненты качаются
+ * с чужих зеркал, и зашитая сумма превратила бы любое их обновление в
+ * «контрольная сумма не совпала» у всех. Это записано в SECURITY («Известные
+ * зоны риска»).
+ */
+export async function looksLikeHtml(file: string): Promise<boolean> {
+  const handle = await open(file, 'r');
+  try {
+    const head = Buffer.alloc(256);
+    const { bytesRead } = await handle.read(head, 0, head.length, 0);
+    const text = head.subarray(0, bytesRead).toString('utf8').trimStart().toLowerCase();
+    return text.startsWith('<!doctype') || text.startsWith('<html');
+  } finally {
+    await handle.close();
+  }
+}
 /**
  * Общий предел одновременных соединений.
  *
@@ -264,6 +290,9 @@ async function downloadFileOnce(url: string, target: string, options: DownloadOp
         }
 
         const digest = hash.digest('hex');
+        if (await looksLikeHtml(partial)) {
+          throw new Error(`вместо ${label} скачалась страница ошибки (HTML) — источник недоступен`);
+        }
         if (options.sha256 && digest !== options.sha256) {
           throw new Error(
             `Контрольная сумма ${label} не совпала: ожидалось ${options.sha256}, получено ${digest}`,

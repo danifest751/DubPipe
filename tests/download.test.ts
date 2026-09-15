@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { planChunks } from '../src/util/download.js';
+import { describe, it, expect, afterAll } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { planChunks, looksLikeHtml } from '../src/util/download.js';
 import { TOOLS, type ToolName } from '../src/util/tools.js';
 
 /**
@@ -57,4 +60,33 @@ describe('Параллельный провижининг', () => {
     );
     expect(new Set(separate).size).toBe(separate.length);
   });
+});
+
+describe('Страница ошибки вместо файла', () => {
+  // Размер ловит её не всегда: страница ошибки CDN бывает и крупнее minBytes,
+  // а модель после этого «распаковывается» и падает на разборе чужого формата.
+  const dir = mkdtempSync(path.join(tmpdir(), 'dubpipe-html-'));
+  const write = (name: string, content: string | Buffer): string => {
+    const file = path.join(dir, name);
+    writeFileSync(file, content);
+    return file;
+  };
+
+  it('узнаёт HTML-заглушку по первым байтам', async () => {
+    expect(await looksLikeHtml(write('a.html', '<!DOCTYPE html><html><body>404</body></html>'))).toBe(true);
+    expect(await looksLikeHtml(write('b.html', '\n  <html lang="ru">ошибка</html>'))).toBe(true);
+  });
+
+  it('не принимает за неё настоящие компоненты', async () => {
+    // ZIP (ffmpeg), ELF-заголовок и первые байты ONNX-модели.
+    expect(await looksLikeHtml(write('a.zip', Buffer.from('PK\x03\x04rest', 'binary')))).toBe(false);
+    expect(await looksLikeHtml(write('b.bin', Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01])))).toBe(false);
+    expect(await looksLikeHtml(write('c.onnx', Buffer.from([0x08, 0x09, 0x12, 0x07, 0x77, 0x68, 0x69])))).toBe(false);
+  });
+
+  it('пустой файл заглушкой не считается', async () => {
+    expect(await looksLikeHtml(write('empty.bin', Buffer.alloc(0)))).toBe(false);
+  });
+
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
 });
