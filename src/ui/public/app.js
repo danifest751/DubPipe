@@ -925,7 +925,7 @@ function renderSegments() {
         <td><textarea data-field="text_en">${escapeHtml(segment.text_en)}</textarea></td>
         <td><textarea data-field="text_ru">${escapeHtml(segment.text_ru ?? '')}</textarea></td>
         <td class="fit ${fit.cls}">${fit.label}${segment.tts_duration ? `<br><span class="meta">${t('segments.synth', { value: segment.tts_duration.toFixed(2) })}</span>` : ''}</td>
-        <td><span class="meta">${(segment.flags ?? []).join(', ')}${segment.overlap ? ' overlap' : ''}</span></td>
+        <td><span class="meta">${flagLabels(segment)}</span></td>
         <td>${clip ? `<button data-play-target="${index}" class="ghost small" title="${escapeAttr(t('segments.playTargetHint'))}">${icon('play')} ${t('segments.target')}</button>` : ''}<button data-play-original="${index}" class="ghost small">${icon('play')} ${t('segments.original')}</button></td>
       </tr>`;
     })
@@ -1087,6 +1087,19 @@ function setVoice(speaker, voice) {
  * годился — опечатка в имени создавала спикера, которого нет ни у кого в карте
  * голосов, и реплика тихо уезжала на голос по умолчанию.
  */
+/**
+ * Флаги реплики словами.
+ *
+ * Столбец показывал внутренние ключи (`speaker_doubt`, `force_split`) посреди
+ * русского экрана: человеку, который по ним и должен решить, что делать со
+ * строкой, они не говорят ничего.
+ */
+function flagLabels(segment) {
+  const labels = (segment.flags ?? []).map((flag) => t(`segments.flag.${flag}`));
+  if (segment.overlap) labels.push(t('segments.flag.overlap'));
+  return escapeHtml(labels.join(', '));
+}
+
 function speakerCell(segment) {
   const index = state.segments.indexOf(segment);
   const known = [...new Set([...state.segments.map((item) => item.speaker), segment.speaker])].sort();

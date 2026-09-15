@@ -204,6 +204,13 @@ const DICTIONARY = {
   'segments.voicePick': { ru: 'Голос этого персонажа', en: 'Voice for this character' },
   'segments.revoiceConfirm': { ru: 'Голоса изменены. Переозвучить затронутые реплики ({count}) и пересвести файл?', en: 'Voices changed. Re-voice the affected replicas ({count}) and re-mix the file?' },
   'segments.savedNoRun': { ru: 'Правки сохранены. Переозвучить можно позже — кнопкой «Внести правки и пересвести»', en: 'Edits saved. You can re-voice later with “Apply edits and re-mix”' },
+  'segments.flag.translation_failed': { ru: 'перевод не удался', en: 'translation failed' },
+  'segments.flag.profanity': { ru: 'брань смягчена', en: 'profanity softened' },
+  'segments.flag.truncated': { ru: 'обрезано', en: 'truncated' },
+  'segments.flag.no_speech': { ru: 'без речи', en: 'no speech' },
+  'segments.flag.force_split': { ru: 'разделено по говорящему', en: 'split by speaker' },
+  'segments.flag.speaker_doubt': { ru: 'спикер под вопросом', en: 'speaker in doubt' },
+  'segments.flag.overlap': { ru: 'перекрытие', en: 'overlap' },
   'segments.speakerDoubt': {
     ru: 'Тон этой реплики спорит с её говорящим — возможно, диаризация отдала её соседу по сцене. Переслушайте и поправьте здесь же',
     en: 'This line’s pitch argues with its speaker — diarization may have handed it to the wrong person. Listen again and fix it here',

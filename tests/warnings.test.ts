@@ -84,3 +84,23 @@ describe('предупреждения прогона переводятся', (
   });
 });
 
+describe('флаги реплик переводятся', () => {
+  /**
+   * Столбец «Флаги» показывал ключи как есть, и человек читал `force_split`
+   * посреди русского экрана. Проверка держит связь: новый флаг в types.ts без
+   * строки в словаре снова вернул бы туда внутреннее имя.
+   */
+  it('у каждого флага из types.ts есть строка на обоих языках', () => {
+    const types = readFileSync(path.join(root, 'core', 'types.ts'), 'utf8');
+    const union = /export type SegmentFlag =([\s\S]*?);/.exec(types);
+    expect(union).not.toBeNull();
+    const flags = [...union![1]!.matchAll(/'([a-z_]+)'/g)].map((match) => match[1]!);
+    expect(flags.length).toBeGreaterThan(4);
+    const known = dictionary();
+    const missing = flags.filter((flag) => {
+      const languages = known.get(`segments.flag.${flag}`);
+      return !languages || !languages.has('ru') || !languages.has('en');
+    });
+    expect(missing).toEqual([]);
+  });
+});
