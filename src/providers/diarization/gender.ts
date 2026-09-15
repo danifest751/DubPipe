@@ -1,4 +1,5 @@
 import { open } from 'node:fs/promises';
+import { readWavFormat } from '../../util/wav.js';
 
 /**
  * Пол голоса спикера по основному тону (F0) оригинальной речи.
@@ -277,54 +278,22 @@ export function profileFromPitches(pitches: number[], secondsPerFrame: number): 
   };
 }
 
-interface WavLayout {
-  sampleRate: number;
-  channels: number;
-  dataOffset: number;
-  dataBytes: number;
-}
-
-async function readWavLayout(handle: Awaited<ReturnType<typeof open>>): Promise<WavLayout> {
-  const header = Buffer.alloc(12);
-  await handle.read(header, 0, 12, 0);
-  if (header.toString('ascii', 0, 4) !== 'RIFF' || header.toString('ascii', 8, 12) !== 'WAVE') {
-    throw new Error('не WAV-файл');
-  }
-  let position = 12;
-  let sampleRate = 0;
-  let channels = 0;
-  let bits = 0;
-  const chunk = Buffer.alloc(8);
-  for (;;) {
-    const { bytesRead } = await handle.read(chunk, 0, 8, position);
-    if (bytesRead < 8) throw new Error('в WAV нет блока data');
-    const id = chunk.toString('ascii', 0, 4);
-    const size = chunk.readUInt32LE(4);
-    if (id === 'fmt ') {
-      const fmt = Buffer.alloc(16);
-      await handle.read(fmt, 0, 16, position + 8);
-      channels = fmt.readUInt16LE(2);
-      sampleRate = fmt.readUInt32LE(4);
-      bits = fmt.readUInt16LE(14);
-    } else if (id === 'data') {
-      if (bits !== 16) throw new Error(`поддерживается только 16-битный PCM, получено ${bits} бит`);
-      return { sampleRate, channels, dataOffset: position + 8, dataBytes: size };
-    }
-    position += 8 + size + (size % 2);
-  }
-}
-
 /**
  * Профили спикеров по интервалам их речи в WAV (16 бит, любой канал берётся
  * первым). Файл читается кусками только внутри интервалов — целиком в память
  * двухчасовой фильм не влезает.
  */
 export async function profileSpeakers(audioPath: string, intervals: SpeechInterval[]): Promise<Map<string, SpeakerProfile>> {
+  // Заголовок читает общая утилита: раньше здесь жил второй разбор RIFF,
+  // отличавшийся от неё поведением на файлах с крупными метаданными.
+  const layout = await readWavFormat(audioPath);
+  if (layout.bitsPerSample !== 16) {
+    throw new Error(`поддерживается только 16-битный PCM, получено ${layout.bitsPerSample} бит`);
+  }
   const handle = await open(audioPath, 'r');
   try {
-    const layout = await readWavLayout(handle);
     const bytesPerFrame = 2 * layout.channels;
-    const totalSamples = Math.floor(layout.dataBytes / bytesPerFrame);
+    const totalSamples = Math.floor(layout.dataLength / bytesPerFrame);
     const pitches = new Map<string, number[]>();
 
     for (const interval of intervals) {

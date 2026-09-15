@@ -16,6 +16,7 @@ import { cancellation, CancelledError } from './cancel.js';
 import { counter, formatDuration, log } from './logger.js';
 import { MANDATORY_STAGES, STAGE_IDS, STAGE_TITLES, type Segment, type StageId, type StageOutcome } from './types.js';
 import { computeFingerprints, Workspace } from './workspace.js';
+import { EMPTY_OVERRIDES, type ProjectOverrides } from './overrides.js';
 
 /**
  * Stage orchestration with resumable caching (SPEC §2, §7).
@@ -163,10 +164,26 @@ async function artifactsPresent(stage: StageId, workspace: Workspace): Promise<b
  * свежесть проверяется ещё и по содержимому: синтез — по переводу, укладка —
  * по тому, что синтезировано.
  */
-export function stageInputHash(stage: StageId, segments: Segment[]): string | null {
+export function stageInputHash(
+  stage: StageId,
+  segments: Segment[],
+  overrides: ProjectOverrides = EMPTY_OVERRIDES,
+): string | null {
   switch (stage) {
     case 's5':
-      return sha256(JSON.stringify(segments.map((segment) => [segment.id, segment.text_ru])));
+      /*
+       * Голоса из правок видео входят сюда наравне с текстом.
+       *
+       * Они накладываются внутри самой стадии, а отпечаток считается по общим
+       * настройкам — поэтому правка `overrides.json` руками не меняла ничего:
+       * отпечаток тот же, реплики те же, стадия пропущена, голос остался
+       * прежним. Через интерфейс это работало лишь потому, что `planReview`
+       * заодно снимает с реплик подпись клипа.
+       *
+       * Стадии сведения такая же строка не нужна: она из кэша не берётся
+       * никогда, и громкости из правок применяются на каждом прогоне.
+       */
+      return sha256(JSON.stringify([segments.map((segment) => [segment.id, segment.text_ru]), overrides.voices]));
     case 's6':
       return sha256(JSON.stringify(segments.map((segment) => [segment.id, segment.tts_file, segment.tts_duration])));
     default:
@@ -221,6 +238,7 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRep
 
   const outcomes: StageOutcome[] = [];
   const warnings: string[] = [];
+  const overrides = await workspace.readOverrides();
   const knownMeta = await workspace.readMeta();
   if (knownMeta) await confirmLongInput(knownMeta.duration_seconds);
   let segments: Segment[] = (await workspace.readSegments()) ?? [];
@@ -248,13 +266,26 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRep
     // Кроме настроек стадии сверяется и то, из чего она работает: перевод для
     // синтеза, синтез для укладки. Иначе повторный перевод не заставит
     // переозвучить реплики, и звук разойдётся с текстом.
-    const inputHash = stageInputHash(stage, (await workspace.readSegments()) ?? segments);
+    const inputHash = stageInputHash(stage, (await workspace.readSegments()) ?? segments, overrides);
+    /*
+     * Явно названная стадия отменяет кэш и для себя, и для всего, что после неё.
+     *
+     * Раньше отменялась только она сама, а следующие по-прежнему смотрели в кэш —
+     * и пропускались, потому что их отпечаток не менялся. «Начать со стадии s1»
+     * перечитывало видео и не трогало ничего дальше: шесть стадий из семи
+     * рапортовали «кэш актуален», хотя человек просил пройти заново. Сходилось
+     * лишь там, где стадия меняла segments.json и тем сдвигала отпечаток входа
+     * у следующей, — то есть случайно.
+     */
+    const forced =
+      options.fromStage !== undefined &&
+      STAGE_IDS.indexOf(stage) >= STAGE_IDS.indexOf(options.fromStage);
     const fresh =
       config.cache.enabled &&
+      !forced &&
       state.fingerprints[stage] === fingerprint &&
       (inputHash === null || state.segmentsHash[stage] === inputHash) &&
-      (await artifactsPresent(stage, workspace)) &&
-      options.fromStage !== stage;
+      (await artifactsPresent(stage, workspace));
 
     if (fresh) {
       log.step('кэш актуален — стадия пропущена');

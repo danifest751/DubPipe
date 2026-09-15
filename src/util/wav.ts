@@ -14,37 +14,52 @@ export interface WavFormat {
   dataLength: number;
 }
 
-/** Reads the RIFF header and locates the data chunk. */
+/**
+ * Читает заголовок RIFF и находит блок `data`.
+ *
+ * Блоки перебираются по их собственным длинам, без ограничения на то, где
+ * `data` окажется. Раньше читались только первые 4 КБ файла: у WAV с крупными
+ * метаданными — обложкой, длинным блоком LIST — блок `data` в них не попадал, и
+ * файл объявлялся негодным. На нашем материале это не стреляло, потому что все
+ * WAV пишет ffmpeg, но второй читатель заголовков в проекте (для основного тона)
+ * умел это с самого начала, и два ответа на один вопрос — ровно то, от чего
+ * проект избавляется.
+ */
 export async function readWavFormat(filePath: string): Promise<WavFormat> {
   const handle = await open(filePath, 'r');
   try {
-    const header = Buffer.alloc(4096);
-    const { bytesRead } = await handle.read(header, 0, header.length, 0);
-    if (bytesRead < 44 || header.toString('ascii', 0, 4) !== 'RIFF' || header.toString('ascii', 8, 12) !== 'WAVE') {
+    const riff = Buffer.alloc(12);
+    const { bytesRead } = await handle.read(riff, 0, 12, 0);
+    if (bytesRead < 12 || riff.toString('ascii', 0, 4) !== 'RIFF' || riff.toString('ascii', 8, 12) !== 'WAVE') {
       throw new Error(`Файл не является WAV: ${filePath}`);
     }
 
     let offset = 12;
-    let format: Partial<WavFormat> = {};
-    while (offset + 8 <= bytesRead) {
-      const id = header.toString('ascii', offset, offset + 4);
-      const size = header.readUInt32LE(offset + 4);
+    let channels = 0;
+    let sampleRate = 0;
+    let bitsPerSample = 0;
+    const chunk = Buffer.alloc(8);
+    for (;;) {
+      const header = await handle.read(chunk, 0, 8, offset);
+      if (header.bytesRead < 8) break;
+      const id = chunk.toString('ascii', 0, 4);
+      const size = chunk.readUInt32LE(4);
       if (id === 'fmt ') {
-        format = {
-          ...format,
-          channels: header.readUInt16LE(offset + 10),
-          sampleRate: header.readUInt32LE(offset + 12),
-          bitsPerSample: header.readUInt16LE(offset + 22),
-        };
+        const fmt = Buffer.alloc(16);
+        await handle.read(fmt, 0, 16, offset + 8);
+        channels = fmt.readUInt16LE(2);
+        sampleRate = fmt.readUInt32LE(4);
+        bitsPerSample = fmt.readUInt16LE(14);
       } else if (id === 'data') {
         return {
-          sampleRate: format.sampleRate ?? 0,
-          channels: format.channels ?? 1,
-          bitsPerSample: format.bitsPerSample ?? 16,
+          sampleRate,
+          channels: channels || 1,
+          bitsPerSample: bitsPerSample || 16,
           dataOffset: offset + 8,
           dataLength: size,
         };
       }
+      // Нечётные блоки дополняются байтом до чётной границы — так устроен RIFF.
       offset += 8 + size + (size % 2);
     }
     throw new Error(`В WAV не найден блок data: ${filePath}`);
