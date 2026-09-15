@@ -233,6 +233,17 @@ async function synthesizeAll(
   }
   log.step(`синтез ${pending.length} реплик, голосов: ${[...voices].join(', ')}`);
 
+  /*
+   * Темп речи нужен, чтобы заранее понять, влезет ли реплика с паузами.
+   *
+   * Без этой прикидки стадия сначала озвучивала реплику по кускам, обнаруживала,
+   * что свободного времени нет, и озвучивала её заново целиком — двойная работа
+   * ради нуля. На двух эпизодах ни одна реплика с паузами говорящего так и не
+   * получила свободного времени: пауза внутри бывает там, где сказано много, а
+   * такую реплику русский перевод заполняет с запасом.
+   */
+  const shape = await effectiveSpeechShape(workspace, config);
+
   let done = 0;
   let byRhythm = 0;
   await withConcurrency(pending, config.tts.concurrency, async (segment) => {
@@ -247,7 +258,11 @@ async function synthesizeAll(
      * теми же паузами. План входит в отпечаток: без этого повторный прогон
      * оставил бы клип, склеенный по-старому.
      */
-    const plan = config.tts.phrase_rhythm ? splitTranslation(segment.text_ru!, sourcePhrases(segment.words)) : null;
+    const predicted = segment.text_ru!.length / shape.charsPerSecond + shape.overheadSeconds;
+    const plan =
+      config.tts.phrase_rhythm && predicted < slotOf(segment) - 0.08
+        ? splitTranslation(segment.text_ru!, sourcePhrases(segment.words))
+        : null;
     const key = ttsKey(voice, segment.text_ru!, provider.fingerprint + (plan ? `|фразы:${plan.pauses.join(',')}` : ''));
     if (
       existsSync(outputPath) &&
