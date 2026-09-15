@@ -321,12 +321,47 @@ export async function runS7(
     maps.push('-metadata:s:a:0', 'language=rus');
   }
 
+  maps.push(...fileMetadataArgs(meta));
+
   muxArgs.push(...maps, '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-shortest', outputPath);
   await run(ffmpeg, muxArgs, { timeoutMs: 3_600_000 });
 
   await dropIntermediates(workspace, config);
 
   return { outputPath, warnings };
+}
+
+/**
+ * Теги итогового файла.
+ *
+ * Источник, скачанный с тегами (`download.embed_metadata`), передаёт их дальше
+ * сам: ffmpeg без `-map_metadata` копирует глобальные метаданные первого входа.
+ * Поэтому здесь только то, что отличает перевод от оригинала, — иначе дубляж
+ * выглядел бы в плеере копией исходника.
+ *
+ * Отдельной функцией, потому что это чистый набор аргументов, и проверяется он
+ * тестом без ffmpeg.
+ */
+export function fileMetadataArgs(meta: Pick<Meta, 'input' | 'source_title' | 'source_path'>): string[] {
+  const args: string[] = [];
+  // У старых рабочих каталогов названия нет — берём имя исходного файла.
+  const fromFile = meta.source_path ? path.basename(meta.source_path, path.extname(meta.source_path)) : '';
+  const title = (meta.source_title ?? fromFile).trim();
+  if (title) args.push('-metadata', `title=${title} (RU)`);
+  /*
+   * Ссылка на источник пишется в `comment`, а не в `purl`.
+   *
+   * yt-dlp кладёт её в `purl`, но ffmpeg при мультиплексировании в mp4 и m4a
+   * этот тег молча выбрасывает — проверено: `-metadata purl=…` в готовом файле
+   * не появляется, тогда как title, artist и comment остаются. Значит выбора
+   * нет: либо ссылка в `comment`, либо её нет вовсе.
+   *
+   * Обратная сторона: если у источника было описание в `comment`, в дубляже его
+   * заменит ссылка. Описание остаётся в самом скачанном файле, который лежит
+   * рядом, и в `.info.json`, если включить его позже.
+   */
+  if (/^https?:\/\//i.test(meta.input)) args.push('-metadata', `comment=${meta.input}`);
+  return args;
 }
 
 /** Расширения, под которыми источник лежал в рабочем каталоге старых прогонов. */
