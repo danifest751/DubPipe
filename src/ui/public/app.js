@@ -873,7 +873,7 @@ function renderCast() {
     .map((speaker) => {
       const voice = voiceOf(speaker);
       const voices = (state.voices ?? [])
-        .map((item) => `<option value="${escapeAttr(item.name)}" ${item.name === voice ? 'selected' : ''}>${escapeHtml(item.speaker ?? item.name)} — ${item.gender}</option>`)
+        .map((item) => `<option value="${escapeAttr(item.name)}" ${item.name === voice ? 'selected' : ''}>${escapeHtml(voiceOptionLabel(item))}</option>`)
         .join('');
       return `<div class="cast-row">
         <div class="cast-who">${genderMark(speaker)}<span class="mono">${escapeHtml(speaker)}</span></div>
@@ -937,7 +937,7 @@ function renderSegments() {
         <td class="num"><input type="text" data-field="end" value="${segment.end.toFixed(2)}" /></td>
         <td>${(segment.end - segment.start).toFixed(2)}</td>
         <td class="speaker">${speakerCell(segment)}</td>
-        <td class="character">${escapeHtml(speakerVoiceLabel(segment.speaker))}</td>
+        <td class="character">${characterCell(segment.speaker)}</td>
         <td><textarea data-field="text_en">${escapeHtml(segment.text_en)}</textarea></td>
         <td><textarea data-field="text_ru">${escapeHtml(segment.text_ru ?? '')}</textarea>${reviewMark(segment, index)}</td>
         <td class="fit ${fit.cls}">${fit.label}${segment.tts_duration ? `<br><span class="meta">${t('segments.synth', { value: segment.tts_duration.toFixed(2) })}</span>` : ''}</td>
@@ -1018,13 +1018,14 @@ function speakerLabel(speaker) {
 }
 
 /**
- * Как назван говорящий: имя героя, если оно вписано, и голос, которым он
- * зазвучит — «Юкаи · denis (м)», а без вписанного имени просто «denis (м)».
+ * Как назван говорящий: кто это и каким голосом зазвучит — «Юкаи · denis (м)»,
+ * а без вписанного имени «speaker_0 · denis (м)».
  *
- * Служебного `speaker_0` в подписи нет: он ничего не говорит ни о герое, ни о
- * звучании, а перепутанный голос слышно только после синтеза всего фильма.
- * Запасной вариант — всё же `speaker_0`: без голоса и без имени ячейка иначе
- * осталась бы пустой.
+ * Служебный `speaker_0` одно время из подписи убирали — он ничего не говорит
+ * ни о герое, ни о звучании. Вышло хуже: у silero дикторов зовут человеческими
+ * именами, и в столбце «Персонаж» осталась одна «ekaterina» — читается как имя
+ * героини, хотя это имя голоса. Пусть лучше стоит служебный номер: он честно
+ * говорит «героя ещё не подписали».
  */
 function speakerVoiceLabel(speaker) {
   const named = state.overrides?.names?.[speaker];
@@ -1032,8 +1033,33 @@ function speakerVoiceLabel(speaker) {
   const catalogued = (state.voices ?? []).find((item) => item.name === voice);
   const gender = voiceGender(voice);
   const title = voice ? `${catalogued?.speaker ?? voice}${gender === '—' ? '' : ` (${gender})`}` : '';
-  if (named && title) return `${named} · ${title}`;
-  return named || title || speaker;
+  const who = named || speaker;
+  return title ? `${who} · ${title}` : who;
+}
+
+/**
+ * Подпись голоса в списке выбора: «ekaterina — ж, с акцентом».
+ *
+ * Про акцент сказано прямо, потому что на слух это первое, что отличает
+ * дикторов: у silero 29 голосов из 34 — дикторы народов СНГ, читающие
+ * по-русски, и выбирать между ними вслепую не из чего.
+ */
+function voiceOptionLabel(item) {
+  const name = item.speaker ?? item.name;
+  return item.accent ? `${name} — ${item.gender}, ${t('cast.accent')}` : `${name} — ${item.gender}`;
+}
+
+/**
+ * Столбец «Персонаж»: имя, которое вписал человек, — и ничего больше.
+ *
+ * Голос сюда не подставляется: у silero дикторов зовут Екатерина и Ксения, и
+ * такое имя в столбце «Персонаж» читается как имя героини. Пока героя не
+ * подписали, стоит служебный номер, приглушённый, с подсказкой, где подписать.
+ */
+function characterCell(speaker) {
+  const named = state.overrides?.names?.[speaker];
+  if (named) return escapeHtml(named);
+  return `<span class="meta" title="${escapeAttr(t('segments.unnamed'))}">${escapeHtml(speaker)}</span>`;
 }
 
 /**
@@ -1265,7 +1291,7 @@ function speakerCell(segment) {
   const voices = (state.voices ?? [])
     .map(
       (item) =>
-        `<option value="${escapeAttr(item.name)}" ${item.name === voice ? 'selected' : ''}>${escapeHtml(item.speaker ?? item.name)} — ${item.gender}</option>`,
+        `<option value="${escapeAttr(item.name)}" ${item.name === voice ? 'selected' : ''}>${escapeHtml(voiceOptionLabel(item))}</option>`,
     )
     .join('');
   // S2 пометила реплику, чей собственный тон спорит с говорящим: диаризация
