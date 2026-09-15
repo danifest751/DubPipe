@@ -87,6 +87,39 @@ All notable changes to this project are documented here. Versions follow
 - A run can resume mid-pipeline when some replicas failed to translate: each stage is
   judged by the replicas it was supposed to touch, not by all of them.
 
+### Reliability, and an interface that says what it knows
+
+- A partly downloaded file is no longer dubbed in silence. The extracted audio is compared
+  against the declared length: more than a second and a percent short warns, more than a
+  quarter refuses. The real case: an episode announced 28 minutes, decoded to 7.6, and the
+  pipeline confidently dubbed a quarter of the film.
+- The working directory stops hoarding scratch audio. Voice, presence, mixed and normalized
+  tracks are deleted after muxing - 585 MB of 1.3 GB on a 15-minute episode, measured by
+  re-running the stage. `cache.keep_intermediate` brings them back.
+- Cache size is visible: the total beside the clear button, each file's own share on its page.
+  20 GB had accumulated with no signal other than a full disk.
+- The price of a translation is shown before the run, not only in the log afterwards. It is
+  computed from the tokens-per-character ratio measured on earlier runs of that model; with no
+  such measurement, no number is shown at all. What a file has cost accumulates in meta.json.
+- `--from-stage` does what it says: the named stage and everything after it run again. It used
+  to force only the stage it named, so "start from s1" re-read the video and touched nothing else.
+- `--yes` stopped being an empty flag: anything longer than three hours asks before it takes
+  hours of machine time and real money.
+- Voices assigned to a video by hand in overrides.json are finally noticed; editing that file
+  changed nothing before, because it was not part of the synthesis fingerprint.
+- Readiness asks the chosen synthesis engine rather than always piper, and for silero it checks
+  for torch, not merely for Python.
+- The synthesis engine is selectable in the settings. It used to be reachable only by editing
+  config.yaml, and the app keeps its own copy in %APPDATA%.
+- The translation field in Review wraps. It was one line with a horizontal scrollbar - the main
+  tool for fixing a dub and the most awkward control on the screen.
+- The per-speaker voice list shows as many rows as diarization may produce, not always two.
+- Run warnings are translated: 27 of them were composed as Russian sentences, so the English
+  interface came with English headings and Russian warnings.
+- The settings are fully translated: two headings, the first tab, five notes and the slider
+  labels were still Russian. The check-i18n guard could not see them - it looked for
+  untranslated keys, not hard-coded text; it now looks for both.
+
 ### Voices
 
 - A `silero` synthesis engine: 29 Russian speakers in a single 92 MB model, sixteen of them
@@ -109,11 +142,16 @@ All notable changes to this project are documented here. Versions follow
 
 ### Configuration
 
+- Engines that never existed are gone from the settings: `separation.engine: demucs`,
+  `asr.engine: xenova-whisper` and `tts.engine: edge-tts`. All three were offered and all three
+  threw. With xenova-whisper went `@xenova/transformers`, the source of every runtime
+  vulnerability in the project: `npm audit` is clean now.
 - `demucs` is gone from `separation.engine`: it was listed among the accepted values but was
   never implemented, so the stage failed on it. Separation runs through MDX-Net, which
   computes on the GPU through onnxruntime; demucs needs PyTorch and would fall back to the
   CPU on a machine without CUDA.
 - `tts.engine` accepts `silero` alongside `piper`.
+- `cache.keep_intermediate` keeps the scratch mixing tracks on disk.
 - `asr.backend` selects the whisper build: auto, cpu, blas, cuda, vulkan.
 - `asr.diarization.device` and `separation.device` select where each stage computes, with
   one shared vocabulary: auto, cpu, gpu, igpu, dgpu, cuda.

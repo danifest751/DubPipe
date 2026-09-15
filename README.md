@@ -472,9 +472,10 @@ downloaded from their upstream sources on first use and stay under their own lic
 See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for the details, including what this
 means if you package the application yourself.
 
-**About edge-tts:** it is an unofficial client for a Microsoft service. Using it may violate
-that service's terms and its limits can change without notice, so it is not implemented:
-synthesis runs locally, through `piper` or `silero`.
+**On networked synthesis:** there is none. Synthesis runs locally, through `piper` or
+`silero`. The unofficial edge-tts client was once listed in the settings but never
+implemented, and has been removed: using it violates Microsoft's terms and its limits move
+without notice.
 
 ## Privacy and security
 
@@ -487,6 +488,19 @@ synthesis runs locally, through `piper` or `silero`.
   `hybrid`, only the text of the replicas goes to the translation gateway — never audio or
   video.
 - Report vulnerabilities privately: see [SECURITY.md](SECURITY.md).
+
+## How much disk this takes
+
+The pipeline passes uncompressed audio between stages, so the working directory grows fast.
+The scratch tracks are deleted after mixing - 585 MB on a 15-minute episode - but each stage's
+inputs stay, so a second run does not redo the work. As an order of magnitude: a 15-minute
+episode holds about 660 MB, plus the shared models (whisper, pyannote, MDX, voices) at roughly
+5 GB for all files together.
+
+The current total is shown under Settings → System beside the clear button, and each file's
+own share on its page. Clearing never touches the downloaded programs and models.
+
+To keep the scratch tracks around while working on the sound: `cache.keep_intermediate: true`.
 
 ## Development
 
