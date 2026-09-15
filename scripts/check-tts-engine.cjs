@@ -57,7 +57,17 @@ async function main() {
 
   const before = await snapshot();
   await run(`(() => { const s = document.getElementById('ttsEngine'); s.value = 'silero'; s.dispatchEvent(new Event('change')); })()`);
-  await sleep(900);
+  // Ждём смены списка, а не фиксированный срок: запрос к серверу иногда не
+  // укладывается в отведённые «на глаз» девятьсот миллисекунд, и проверка
+  // краснела на ровном месте.
+  for (let i = 0; i < 40; i++) {
+    const swapped = await run(`(() => {
+      const first = document.getElementById('defaultVoice').options[0];
+      return Boolean(first) && !first.value.startsWith('ru_RU-');
+    })()`);
+    if (swapped) break;
+    await sleep(250);
+  }
   const after = await snapshot();
   fs.writeFileSync(path.join(outDir, 'settings-tts-engine.png'), (await window.webContents.capturePage()).toPNG());
 
