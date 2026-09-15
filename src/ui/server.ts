@@ -17,6 +17,7 @@ import { STAGE_IDS, STAGE_TITLES, type Segment, type StageId } from '../core/typ
 import { directorySize, Workspace, TOOL_VERSION } from '../core/workspace.js';
 import { compareModels } from '../core/compare.js';
 import { filterCatalog, loadCatalog } from '../providers/llm/catalog.js';
+import { tokenRateFor } from '../core/translation-cost.js';
 import { defaultVoiceFor, voicesForEngine } from '../providers/tts/voices.js';
 import { SILERO_MODEL } from '../providers/tts/silero-voices.js';
 import { createTtsProvider } from '../providers/tts/index.js';
@@ -974,6 +975,49 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       } catch (error) {
         sendJson(response, 500, { error: (error as Error).message });
       }
+      return true;
+    }
+
+    if (route === '/api/estimate' && method === 'GET') {
+      /*
+       * Во что обойдётся перевод — до того, как нажали «Дублировать».
+       *
+       * Раньше стоимость сообщалась одной строкой лога после прогона. Разброс
+       * между моделями большой (на серии от 1.7 цента до 70), и выбирать вслепую
+       * человеку приходилось каждый раз.
+       *
+       * Считается по замеренному отношению «токенов на знак» для этой модели,
+       * а не по прикидке: прикидка «запрос вдвое длиннее текста» ошиблась на
+       * реальном материале в двадцать раз, потому что в каждый пакет идут ещё
+       * инструкция, глоссарий и соседние реплики. Пока замера нет, оценки нет —
+       * пустое место честнее неверного числа. Уже потраченное рядом, и оно
+       * точное: из meta.json.
+       */
+      const input = url.searchParams.get('input');
+      if (!input) {
+        sendJson(response, 400, { error: 'нужен параметр input' });
+        return true;
+      }
+      const workspace = await Workspace.open(input, config);
+      const segments = await workspace.readSegments();
+      const meta = await workspace.readMeta();
+      const chars = (segments ?? []).reduce((sum, segment) => sum + (segment.text_en?.length ?? 0), 0);
+      let estimate: number | null = null;
+      if (chars > 0 && config.translate.engine === 'kilo-gateway') {
+        const rate = await tokenRateFor(workspace, config.translate.model);
+        const catalog = rate ? await loadCatalog(config).catch(() => []) : [];
+        const model = catalog.find((entry) => entry.id === config.translate.model);
+        if (rate && model) {
+          estimate = chars * (rate.prompt_per_char * model.promptPrice + rate.completion_per_char * model.completionPrice);
+        }
+      }
+      sendJson(response, 200, {
+        chars,
+        model: config.translate.model,
+        estimateUsd: estimate,
+        spentUsd: meta?.translation_cost_usd ?? 0,
+        local: config.translate.engine !== 'kilo-gateway',
+      });
       return true;
     }
 

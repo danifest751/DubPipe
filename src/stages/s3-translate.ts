@@ -11,6 +11,7 @@ import type { Workspace } from '../core/workspace.js';
 import { selectChatClient, type ChatClient, type ChatUsage } from '../providers/llm/index.js';
 import { formatCost } from '../providers/llm/catalog.js';
 import { effectiveSpeechShape } from '../core/calibration.js';
+import { rememberTokenRate } from '../core/translation-cost.js';
 
 /**
  * S3 — batched EN→RU translation with length control (SPEC FR-3, §3.4).
@@ -756,6 +757,23 @@ export async function runS3(workspace: Workspace, baseConfig: DubConfig, segment
       `запросов: ${run.usage.requests}, токенов: ${run.usage.promptTokens + run.usage.completionTokens}` +
         (run.usage.cost > 0 ? `, стоимость: ${formatCost(run.usage.cost)}` : ''),
     );
+    // Сколько токенов ушло на знак — замер для будущих оценок стоимости.
+    await rememberTokenRate(workspace, config.translate.model, {
+      chars: segments.reduce((sum, segment) => sum + (segment.text_en?.length ?? 0), 0),
+      promptTokens: run.usage.promptTokens,
+      completionTokens: run.usage.completionTokens,
+    });
+
+    // Потраченное копится в meta.json: прогонов на файл бывает несколько
+    // (правки, смена модели), и одна строка лога исчезает вместе с прогоном.
+    if (run.usage.cost > 0) {
+      const meta = await workspace.readMeta();
+      if (meta) {
+        const total = Number(((meta.translation_cost_usd ?? 0) + run.usage.cost).toFixed(6));
+        await workspace.writeMeta({ ...meta, translation_cost_usd: total });
+        log.step(`всего на перевод этого файла: ${formatCost(total)}`);
+      }
+    }
   }
 
   const warnings = [...selection.warnings, ...run.warnings];

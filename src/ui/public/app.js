@@ -390,6 +390,7 @@ async function openProject(input, options = {}) {
   showView('project');
   renderJob();
   void showProjectCacheSize();
+  void showProjectCost();
   await loadSegments().catch(() => {});
   if (options.subtitles) {
     showSubtab('subtitles');
@@ -1894,6 +1895,42 @@ async function showCacheSize() {
   } catch {
     box.textContent = '';
   }
+}
+
+/**
+ * Во что обойдётся перевод и во что он уже обошёлся — на странице файла.
+ *
+ * До этого стоимость была видна только в логе прошедшего прогона, а разница
+ * между моделями на одной серии — от полутора центов до семидесяти.
+ */
+async function showProjectCost() {
+  const box = $('#projectCost');
+  if (!box) return;
+  box.textContent = '';
+  box.title = '';
+  if (!state.project) return;
+  try {
+    const data = await api(`/api/estimate?input=${encodeURIComponent(state.project)}`);
+    const parts = [];
+    if (data.local) parts.push(t('cost.local'));
+    else if (data.estimateUsd !== null && data.estimateUsd !== undefined) {
+      parts.push(t('cost.estimate', { cost: formatMoney(data.estimateUsd) }));
+    } else if (data.chars > 0) {
+      // Замера для этой модели ещё нет — обещать число не из чего.
+      parts.push(t('cost.unknown'));
+    }
+    if (data.spentUsd > 0) parts.push(t('cost.spent', { cost: formatMoney(data.spentUsd) }));
+    box.textContent = parts.join(' · ');
+    if (parts.length > 0 && !data.local) box.title = t('cost.note');
+  } catch {
+    box.textContent = '';
+  }
+}
+
+/** Доллары: мелкие суммы иначе округляются в ноль. */
+function formatMoney(usd) {
+  if (!(usd > 0)) return '$0';
+  return usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`;
 }
 
 async function showProjectCacheSize() {
