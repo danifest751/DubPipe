@@ -340,6 +340,11 @@ function fillDownloadControls() {
   const folder = $('#dlFolder');
   const dir = state.downloadDir;
   folder.textContent = dir ? t('downloads.folder', { path: dir }) : t('downloads.folder.none');
+  const items = $('#dlItems');
+  items.title = t('downloads.items.hint');
+  // Номера имеют смысл только у плейлиста: у одиночного видео выбирать нечего.
+  items.disabled = !state.download?.isPlaylist;
+  items.readOnly = !state.download?.isPlaylist;
 }
 
 /**
@@ -452,6 +457,7 @@ async function resolveDownload() {
     state.download = data.info;
     state.downloadInput = input;
     renderDownloadInfo();
+    fillDownloadControls();
     $('#dlStart')?.addEventListener('click', () => startDownload().catch(showError));
   } catch (error) {
     state.download = null;
@@ -464,12 +470,14 @@ async function resolveDownload() {
 async function startDownload() {
   const input = state.downloadInput;
   if (!input) return;
+  const items = $('#dlItems').value.trim();
   state.downloadProgress = null;
   await post('/api/download/jobs', {
     input,
     quality: $('#dlQuality').value,
     audioOnly: $('#dlAudioOnly').checked,
-    playlist: $('#dlWholePlaylist').checked,
+    // Номера важнее переключателя: если человек их вписал, он сказал точно.
+    ...(items ? { playlistItems: items } : { playlist: $('#dlWholePlaylist').checked }),
     cookiesFromBrowser: $('#dlCookies').value || null,
   });
   renderDownloadJob();
@@ -482,8 +490,10 @@ $('#dlInput').addEventListener('keydown', (event) => {
 $('#dlAudioOnly').addEventListener('change', () => {
   // «Только звук» и качество видео — одно и то же решение, и второе поле при
   // первом становится бессмысленным.
-  $('#dlQuality').disabled = $('#dlAudioOnly').checked;
-  $('#dlWholePlaylist').disabled = $('#dlAudioOnly').checked;
+  const audioOnly = $('#dlAudioOnly').checked;
+  $('#dlQuality').disabled = audioOnly;
+  $('#dlWholePlaylist').disabled = audioOnly;
+  $('#dlItems').disabled = audioOnly || !state.download?.isPlaylist;
 });
 
 // --- библиотека ------------------------------------------------------------

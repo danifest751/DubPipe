@@ -98,6 +98,12 @@ async function main() {
     check('есть превью', card.thumb);
     check('есть кнопка «Скачать»', await run(`Boolean(document.getElementById('dlStart'))`));
   }
+  // Номера элементов нужны только плейлисту: у одиночного видео выбирать нечего.
+  const items = await run(`(() => {
+    const el = document.getElementById('dlItems');
+    return { exists: Boolean(el), disabled: el ? el.disabled : null };
+  })()`);
+  check('поле номеров плейлиста есть и для одиночного видео выключено', items.exists && items.disabled === true);
   fs.writeFileSync(path.join(outDir, 'downloads-resolve.png'), (await window.webContents.capturePage()).toPNG());
 
   console.log('\n3. Загрузка и прогресс');

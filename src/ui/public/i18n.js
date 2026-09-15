@@ -44,6 +44,11 @@ const DICTIONARY = {
   'downloads.quality.audio': { ru: 'только звук', en: 'audio only' },
   'downloads.audioOnly': { ru: 'Только звук', en: 'Audio only' },
   'downloads.wholePlaylist': { ru: 'Весь плейлист', en: 'Whole playlist' },
+  'downloads.items': { ru: 'Номера из плейлиста', en: 'Playlist numbers' },
+  'downloads.items.hint': {
+    ru: 'Например 1-3,7 — скачать только эти видео. Пусто — первое.',
+    en: 'For example 1-3,7 — download only those. Empty means the first one.',
+  },
   'downloads.cookies': { ru: 'Куки браузера', en: 'Browser cookies' },
   'downloads.cookies.none': { ru: 'не использовать', en: 'not used' },
   'downloads.cookies.hint': {
