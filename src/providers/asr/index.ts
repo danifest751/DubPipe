@@ -22,10 +22,6 @@ export function createAsrProvider(workspace: Workspace, config: DubConfig): AsrP
   switch (config.asr.engine) {
     case 'whisper-cpp':
       return new WhisperCppProvider(workspace, config);
-    case 'xenova-whisper':
-      throw new StageError('s2', 'Движок xenova-whisper пока не реализован', {
-        hints: ['Используйте asr.engine: whisper-cpp'],
-      });
     case 'kilo-gateway':
       // Guarded in config validation as well; kept here so the reason survives
       // if the schema is ever relaxed (SPEC §3.1.1).

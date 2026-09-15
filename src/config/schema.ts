@@ -37,7 +37,12 @@ const kiloGatewaySchema = z.object({
 });
 
 const asrSchema = z.object({
-  engine: z.enum(['whisper-cpp', 'xenova-whisper', 'kilo-gateway']).default('whisper-cpp'),
+  /**
+   * `xenova-whisper` стоял здесь, но реализован не был: стадия на нём падала, а
+   * ради него в зависимостях жил `@xenova/transformers` — источник всех пяти
+   * уязвимостей проекта. Распознавание идёт нативным whisper.cpp.
+   */
+  engine: z.enum(['whisper-cpp', 'kilo-gateway']).default('whisper-cpp'),
   model: z.string().min(1).default('small'),
   /** Пословные таймкоды: `dtw` — выравнивание по вниманию (точное), `heuristic` — по вероятностям токенов (сдвигает первые слова раньше речи). */
   timestamps: z.enum(['dtw', 'heuristic']).default('dtw'),
@@ -301,7 +306,7 @@ export const configSchema = z
         path: ['asr', 'engine'],
         message:
           'транскрипция через Kilo Gateway не возвращает таймкоды и не удовлетворяет ТЗ FR-2. ' +
-          'Используйте "whisper-cpp" или "xenova-whisper"',
+          'Используйте "whisper-cpp"',
       });
     }
   });

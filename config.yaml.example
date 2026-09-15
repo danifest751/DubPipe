@@ -23,7 +23,7 @@ kilo_gateway:
 
 # --- S2. Распознавание речи --------------------------------------------------
 asr:
-  engine: whisper-cpp        # whisper-cpp | xenova-whisper
+  engine: whisper-cpp        # единственный движок распознавания
   model: small               # tiny | base | small | medium | large-v3
   device: cpu
   language: en
