@@ -1,13 +1,13 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import type { DubConfig } from '../config/schema.js';
 import { StageError } from '../core/errors.js';
 import { log } from '../core/logger.js';
 import { TOOL_VERSION, type Workspace } from '../core/workspace.js';
 import { warn, type Meta, type StageWarning } from '../core/types.js';
 import { isUrl } from '../util/hash.js';
-import { run } from '../util/exec.js';
-import { requireTool } from '../util/tools.js';
 import { extractAnalysisAudio, extractOriginalAudio, probeMedia } from '../util/ffmpeg.js';
+import { downloadYt, resolveYt } from '../util/ytdlp.js';
 import { wavDuration } from '../util/wav.js';
 
 /**
@@ -55,41 +55,102 @@ export interface S1Result {
   warnings: StageWarning[];
 }
 
-async function downloadFromUrl(url: string, workspace: Workspace): Promise<string> {
-  const ytDlp = await requireTool('yt-dlp', workspace.toolsDir);
-  const ffmpegDir = path.dirname(await requireTool('ffmpeg', workspace.toolsDir));
-  const target = workspace.file('source.%(ext)s');
+/**
+ * Скачивание ссылки в рабочую папку.
+ *
+ * Файл кладётся рядом с будущим дубляжем, а не в кэш: он нужен человеку и после
+ * прогона — посмотреть, перезапустить стадии, отдать другому инструменту. Раньше
+ * он лежал в `.dubpipe/<hash>/source.mp4` и исчезал вместе с очисткой кэша.
+ *
+ * Прежде чем качать, ссылка разбирается: название, длительность и размер
+ * попадают в журнал, а прямой эфир отсекается сразу — его нельзя скачать целиком,
+ * и узнать об этом лучше до, а не после.
+ */
+async function downloadFromUrl(
+  input: string,
+  workspace: Workspace,
+  config: DubConfig,
+  downloadDir: string,
+): Promise<{ file: string; warnings: StageWarning[] }> {
+  const warnings: StageWarning[] = [];
+  const quality = config.download.quality;
+  const info = await resolveYt(input, workspace.toolsDir, quality);
 
-  log.step(`Загрузка исходного видео: ${url}`);
-  await run(
-    ytDlp,
-    [
-      '--no-playlist',
-      '--no-progress',
-      '--ffmpeg-location',
-      ffmpegDir,
-      '-f',
-      'bv*+ba/b',
-      '--merge-output-format',
-      'mp4',
-      '-o',
-      target,
-      url,
-    ],
-    { timeoutMs: 3_600_000, onStderr: (chunk) => log.debug(chunk.trim()) },
-  );
-
-  for (const ext of ['mp4', 'mkv', 'webm', 'm4a', 'mp3', 'opus']) {
-    const candidate = workspace.file(`source.${ext}`);
-    if (existsSync(candidate)) return candidate;
+  if (info.isLive) {
+    throw new StageError('s1', 'Это прямой эфир — скачать его целиком нельзя', {
+      hints: ['Дождитесь окончания трансляции и повторите'],
+    });
   }
-  throw new StageError('s1', 'yt-dlp завершился успешно, но файл не найден', { artifact: workspace.dir });
+
+  const minutes = info.durationSeconds ? Math.round(info.durationSeconds / 60) : null;
+  const size = info.bytes ? `, около ${(info.bytes / 1024 ** 2).toFixed(0)} МБ` : '';
+  log.step(`Загрузка: ${info.title}${minutes ? ` (${minutes} мин${size})` : ''}`);
+
+  /*
+   * Плейлист в режиме «спросить» обрабатывается как один ролик, но молчать об
+   * этом нельзя: раньше `--no-playlist` прятал остальные двадцать видео, и
+   * человек узнавал об этом только по названию скачанного файла.
+   */
+  const wholePlaylist = config.download.playlist === 'all';
+  if (info.isPlaylist && !wholePlaylist) {
+    warnings.push(
+      warn(
+        'warn.s1.playlist',
+        `Это плейлист из ${info.entries.length} видео — обрабатываю первое. ` +
+          'Весь список: download.playlist: all в config.yaml',
+        { count: info.entries.length },
+      ),
+    );
+  }
+
+  const files = await downloadYt(info.url || input, downloadDir, workspace.toolsDir, {
+    quality,
+    container: config.download.container,
+    filenameTemplate: config.download.filename_template,
+    cookiesFromBrowser: config.download.cookies_from_browser,
+    cookiesFile: config.download.cookies_file,
+    writeThumbnail: config.download.write_thumbnail,
+    writeSubtitles: config.download.write_subtitles,
+    subtitleLanguages: config.download.subtitle_languages,
+    concurrentFragments: config.download.concurrent_fragments,
+    expectedBytes: info.bytes,
+    videoId: info.id,
+    label: info.title,
+    ...(wholePlaylist ? { playlist: true } : {}),
+  });
+
+  if (files.length > 1) {
+    warnings.push(
+      warn('warn.s1.playlistDownloaded', `Скачано файлов: ${files.length} — дублирую первый, остальные лежат рядом`, {
+        count: files.length,
+      }),
+    );
+  }
+
+  return { file: files[0]!, warnings };
 }
 
-export async function runS1(workspace: Workspace, input: string): Promise<S1Result> {
+export interface S1Options {
+  /** Куда положить скачанное по ссылке; без него — в кэш, как было раньше. */
+  downloadDir?: string;
+}
+
+export async function runS1(
+  workspace: Workspace,
+  input: string,
+  config: DubConfig,
+  options: S1Options = {},
+): Promise<S1Result> {
   const warnings: StageWarning[] = [];
 
-  const sourcePath = isUrl(input) ? await downloadFromUrl(input, workspace) : path.resolve(input);
+  let sourcePath: string;
+  if (isUrl(input)) {
+    const downloaded = await downloadFromUrl(input, workspace, config, options.downloadDir ?? workspace.dir);
+    warnings.push(...downloaded.warnings);
+    sourcePath = downloaded.file;
+  } else {
+    sourcePath = path.resolve(input);
+  }
   if (!existsSync(sourcePath)) {
     throw new StageError('s1', `Входной файл не найден: ${sourcePath}`, {
       hints: ['Укажите существующий файл или YouTube-URL'],

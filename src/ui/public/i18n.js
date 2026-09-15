@@ -424,6 +424,14 @@ const DICTIONARY = {
     ru: 'Извлечённое аудио короче заявленной длительности на {lost} — возможно, файл повреждён; конец фильма может остаться без дубляжа',
     en: 'The extracted audio falls short of the declared length by {lost} — the file may be damaged, and the end of the film may go undubbed',
   },
+  'warn.s1.playlist': {
+    ru: 'Это плейлист из {count} видео — обрабатываю первое. Весь список: download.playlist: all в config.yaml',
+    en: 'This is a playlist of {count} videos — the first one is being processed. For all of them: download.playlist: all in config.yaml',
+  },
+  'warn.s1.playlistDownloaded': {
+    ru: 'Скачано файлов: {count} — дублирую первый, остальные лежат рядом',
+    en: 'Downloaded {count} files — the first one is being dubbed, the rest are next to it',
+  },
   'warn.s2.vad': {
     ru: 'Уточнение границ по VAD не выполнено ({reason}); границы реплик могут выходить за ±250 мс (ТЗ FR-2)',
     en: 'VAD boundary refinement did not run ({reason}); line boundaries may fall outside ±250 ms (SPEC FR-2)',

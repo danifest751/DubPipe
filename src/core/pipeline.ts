@@ -192,6 +192,27 @@ export function stageInputHash(
   }
 }
 
+/**
+ * Куда складывать скачанное по ссылке.
+ *
+ * По умолчанию — туда же, куда ляжет дубляж: рядом с исходным файлом человек
+ * ищет и то и другое, и скачанное переживает очистку кэша. Настройка
+ * `download.dir` перекрывает это; для ссылки, у которой своей папки нет,
+ * остаётся рабочая папка (её передаёт интерфейс) или текущий каталог.
+ */
+function downloadDirectory(input: string, config: DubConfig, options: PipelineOptions): string {
+  if (config.download.dir) return path.resolve(config.download.dir);
+  return path.dirname(
+    resolveOutputPath({
+      input,
+      extension: '.mp4',
+      outputOverride: options.out,
+      outputDir: options.outDir,
+      configured: config.output,
+    }),
+  );
+}
+
 export async function runPipeline(options: PipelineOptions): Promise<PipelineReport> {
   const { input } = options;
 
@@ -299,7 +320,7 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRep
 
     switch (stage) {
       case 's1': {
-        const result = await runS1(workspace, input);
+        const result = await runS1(workspace, input, config, { downloadDir: downloadDirectory(input, config, options) });
         await confirmLongInput(result.meta.duration_seconds);
         analysisAudio = result.analysisAudio;
         provider = 'ffmpeg';
