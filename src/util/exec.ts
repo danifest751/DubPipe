@@ -13,7 +13,14 @@ export interface RunOptions {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
-  /** Captured stdout is returned; set false for processes producing binary or huge output. */
+  /**
+   * Копить ли stdout процесса и вернуть его в `RunResult`.
+   *
+   * По умолчанию — нет: болтливый инструмент иначе растит память прогона
+   * молча, а stderr для этого обрезается (см. ниже). Кому вывод нужен для
+   * разбора — просит явно; `ffmpeg` и `whisper` печатают туда гигабайты, а
+   * `ProcessError` и без этого приносит хвост stderr.
+   */
   captureStdout?: boolean;
   input?: Buffer | string;
   /** Called with each stderr chunk, e.g. to parse progress. */
@@ -72,7 +79,7 @@ export class TimeoutError extends Error {
 }
 
 export async function run(file: string, args: string[], options: RunOptions = {}): Promise<RunResult> {
-  const { timeoutMs = 0, captureStdout = true } = options;
+  const { timeoutMs = 0, captureStdout = false } = options;
   const pretty = `${file} ${args.join(' ')}`;
   log.debug(`exec: ${pretty}`);
 

@@ -72,7 +72,7 @@ export async function probePython(): Promise<PythonEnvironment> {
       const { stdout } = await run(
         executable,
         ['-c', PROBE_SCRIPT],
-        { timeoutMs: 60_000 },
+        { timeoutMs: 60_000, captureStdout: true },
       );
       const probe = JSON.parse(stdout.trim() || '{}') as { missing?: string[]; providers?: string[] };
       const missing = probe.missing ?? [];
@@ -99,7 +99,7 @@ export async function missingPythonModules(executable: string, names: string[]):
     'print(json.dumps([n for n in names if importlib.util.find_spec(n) is None]))',
   ].join(String.fromCharCode(10));
   try {
-    const { stdout } = await run(executable, ['-c', script], { timeoutMs: 60_000 });
+    const { stdout } = await run(executable, ['-c', script], { timeoutMs: 60_000, captureStdout: true });
     const missing = JSON.parse(stdout.trim() || '[]') as unknown;
     return Array.isArray(missing) ? missing.map(String) : [];
   } catch {

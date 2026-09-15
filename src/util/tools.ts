@@ -213,7 +213,7 @@ export const TOOLS: Record<ToolName, ToolSpec> = {
 async function inPath(binary: string): Promise<string | null> {
   try {
     const probe = IS_WINDOWS ? 'where' : 'which';
-    const { stdout } = await run(probe, [binary], { timeoutMs: 10_000 });
+    const { stdout } = await run(probe, [binary], { timeoutMs: 10_000, captureStdout: true });
     const first = stdout.split(/\r?\n/).map((l) => l.trim()).find(Boolean);
     return first ?? null;
   } catch {

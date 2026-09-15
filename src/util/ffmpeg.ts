@@ -27,7 +27,7 @@ export async function probeMedia(filePath: string, toolsDir: string): Promise<Me
   const { stdout } = await run(
     ffprobe,
     ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', filePath],
-    { timeoutMs: 120_000 },
+    { timeoutMs: 120_000, captureStdout: true },
   );
 
   const parsed = JSON.parse(stdout) as FfprobeOutput;
