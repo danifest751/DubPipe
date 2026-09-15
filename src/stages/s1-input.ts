@@ -8,6 +8,7 @@ import { isUrl } from '../util/hash.js';
 import { run } from '../util/exec.js';
 import { requireTool } from '../util/tools.js';
 import { extractAnalysisAudio, extractOriginalAudio, probeMedia } from '../util/ffmpeg.js';
+import { wavDuration } from '../util/wav.js';
 
 /**
  * S1 — input intake and audio extraction (SPEC FR-1).
@@ -22,6 +23,29 @@ import { extractAnalysisAudio, extractOriginalAudio, probeMedia } from '../util/
  * из них поправят.
  */
 export const LONG_INPUT_SECONDS = 3 * 3600;
+
+/**
+ * Сколько звука недосчитались против того, что обещает контейнер.
+ *
+ * Реальный случай: недокачанная серия объявляла 28 минут, а декодировалась на
+ * 7.6 — потерянные пакеты обрывали поток. Конвейер этого не замечал и уверенно
+ * дублировал четверть фильма; узнать об этом можно было, только посмотрев
+ * результат. Поэтому длительность извлечённого звука сверяется с заявленной.
+ *
+ * Небольшое расхождение — норма: у контейнера и у звуковой дорожки разные
+ * длительности, последний кадр округляется. Значимым считается пропуск больше
+ * секунды и больше процента; больше четверти — это уже не округление, а
+ * оборванный файл, и продолжать бессмысленно.
+ */
+export type IntakeVerdict = { kind: 'ok' } | { kind: 'warn' | 'broken'; missingSeconds: number; share: number };
+
+export function intakeVerdict(containerSeconds: number, extractedSeconds: number): IntakeVerdict {
+  if (!(containerSeconds > 0) || !(extractedSeconds >= 0)) return { kind: 'ok' };
+  const missingSeconds = containerSeconds - extractedSeconds;
+  const share = missingSeconds / containerSeconds;
+  if (missingSeconds <= 1 || share <= 0.01) return { kind: 'ok' };
+  return { kind: share > 0.25 ? 'broken' : 'warn', missingSeconds, share };
+}
 
 export interface S1Result {
   meta: Meta;
@@ -91,6 +115,26 @@ export async function runS1(workspace: Workspace, input: string): Promise<S1Resu
   log.step('Извлечение аудио (48 кГц, моно, 16 бит)');
   log.progress('извлечение аудио из видео', null, null, { key: 'work.extract' });
   await extractAnalysisAudio(sourcePath, analysisAudio, workspace.toolsDir);
+  // Сверка полноты входа: см. intakeVerdict.
+  const verdict = intakeVerdict(info.durationSeconds, await wavDuration(analysisAudio));
+  if (verdict.kind !== 'ok') {
+    const lost = `${verdict.missingSeconds.toFixed(1)} с из ${info.durationSeconds.toFixed(1)} ` +
+      `(${(verdict.share * 100).toFixed(0)}%)`;
+    if (verdict.kind === 'broken') {
+      throw new StageError('s1', `Из файла извлеклось не всё аудио: не хватает ${lost}`, {
+        artifact: sourcePath,
+        hints: [
+          'Похоже, файл скачан не полностью или повреждён — проверьте его проигрывателем',
+          'Скачайте файл заново и повторите',
+        ],
+      });
+    }
+    warnings.push(
+      `Извлечённое аудио короче заявленной длительности на ${lost} — ` +
+        'возможно, файл повреждён; конец фильма может остаться без дубляжа',
+    );
+  }
+
   log.step('Сохранение копии оригинала для сведения');
   await extractOriginalAudio(sourcePath, originalAudio, workspace.toolsDir);
 
