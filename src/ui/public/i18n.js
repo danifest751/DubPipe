@@ -413,6 +413,10 @@ const DICTIONARY = {
     ru: 'Тон спорит с говорящим у реплик: {lines}. Диаризация могла отдать их соседу по сцене — переслушайте',
     en: 'The pitch argues with the assigned speaker on: {lines}. Diarization may have handed these lines to the wrong person — listen again',
   },
+  'warn.s3.reviewerUnavailable': {
+    ru: 'Рецензент {model} недоступен ({reason}) — перевод остаётся без рецензии',
+    en: 'The reviewer {model} is unavailable ({reason}) — the translation is left unreviewed',
+  },
   'warn.s3.untranslatedKept': {
     ru: 'Реплика {id} не переведена — оставлен оригинал',
     en: 'Line {id} was not translated — the original is kept',

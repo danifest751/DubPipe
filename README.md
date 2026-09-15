@@ -384,8 +384,22 @@ just as much as you do get a grip» with «Ну да, я был не в себе
 nothing at all.
 
 So it is worth having the review done by a cloud model even when the translation runs
-locally: `review.model` is set separately from `translate.model`. It is one pass per film,
-cheaper than the translation itself.
+locally: `review.model` is set separately from `translate.model`, and it picks its own
+engine by the name it is given — `ollama:qwen3:14b` is local, anything else goes to the
+gateway, the same rule `dub compare` uses. A reviewer that does not answer costs you the
+review, not the translation: the finished text is kept and the run says why it was not
+reviewed.
+
+```yaml
+translate:
+  engine: ollama              # the draft is written locally
+  model: qwen3:8b
+  review:
+    enabled: true
+    model: anthropic/claude-sonnet-4.5   # and read by a cloud model
+```
+
+It is one pass per film, cheaper than the translation itself.
 
 The knobs live in `config.yaml`: which checks run (`checks`), the discard threshold
 (`max_changes_share`), and the pass size for very long films (`batch_lines`).

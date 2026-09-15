@@ -22,6 +22,31 @@ export interface ChatClientSelection {
  * hybrid → gateway, and if the gateway has no key or does not answer, the local
  * model takes over with a warning. Only when nothing is usable is it an error.
  */
+/**
+ * Клиент по имени модели: `ollama:<модель>` — локальный демон, всё остальное —
+ * шлюз. Этим правилом пользуются сравнение моделей и выбор рецензента: там имя
+ * задаёт человек, и оно, а не профиль прогона, решает, куда уйдёт запрос.
+ */
+export async function clientFor(config: DubConfig, modelId: string): Promise<ChatClient> {
+  if (modelId.startsWith('ollama:')) {
+    const local = new OllamaClient(config, modelId.slice('ollama:'.length));
+    if (!(await local.available())) {
+      throw new StageError('s3', `модель ${local.model} недоступна в Ollama`, {
+        hints: [`ollama pull ${local.model}`],
+      });
+    }
+    return local;
+  }
+
+  const gateway = await KiloGatewayClient.create(config, modelId);
+  if (!gateway) {
+    throw new StageError('s3', `не задан ключ ${config.kilo_gateway.api_key_env}`, {
+      hints: [`Задайте переменную ${config.kilo_gateway.api_key_env} или берите локальную модель: ollama:<модель>`],
+    });
+  }
+  return gateway;
+}
+
 export async function selectChatClient(config: DubConfig, model?: string): Promise<ChatClientSelection> {
   const warnings: StageWarning[] = [];
 

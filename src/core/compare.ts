@@ -1,10 +1,9 @@
 import type { DubConfig } from '../config/schema.js';
-import { KiloGatewayClient, OllamaClient, type ChatClient } from '../providers/llm/index.js';
+import { clientFor } from '../providers/llm/index.js';
 import { estimateCost, formatCost, loadCatalog, type CatalogModel } from '../providers/llm/catalog.js';
 import { lengthVerdict, roomFor, translateSegments, type LengthStats, type RunUsage } from '../stages/s3-translate.js';
 import { log } from './logger.js';
 import type { Segment } from './types.js';
-import { StageError } from './errors.js';
 
 /**
  * Side-by-side translation comparison across models.
@@ -32,27 +31,6 @@ export interface ComparisonReport {
   createdAt: string;
   replicaCount: number;
   models: ModelComparison[];
-}
-
-/** Builds the client for a model id; `ollama:` picks the local engine. */
-export async function clientFor(config: DubConfig, modelId: string): Promise<ChatClient> {
-  if (modelId.startsWith('ollama:')) {
-    const local = new OllamaClient(config, modelId.slice('ollama:'.length));
-    if (!(await local.available())) {
-      throw new StageError('s3', `модель ${local.model} недоступна в Ollama`, {
-        hints: [`ollama pull ${local.model}`],
-      });
-    }
-    return local;
-  }
-
-  const gateway = await KiloGatewayClient.create(config, modelId);
-  if (!gateway) {
-    throw new StageError('s3', `не задан ключ ${config.kilo_gateway.api_key_env}`, {
-      hints: [`Задайте переменную ${config.kilo_gateway.api_key_env} или сравнивайте локальные модели: ollama:<модель>`],
-    });
-  }
-  return gateway;
 }
 
 export interface CompareOptions {

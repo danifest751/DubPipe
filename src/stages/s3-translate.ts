@@ -8,7 +8,7 @@ import { languageProfile } from '../core/languages.js';
 import { counter, log } from '../core/logger.js';
 import { availableSeconds, slotOf, warn, type Segment, type StageWarning } from '../core/types.js';
 import type { Workspace } from '../core/workspace.js';
-import { selectChatClient, type ChatClient, type ChatUsage } from '../providers/llm/index.js';
+import { clientFor, selectChatClient, type ChatClient, type ChatUsage } from '../providers/llm/index.js';
 import { formatCost } from '../providers/llm/catalog.js';
 import { effectiveSpeechShape } from '../core/calibration.js';
 import { rememberTokenRate } from '../core/translation-cost.js';
@@ -787,7 +787,41 @@ const REVIEW_SCHEMA: Record<string, unknown> = {
  * пользуются перевод и подгонка, а рецензия, переписавшая полфильма, отвергается
  * целиком — см. applyReview.
  */
-async function reviewTranslation(
+/**
+ * Кто рецензирует: та же модель, что переводила, или названная в настройках.
+ *
+ * `null` — рецензии не будет: названный рецензент не отозвался. Перевод к этому
+ * времени готов и записан, и ронять из-за него стадию нечестно — человек
+ * получит перевод и строку о том, почему он остался без рецензии.
+ */
+async function reviewerFor(
+  config: DubConfig,
+  model: string | null,
+  translator: ChatClient,
+  warnings: StageWarning[],
+): Promise<ChatClient | null> {
+  if (!model) return translator;
+  try {
+    return await clientFor(config, model);
+  } catch (error) {
+    const reason = (error as Error).message;
+    warnings.push(
+      warn('warn.s3.reviewerUnavailable', `Рецензент ${model} недоступен (${reason}) — перевод остаётся без рецензии`, {
+        model,
+        reason,
+      }),
+    );
+    return null;
+  }
+}
+
+/**
+ * Рецензия открыта наружу ради замера: только так проход можно приложить к
+ * одному и тому же черновику. Локальный перевод от прогона к прогону гуляет —
+ * на третьем эпизоде укладка вышла 31.6% и 42.1% на одинаковых настройках, — и
+ * сравнивать два полных прогона бессмысленно: разница окажется про случайность.
+ */
+export async function reviewTranslation(
   client: ChatClient,
   config: DubConfig,
   segments: Segment[],
@@ -961,20 +995,29 @@ export async function runS3(workspace: Workspace, baseConfig: DubConfig, segment
    * указана другая: спорить о переводе с самим собой полезнее, чем с чужим.
    */
   if (config.translate.review.enabled) {
-    const reviewer = config.translate.review.model
-      ? (await selectChatClient(baseConfig, config.translate.review.model)).client
-      : client;
-    if (reviewer !== client) log.step(`рецензия через ${reviewer.name}, модель ${reviewer.model}`);
-    run.segments = await reviewTranslation(reviewer, config, run.segments, workspace, run.glossary, run.usage, run.warnings);
-    await workspace.writeSegments(run.segments);
-    run.stats = lengthStats(
-      run.segments,
-      config.translate.chars_per_second,
-      config.translate.length_tolerance,
-      config.translate.length_tolerance_floor_ms / 1000,
-      config.translate.speech_overhead_seconds,
-      roomFor(config, run.segments),
-    );
+    /*
+     * Движок рецензента — по имени его модели, а не по профилю прогона.
+     *
+     * Иначе гибрид «черновик локально, рецензия облаком» собрать нельзя: имя
+     * облачной модели уходило в Ollama, и стадия падала на «модель не
+     * установлена». Правило то же, что у `dub compare`: `ollama:<модель>` —
+     * локальная, всё остальное — шлюз. Недоступный рецензент не отменяет
+     * перевода: он уже сделан, и терять его из-за второго прохода нелепо.
+     */
+    const reviewer = await reviewerFor(baseConfig, config.translate.review.model, client, run.warnings);
+    if (reviewer) {
+      if (reviewer !== client) log.step(`рецензия через ${reviewer.name}, модель ${reviewer.model}`);
+      run.segments = await reviewTranslation(reviewer, config, run.segments, workspace, run.glossary, run.usage, run.warnings);
+      await workspace.writeSegments(run.segments);
+      run.stats = lengthStats(
+        run.segments,
+        config.translate.chars_per_second,
+        config.translate.length_tolerance,
+        config.translate.length_tolerance_floor_ms / 1000,
+        config.translate.speech_overhead_seconds,
+        roomFor(config, run.segments),
+      );
+    }
   }
 
   const { stats } = run;

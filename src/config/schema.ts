@@ -122,7 +122,14 @@ export const LOCAL_DEFAULT_MODEL = 'qwen2.5:7b-instruct';
  */
 const reviewSchema = z.object({
   enabled: z.boolean().default(false),
-  /** Модель рецензии; `null` — та же, что и переводила. */
+  /**
+   * Модель рецензии; `null` — та же, что и переводила.
+   *
+   * Движок выбирается по имени, а не по профилю прогона: `ollama:qwen3:14b` —
+   * локальный демон, всё прочее — шлюз. Так собирается гибрид «черновик
+   * локально, рецензия облаком», ради которого это поле и отделено от
+   * `translate.model`.
+   */
   model: z.string().nullable().default(null),
   /**
    * Сколько реплик отдавать за один заход.

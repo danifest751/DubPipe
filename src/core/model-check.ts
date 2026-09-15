@@ -1,7 +1,8 @@
 import type { DubConfig } from '../config/schema.js';
 import { estimateCost, loadCatalog, type CatalogModel } from '../providers/llm/catalog.js';
 import { lengthVerdict, roomFor, translateSegments, type RunUsage } from '../stages/s3-translate.js';
-import { clientFor, comparisonConfig } from './compare.js';
+import { comparisonConfig } from './compare.js';
+import { clientFor } from '../providers/llm/index.js';
 import { makeSegment } from './types.js';
 
 /**
