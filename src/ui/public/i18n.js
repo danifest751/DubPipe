@@ -439,6 +439,10 @@ const DICTIONARY = {
     ru: 'У {speaker} тон говорит «{byPitch}», а текст — «{byText}» ({lines}). Голос оставлен по тону: проверьте в панели «Голоса и персонажи»',
     en: 'For {speaker} the pitch says “{byPitch}” while the text says “{byText}” ({lines}). The voice follows the pitch — check it in “Voices and characters”',
   },
+  'warn.s5.foreignVoice': {
+    ru: 'Голос «{voice}» ({speaker}, {source}) этому движку неизвестен — выбран по полу',
+    en: 'The voice “{voice}” ({speaker}, {source}) is unknown to this engine — one is chosen by gender instead',
+  },
   'warn.s3.phrasesFailed': {
     ru: 'Разметка фраз не удалась ({reason}): реплики озвучатся целиком',
     en: 'Phrase marking failed ({reason}): lines will be voiced as a whole',

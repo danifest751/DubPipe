@@ -131,10 +131,44 @@ async function withConcurrency<T>(items: T[], limit: number, worker: (item: T) =
 
 export async function runS5(workspace: Workspace, baseConfig: DubConfig, segments: Segment[]): Promise<S5Result> {
   // Голоса, назначенные в режиме просмотра этого видео, важнее общих настроек.
-  const config = applyOverrides(baseConfig, await workspace.readOverrides(), await workspace.readSpeakers());
-  const provider = createTtsProvider(workspace, config);
+  const overrides = await workspace.readOverrides();
+  const speakers = await workspace.readSpeakers();
+  const provider = createTtsProvider(workspace, baseConfig);
+  const stale: StageWarning[] = [];
   try {
-    return await synthesizeAll(workspace, config, segments, provider);
+    /*
+     * Имена голосов от прежнего движка выбрасываются, а не роняют стадию.
+     *
+     * Имена у движков свои и не пересекаются. Настройки при смене движка чистит
+     * интерфейс, а назначения голосов **этого видео** живут отдельно и остаются
+     * от piper — стадия падала на «движок silero не знает голоса
+     * ru_RU-denis-medium», и человек не понимал, при чём тут видео, которое он
+     * не трогал. Неизвестное имя теперь просто уступает раздаче по полу.
+     */
+    const known = new Set(await provider.listVoices().catch(() => []));
+    const drop = (map: Record<string, string>, source: string): Record<string, string> => {
+      const kept: Record<string, string> = {};
+      for (const [speaker, voice] of Object.entries(map)) {
+        if (known.size === 0 || known.has(voice)) kept[speaker] = voice;
+        else
+          stale.push(
+            warn('warn.s5.foreignVoice', `Голос «${voice}» (${speaker}, ${source}) этому движку неизвестен — выбран по полу`, {
+              voice,
+              speaker,
+              source,
+            }),
+          );
+      }
+      return kept;
+    };
+
+    const config = applyOverrides(
+      { ...baseConfig, tts: { ...baseConfig.tts, voice_map: drop(baseConfig.tts.voice_map, 'настройки') } },
+      { ...overrides, voices: drop(overrides.voices, 'правки видео') },
+      speakers,
+    );
+    const result = await synthesizeAll(workspace, config, segments, provider);
+    return { ...result, warnings: [...stale, ...result.warnings] };
   } finally {
     // Движок мог держать поднятую модель в отдельном процессе. Отпускаем и на
     // ошибке тоже: иначе процесс переживёт стадию и удержит программу.
