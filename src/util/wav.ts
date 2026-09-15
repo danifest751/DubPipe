@@ -1,5 +1,5 @@
 import { createReadStream } from 'node:fs';
-import { open } from 'node:fs/promises';
+import { open, writeFile } from 'node:fs/promises';
 
 /**
  * Minimal WAV reading for 16-bit PCM. Audio is consumed in chunks and never
@@ -125,4 +125,45 @@ export async function wavDuration(filePath: string): Promise<number> {
   const format = await readWavFormat(filePath);
   const bytesPerFrame = (format.bitsPerSample / 8) * format.channels;
   return format.dataLength / (bytesPerFrame * format.sampleRate);
+}
+
+/** Клип целиком в память: реплика — это секунды, а не часы. */
+export async function readClip(filePath: string): Promise<{ samples: Float32Array; sampleRate: number }> {
+  const format = await readWavFormat(filePath);
+  if (format.bitsPerSample !== 16) throw new Error(`поддерживается только 16-битный PCM, получено ${format.bitsPerSample} бит`);
+  const handle = await open(filePath, 'r');
+  try {
+    const bytes = Buffer.alloc(format.dataLength);
+    await handle.read(bytes, 0, bytes.length, format.dataOffset);
+    const step = 2 * format.channels;
+    const samples = new Float32Array(Math.floor(format.dataLength / step));
+    for (let i = 0; i < samples.length; i++) samples[i] = bytes.readInt16LE(i * step) / 32768;
+    return { samples, sampleRate: format.sampleRate };
+  } finally {
+    await handle.close();
+  }
+}
+
+/** Пишет моно 16 бит: заголовок RIFF на 44 байта и отсчёты. */
+export async function writeClip(filePath: string, samples: Float32Array, sampleRate: number): Promise<void> {
+  const data = Buffer.alloc(samples.length * 2);
+  for (let i = 0; i < samples.length; i++) {
+    const value = Math.max(-1, Math.min(1, samples[i]!));
+    data.writeInt16LE(Math.round(value * 32767), i * 2);
+  }
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + data.length, 4);
+  header.write('WAVE', 8);
+  header.write('fmt ', 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(1, 22); // моно
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write('data', 36);
+  header.writeUInt32LE(data.length, 40);
+  await writeFile(filePath, Buffer.concat([header, data]));
 }

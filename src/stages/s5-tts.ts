@@ -1,15 +1,18 @@
 import path from 'node:path';
+import { rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import type { DubConfig } from '../config/schema.js';
 import { cancellation } from '../core/cancel.js';
 import { counter, log } from '../core/logger.js';
-import { warn, type Segment, type StageWarning } from '../core/types.js';
+import { slotOf, warn, type Segment, type StageWarning } from '../core/types.js';
 import type { Workspace } from '../core/workspace.js';
 import { applyOverrides } from '../core/overrides.js';
 import { createTtsProvider, voiceForSpeaker, type TtsProvider } from '../providers/tts/index.js';
 import { effectiveSpeechShape, rememberCalibration } from '../core/calibration.js';
 import { roomFor } from './s3-translate.js';
 import { sha256 } from '../util/hash.js';
+import { readClip, writeClip } from '../util/wav.js';
+import { sourcePhrases, splitTranslation, type PhrasePlan } from './s5-phrases.js';
 
 /**
  * S5 — speech synthesis, one clip per replica (SPEC FR-5).
@@ -139,6 +142,77 @@ export async function runS5(workspace: Workspace, baseConfig: DubConfig, segment
   }
 }
 
+/**
+ * Синтез реплики по фразам оригинала.
+ *
+ * Говорящий делал паузы — дубляж делает их там же: перевод режется на столько
+ * же кусков, каждый озвучивается отдельно и клипы склеиваются через паузы
+ * оригинала. Так реплика молчит вместе с актёром, а не выговаривает всё подряд,
+ * оставляя дыру в конце. Это «prosodic alignment» из работ по автоматическому
+ * дубляжу (Amazon, arXiv 2204.02530); порог в 300 мс, по которому молчание
+ * считается паузой, оттуда же.
+ *
+ * Куски озвучиваются порознь не ради удобства: у отдельной фразы своя интонация
+ * с завершением, а разрезать готовый сплошной клип нельзя — интонация потянется
+ * через вставленную тишину и выдаст подделку.
+ */
+async function synthesizePhrases(
+  provider: TtsProvider,
+  segment: Segment,
+  plan: PhrasePlan,
+  voice: string,
+  outputPath: string,
+): Promise<{ path: string; durationSeconds: number; rhythm: boolean }> {
+  const parts: string[] = [];
+  try {
+    const clips: Array<{ samples: Float32Array; sampleRate: number }> = [];
+    for (const [index, text] of plan.parts.entries()) {
+      const partPath = `${outputPath}.part${index}.wav`;
+      parts.push(partPath);
+      await provider.synthesize({ id: segment.id, text, voice, outputPath: partPath });
+      clips.push(await readClip(partPath));
+    }
+
+    const sampleRate = clips[0]!.sampleRate;
+    /*
+     * Паузы кладутся только в то время, которое реплике и так не нужно.
+     *
+     * Первая версия вставляла паузы оригинала как есть — и реплика, которая
+     * едва помещалась, вылезала за слот: «Вы совершаете очень серьёзную ошибку»
+     * из 1.66 с превращалась в 3.23 с, и укладке оставалось её ускорять. Ритм
+     * оригинала стоит того, чтобы его повторить, но не ценой ускорения всей
+     * реплики. Свободного времени нет — куски просто склеиваются встык.
+     */
+    const speech = clips.reduce((sum, clip) => sum + clip.samples.length / sampleRate, 0);
+    const budget = Math.max(0, slotOf(segment) - speech);
+    const asked = plan.pauses.reduce((sum, value) => sum + value, 0);
+    const scale = asked > 0 ? Math.min(1, budget / asked) : 0;
+    /*
+     * Свободного времени нет — реплика озвучивается целиком, как раньше.
+     *
+     * Дробить её тогда не за чем: паузы всё равно нулевые, а склейка отдельно
+     * озвученных кусков звучит иначе, чем одна фраза, — у каждого куска своё
+     * интонационное завершение. Менять звучание без выигрыша нельзя.
+     */
+    if (scale * asked < 0.08) {
+      const whole = await provider.synthesize({ id: segment.id, text: plan.parts.join(' '), voice, outputPath });
+      return { ...whole, rhythm: false };
+    }
+    const silences = plan.pauses.map((seconds) => Math.round(seconds * scale * sampleRate));
+    const total = clips.reduce((sum, clip) => sum + clip.samples.length, 0) + silences.reduce((sum, value) => sum + value, 0);
+    const joined = new Float32Array(total);
+    let offset = 0;
+    for (const [index, clip] of clips.entries()) {
+      joined.set(clip.samples, offset);
+      offset += clip.samples.length + (silences[index] ?? 0);
+    }
+    await writeClip(outputPath, joined, sampleRate);
+    return { path: outputPath, durationSeconds: joined.length / sampleRate, rhythm: true };
+  } finally {
+    for (const part of parts) await rm(part, { force: true });
+  }
+}
+
 async function synthesizeAll(
   workspace: Workspace,
   config: DubConfig,
@@ -160,6 +234,7 @@ async function synthesizeAll(
   log.step(`синтез ${pending.length} реплик, голосов: ${[...voices].join(', ')}`);
 
   let done = 0;
+  let byRhythm = 0;
   await withConcurrency(pending, config.tts.concurrency, async (segment) => {
     const outputPath = path.join(outputDir, `${String(segment.id).padStart(4, '0')}.wav`);
     const voice = voiceForSpeaker(segment.speaker, config.tts.voice_map, config.tts.default_voice);
@@ -167,7 +242,13 @@ async function synthesizeAll(
     // Повторный запуск не переозвучивает то, что уже озвучено тем же движком,
     // голосом и текстом. Проверять только наличие файла нельзя: смена голоса
     // тогда не меняет ничего, файлы-то на месте.
-    const key = ttsKey(voice, segment.text_ru!, provider.fingerprint);
+    /*
+     * Если говорящий делал паузы, реплика озвучивается по фразам и собирается с
+     * теми же паузами. План входит в отпечаток: без этого повторный прогон
+     * оставил бы клип, склеенный по-старому.
+     */
+    const plan = config.tts.phrase_rhythm ? splitTranslation(segment.text_ru!, sourcePhrases(segment.words)) : null;
+    const key = ttsKey(voice, segment.text_ru!, provider.fingerprint + (plan ? `|фразы:${plan.pauses.join(',')}` : ''));
     if (
       existsSync(outputPath) &&
       segment.tts_file === outputPath &&
@@ -178,13 +259,18 @@ async function synthesizeAll(
       return;
     }
 
-    const result = await provider.synthesize({ id: segment.id, text: segment.text_ru!, voice, outputPath });
-    recordClip(segment, result, voice, segment.text_ru!, provider.fingerprint);
+    const result = plan
+      ? await synthesizePhrases(provider, segment, plan, voice, outputPath)
+      : await provider.synthesize({ id: segment.id, text: segment.text_ru!, voice, outputPath });
+    recordClip(segment, result, voice, segment.text_ru!, provider.fingerprint + (plan ? `|фразы:${plan.pauses.join(',')}` : ''));
+    if (plan && 'rhythm' in result && result.rhythm) byRhythm++;
 
     done++;
     log.progress(`синтезировано реплик ${counter(done, pending.length)}`, null, { done, total: pending.length }, { key: 'work.tts', params: { done, total: pending.length } });
     if (done % 10 === 0 || done === pending.length) log.step(`синтезировано ${counter(done, pending.length)}`);
   });
+
+  if (byRhythm > 0) log.step(`озвучено по фразам оригинала: ${byRhythm}`);
 
   // Место считается так же, как его считают перевод и укладка: слот плюс
   // занимаемая пауза. По голому слоту предупреждение пугало впустую — на
