@@ -204,6 +204,17 @@ const DICTIONARY = {
   'segments.voicePick': { ru: 'Голос этого персонажа', en: 'Voice for this character' },
   'segments.revoiceConfirm': { ru: 'Голоса изменены. Переозвучить затронутые реплики ({count}) и пересвести файл?', en: 'Voices changed. Re-voice the affected replicas ({count}) and re-mix the file?' },
   'segments.savedNoRun': { ru: 'Правки сохранены. Переозвучить можно позже — кнопкой «Внести правки и пересвести»', en: 'Edits saved. You can re-voice later with “Apply edits and re-mix”' },
+  'segments.reviewSummary': {
+    ru: 'Рецензия {model}: принято правок {count} — они отмечены под переводом',
+    en: 'Review by {model}: {count} edits accepted — marked under the translation',
+  },
+  'segments.reviewDiscarded': {
+    ru: 'Рецензия {model} отброшена целиком: правок оказалось {count} — это уже не правка, а новый перевод',
+    en: 'The review by {model} was discarded whole: {count} edits is a retranslation, not an edit',
+  },
+  'segments.reviewed': { ru: 'рецензия', en: 'reviewed' },
+  'segments.reviewWas': { ru: 'Было:', en: 'Was:' },
+  'segments.reviewUndo': { ru: 'вернуть', en: 'undo' },
   'segments.flag.translation_failed': { ru: 'перевод не удался', en: 'translation failed' },
   'segments.flag.profanity': { ru: 'брань смягчена', en: 'profanity softened' },
   'segments.flag.truncated': { ru: 'обрезано', en: 'truncated' },

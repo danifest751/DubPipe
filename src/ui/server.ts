@@ -1261,6 +1261,9 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
         // Карта голосов с учётом пола, определённого на S2; правки видео поверх неё — в overrides.
         voiceMap: applyOverrides(config, EMPTY_OVERRIDES, await workspace.readSpeakers()).tts.voice_map,
         speakers: await workspace.readSpeakers(),
+        // Журнал рецензии: что она переписала и почему. Без него правка видна
+        // только как готовый текст, и отличить находку от выдумки нечем.
+        review: await workspace.readReview(),
         mix: {
           background_gain_db: config.mix.background_gain_db,
           voice_gain_db: config.mix.voice_gain_db,

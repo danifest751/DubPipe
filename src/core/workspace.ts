@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile, rm, readdir, stat } from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
 import { normalizeOverrides, type ProjectOverrides, type SpeakerProfiles } from './overrides.js';
+import type { ReviewJournal } from '../stages/review.js';
 import type { Cue } from '../stages/subtitles.js';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -148,6 +149,23 @@ export class Workspace {
 
   writeSegments(segments: Segment[]): Promise<void> {
     return this.writeJson(this.segmentsPath, segments);
+  }
+
+  /**
+   * Журнал финальной рецензии: что она предложила по каждой реплике и что с
+   * этим стало. Единственное место, где сохраняется текст «до»: в `segments.json`
+   * рецензия оставляет только итог, и проверить её потом нечем.
+   */
+  get reviewPath(): string {
+    return this.file('review.json');
+  }
+
+  readReview(): Promise<ReviewJournal | null> {
+    return this.readJson<ReviewJournal>(this.reviewPath);
+  }
+
+  writeReview(journal: ReviewJournal): Promise<void> {
+    return this.writeJson(this.reviewPath, journal);
   }
 
   async readState(): Promise<StageState> {

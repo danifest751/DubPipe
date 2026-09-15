@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { makeSegment, type Segment } from '../src/core/types.js';
 import {
   applyReview,
+  buildJournal,
   buildRefitLines,
   buildReviewLines,
   checksSection,
@@ -227,5 +228,89 @@ describe('переспрос по правкам, не влезшим в сло�
     const second = applyReview(segments, [{ id: 1, text_ru: 'Ты начала.', reason: 'род' }], options());
     expect(second.applied).toHaveLength(1);
     expect(second.segments[0]!.text_ru).toBe('Ты начала.');
+  });
+});
+
+describe('журнал рецензии', () => {
+  /**
+   * Рецензия — единственная стадия, переписывающая готовый русский текст, и
+   * делала она это молча. Предохранители стерегут укладку, а не смысл: выдумку,
+   * влезшую в слот, видно только рядом с тем, что было.
+   */
+  const about = { engine: 'Kilo Gateway', model: 'anthropic/claude-sonnet-4.5', lines: 2 };
+
+  it('хранит прежний текст, правку и пояснение', () => {
+    const segments = [line(1, 'Ты начал вести себя странно')];
+    const proposed = [{ id: 1, text_ru: 'Ты начала вести себя странно', reason: 'род: говорит женщина' }];
+    const outcome = applyReview(segments, proposed, options());
+    const journal = buildJournal(segments, proposed, outcome, options(), about);
+    expect(journal.entries).toHaveLength(1);
+    expect(journal.entries[0]).toMatchObject({
+      id: 1,
+      before: 'Ты начал вести себя странно',
+      after: 'Ты начала вести себя странно',
+      reason: 'род: говорит женщина',
+      verdict: 'applied',
+    });
+    expect(journal.applied).toBe(1);
+    expect(journal.discarded).toBe(false);
+  });
+
+  it('отклонённая правка остаётся в журнале со своей причиной', () => {
+    const segments = [line(1, 'Коротко')];
+    const tooLong = 'Очень длинная фраза, которая в отведённое время никак не помещается и не поместится';
+    const proposed = [{ id: 1, text_ru: tooLong }];
+    const outcome = applyReview(segments, proposed, options());
+    const journal = buildJournal(segments, proposed, outcome, options(), about);
+    expect(journal.entries[0]?.verdict).toBe('worse_fit');
+    expect(journal.entries[0]?.miss_after).toBeGreaterThan(journal.entries[0]!.miss_before);
+    expect(journal.applied).toBe(0);
+  });
+
+  it('отброшенная целиком рецензия всё равно показывает, что она предлагала', () => {
+    // Ради этого случая журнал и собирается по предложениям: applyReview при
+    // отказе возвращает пустой список принятых, и смотреть было бы не на что.
+    // Двадцать реплик — ниже этого числа доля переписанного ни о чём не говорит,
+    // и предохранитель намеренно молчит.
+    const segments = Array.from({ length: 24 }, (_, index) => line(index, `реплика ${index}`));
+    // Правки должны укладываться не хуже прежнего текста, иначе их отклонит
+    // первый предохранитель и до второго дело не дойдёт.
+    const proposed = segments.map((segment) => ({ id: segment.id, text_ru: `Совсем иначе сказано в реплике ${segment.id}, да` }));
+    const outcome = applyReview(segments, proposed, options());
+    expect(outcome.discarded).toBe(true);
+    const journal = buildJournal(segments, proposed, outcome, options(), about);
+    expect(journal.discarded).toBe(true);
+    expect(journal.applied).toBe(0);
+    expect(journal.entries).toHaveLength(24);
+    expect(journal.entries.every((entry) => entry.verdict === 'discarded')).toBe(true);
+    expect(journal.entries[0]?.after).toBe('Совсем иначе сказано в реплике 0, да');
+  });
+
+  it('правка, не дожившая до решения, не выдаётся за отброшенную рецензию', () => {
+    // Переспрос пересобирает набор заново: отклонённая в первом заходе правка,
+    // не уложившаяся и со второй попытки, не попадает ни в принятые, ни в
+    // отклонённые. На настоящем эпизоде таких оказалось четыре из тридцати трёх.
+    const segments = [line(1, 'Он здесь'), line(2, 'Коротко')];
+    const proposed = [
+      { id: 1, text_ru: 'Клянусь, он был здесь' },
+      { id: 2, text_ru: 'Совсем иначе сказано в этой реплике, да' },
+    ];
+    // Так делает стадия: до решения доходит только вторая правка.
+    const outcome = applyReview(segments, [proposed[1]!], options());
+    const journal = buildJournal(segments, proposed, outcome, options(), about);
+    expect(journal.discarded).toBe(false);
+    expect(journal.entries.find((entry) => entry.id === 1)?.verdict).toBe('dropped');
+    expect(journal.entries.find((entry) => entry.id === 2)?.verdict).toBe('applied');
+  });
+
+  it('после переспроса записан тот текст, который приняли, а не первый', () => {
+    const segments = [line(1, 'Коротко')];
+    const tooLong = 'Очень длинная фраза, которая в отведённое время никак не помещается и не поместится';
+    const refitted = { id: 1, text_ru: 'Ты повёл себя странно' };
+    // Так делает стадия: после отказа по длине набор пересобирается заново.
+    const outcome = applyReview(segments, [refitted], options());
+    const journal = buildJournal(segments, [{ id: 1, text_ru: tooLong }], outcome, options(), about);
+    expect(journal.entries[0]?.after).toBe('Ты повёл себя странно');
+    expect(journal.entries[0]?.verdict).toBe('applied');
   });
 });

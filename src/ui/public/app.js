@@ -923,7 +923,7 @@ function renderSegments() {
         <td class="speaker">${speakerCell(segment)}</td>
         <td class="character">${escapeHtml(speakerLabel(segment.speaker))}</td>
         <td><textarea data-field="text_en">${escapeHtml(segment.text_en)}</textarea></td>
-        <td><textarea data-field="text_ru">${escapeHtml(segment.text_ru ?? '')}</textarea></td>
+        <td><textarea data-field="text_ru">${escapeHtml(segment.text_ru ?? '')}</textarea>${reviewMark(segment, index)}</td>
         <td class="fit ${fit.cls}">${fit.label}${segment.tts_duration ? `<br><span class="meta">${t('segments.synth', { value: segment.tts_duration.toFixed(2) })}</span>` : ''}</td>
         <td><span class="meta">${flagLabels(segment)}</span></td>
         <td>${clip ? `<button data-play-target="${index}" class="ghost small" title="${escapeAttr(t('segments.playTargetHint'))}">${icon('play')} ${t('segments.target')}</button>` : ''}<button data-play-original="${index}" class="ghost small">${icon('play')} ${t('segments.original')}</button></td>
@@ -947,6 +947,15 @@ function renderSegments() {
         const value = Number(field.value.replace(',', '.'));
         if (Number.isFinite(value)) segment[key] = value;
       } else segment[key] = field.value;
+      renderSegments();
+    }),
+  );
+  body.querySelectorAll('[data-review-undo]').forEach((button) =>
+    button.addEventListener('click', () => {
+      const segment = state.segments[Number(button.dataset.reviewUndo)];
+      const entry = state.reviewById?.get(segment.id);
+      if (!entry) return;
+      segment.text_ru = entry.before;
       renderSegments();
     }),
   );
@@ -1100,6 +1109,41 @@ function flagLabels(segment) {
   return escapeHtml(labels.join(', '));
 }
 
+/**
+ * Одна строка о рецензии над таблицей: кто читал перевод и сколько правок
+ * принято. Отброшенная рецензия говорит об этом прямо — иначе её работа выглядит
+ * как её отсутствие, а деньги за проход всё равно потрачены.
+ */
+function renderReviewInfo() {
+  const box = $('#reviewInfo');
+  if (!box) return;
+  const journal = state.review;
+  box.hidden = !journal;
+  if (!journal) return;
+  box.textContent = journal.discarded
+    ? t('segments.reviewDiscarded', { model: journal.model, count: journal.entries.length })
+    : t('segments.reviewSummary', { model: journal.model, count: journal.applied });
+}
+
+/**
+ * След рецензии в строке: чем она объяснила правку, что было до неё и кнопка
+ * вернуть прежний текст.
+ *
+ * Предохранители рецензии стерегут укладку, а не смысл: выдумка, влезшая в
+ * слот, проходит насквозь. Заметить её можно только рядом с прежним текстом —
+ * поэтому он здесь же, а не в служебном файле.
+ */
+function reviewMark(segment, index) {
+  const entry = state.reviewById?.get(segment.id);
+  if (!entry || (segment.text_ru ?? '').trim() !== entry.after.trim()) return '';
+  const hint = `${t('segments.reviewWas')} ${entry.before}${entry.reason ? `
+${entry.reason}` : ''}`;
+  return (
+    `<div class="reviewed" title="${escapeAttr(hint)}">${icon('check')} ${t('segments.reviewed')}` +
+    `<button type="button" class="ghost small" data-review-undo="${index}">${t('segments.reviewUndo')}</button></div>`
+  );
+}
+
 function speakerCell(segment) {
   const index = state.segments.indexOf(segment);
   const known = [...new Set([...state.segments.map((item) => item.speaker), segment.speaker])].sort();
@@ -1226,6 +1270,10 @@ async function loadSegments() {
   // Пол голоса определяется на S2 и нужен таблице реплик, а не только режиму
   // просмотра: по нему видно, тем ли голосом озвучен персонаж.
   state.speakers = data.speakers ?? {};
+  // Журнал рецензии: по нему в строке видно, что переписано и почему, и есть
+  // чем вернуть прежний текст, если правка оказалась выдумкой.
+  state.review = data.review ?? null;
+  state.reviewById = new Map((data.review?.entries ?? []).filter((entry) => entry.verdict === 'applied').map((entry) => [entry.id, entry]));
   state.output = data.output ?? null;
   mediaVersion = Date.now();
   // Голоса нужны таблице, а не только режиму просмотра: пол переключают прямо
@@ -1243,6 +1291,7 @@ async function loadSegments() {
   state.namesDirty = false;
   if (data.fit) state.fit = data.fit;
   $('#editorInfo').textContent = data.segments.length ? t('segments.count', { count: data.segments.length }) : '';
+  renderReviewInfo();
   state.defaultOutputDir = data.defaultOutputDir ?? null;
   renderOutPlace();
   $('#player').dataset.source = '';

@@ -494,6 +494,11 @@ body.col-resizing { cursor: col-resize; user-select: none; }
 /* Голос спорит с полом по записи: видно, что выбор не случайный, а чей-то. */
 .gender.on.clash { box-shadow: 0 0 0 2px var(--warn-soft); border-color: var(--warn); }
 .clash-note { color: var(--warn); font-size: 11.5px; }
+/* След рецензии под переводом: что переписано и чем это вернуть. */
+.reviewed { display: flex; align-items: center; gap: 4px; margin-top: 2px; font-size: 11px; color: var(--text-dim); }
+.reviewed .ico { width: 12px; height: 12px; flex: none; }
+.reviewed button { padding: 0 4px; font-size: 11px; }
+
 /* Говорящий под вопросом: тон реплики спорит с тем, кому её приписала диаризация. */
 .speaker-row select.doubt { border-color: var(--warn); box-shadow: 0 0 0 2px var(--warn-soft); }
 

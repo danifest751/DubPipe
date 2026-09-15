@@ -169,6 +169,130 @@ export function applyReview(
   return { segments: updated, applied, rejected, discarded: false };
 }
 
+/**
+ * Журнал рецензии: что она предложила, что с этим стало и почему.
+ *
+ * Рецензия — единственная стадия, которая переписывает уже готовый русский
+ * текст, и делала она это молча: в `segments.json` оставался только итог.
+ * Предохранители стерегут укладку, но не смысл — уложившаяся в слот выдумка
+ * проходит насквозь, и заметить её можно, лишь сравнив с тем, что было. Журнал
+ * и есть это сравнение: он не решает за человека, но даёт ему на что смотреть.
+ */
+export interface ReviewJournalEntry {
+  id: number;
+  /** Русский текст до рецензии. */
+  before: string;
+  /** Что предложила рецензия. */
+  after: string;
+  /** Пояснение модели, чем плоха прежняя формулировка. */
+  reason?: string;
+  /**
+   * `applied` — правка в тексте; остальное — почему её не взяли.
+   * `dropped` — отклонена в первом заходе и не уложилась при переспросе;
+   * `discarded` — рецензия отброшена целиком, вместе с этой правкой.
+   */
+  verdict: 'applied' | RejectedChange['why'] | 'dropped' | 'discarded';
+  /** Промах мимо слота до и после правки, в секундах; 0 — реплика укладывается. */
+  miss_before: number;
+  miss_after: number;
+}
+
+export interface ReviewJournal {
+  reviewed_at: string;
+  engine: string;
+  model: string;
+  /** Сколько реплик показали рецензии. */
+  lines: number;
+  applied: number;
+  rejected: number;
+  /** Рецензия отброшена целиком: в тексте не изменилось ничего. */
+  discarded: boolean;
+  entries: ReviewJournalEntry[];
+}
+
+/**
+ * Собирает журнал по исходным репликам, всем предложениям рецензии и решению
+ * `applyReview`.
+ *
+ * Предложения нужны отдельно от решения: отбрасывая рецензию целиком,
+ * `applyReview` возвращает пустой список принятых, и журнал по нему потерял бы
+ * ровно то, ради чего его смотрят, — какие 52 правки из 76 вызвали отказ.
+ */
+export function buildJournal(
+  before: Segment[],
+  proposed: ReviewChange[],
+  outcome: ReviewOutcome,
+  options: ApplyReviewOptions,
+  about: { engine: string; model: string; lines: number },
+): ReviewJournal {
+  const byId = new Map(before.map((segment) => [segment.id, segment]));
+  const miss = (segment: Segment, text: string): number =>
+    missBy(
+      lengthVerdict(
+        text,
+        options.room(segment),
+        options.charsPerSecond,
+        options.tolerance,
+        options.toleranceFloorSeconds,
+        options.overheadSeconds,
+      ),
+    );
+
+  const entry = (change: ReviewChange, verdict: ReviewJournalEntry['verdict']): ReviewJournalEntry | null => {
+    const segment = byId.get(change.id);
+    if (!segment) {
+      // Реплики с таким номером в фильме нет — сравнивать не с чем.
+      return { id: change.id, before: '', after: change.text_ru, reason: change.reason, verdict, miss_before: 0, miss_after: 0 };
+    }
+    const previous = (segment.text_ru ?? '').trim();
+    const next = change.text_ru.trim();
+    return {
+      id: change.id,
+      before: previous,
+      after: next,
+      ...(change.reason === undefined ? {} : { reason: change.reason }),
+      verdict,
+      miss_before: Number(miss(segment, previous).toFixed(2)),
+      miss_after: next ? Number(miss(segment, next).toFixed(2)) : 0,
+    };
+  };
+
+  const rejectedById = new Map(outcome.rejected.map((change) => [change.id, change.why]));
+  const appliedIds = new Set(outcome.applied.map((change) => change.id));
+  const verdictOf = (change: ReviewChange): ReviewJournalEntry['verdict'] => {
+    if (outcome.discarded) return 'discarded';
+    if (appliedIds.has(change.id)) return 'applied';
+    const why = rejectedById.get(change.id);
+    // Ни в принятых, ни в отклонённых: переспрос пересобирает набор заново, и
+    // правка первого захода, не уложившаяся и со второй попытки, до решения не
+    // доходит. Звать это «отброшенной рецензией» было бы неправдой.
+    return why ?? 'dropped';
+  };
+
+  const entries: ReviewJournalEntry[] = [];
+  const seen = new Set<number>();
+  // Решение впереди предложения: после переспроса по длине принят другой текст,
+  // и в журнале должен стоять он, а не первая формулировка.
+  for (const change of [...outcome.applied, ...outcome.rejected, ...proposed]) {
+    if (seen.has(change.id)) continue;
+    seen.add(change.id);
+    const row = entry(change, verdictOf(change));
+    if (row) entries.push(row);
+  }
+  entries.sort((a, b) => a.id - b.id);
+
+  return {
+    reviewed_at: new Date().toISOString(),
+    engine: about.engine,
+    model: about.model,
+    lines: about.lines,
+    applied: outcome.discarded ? 0 : outcome.applied.length,
+    rejected: outcome.rejected.length,
+    discarded: outcome.discarded,
+    entries,
+  };
+}
+
 /** Описания проверок для промпта: в список попадают только включённые. */
 const CHECK_TEXT: Record<keyof DubConfig['translate']['review']['checks'], string> = {
   gender:

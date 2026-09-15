@@ -14,6 +14,7 @@ import { effectiveSpeechShape } from '../core/calibration.js';
 import { rememberTokenRate } from '../core/translation-cost.js';
 import {
   applyReview,
+  buildJournal,
   buildRefitLines,
   buildReviewLines,
   checksSection,
@@ -932,6 +933,14 @@ export async function reviewTranslation(
     }
   }
 
+  await workspace.writeReview(
+    buildJournal(segments, collected, outcome, applyOptions, {
+      engine: client.name,
+      model: client.model,
+      lines: lines.length,
+    }),
+  );
+
   if (outcome.discarded) {
     log.warn('рецензия отброшена целиком: переписано слишком много реплик');
     warnings.push(
@@ -953,6 +962,7 @@ export async function reviewTranslation(
   for (const change of outcome.applied.slice(0, 20)) {
     log.debug(`рецензия [${change.id}]: ${change.reason ?? 'без пояснения'} → ${change.text_ru}`);
   }
+  log.step(`журнал рецензии: ${path.basename(workspace.reviewPath)}`);
   return outcome.segments;
 }
 
