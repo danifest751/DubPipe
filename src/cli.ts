@@ -16,8 +16,11 @@ import { filterCatalog, loadCatalog } from './providers/llm/catalog.js';
 import { createTtsProvider, voicesForEngine } from './providers/tts/index.js';
 import { probePython } from './stages/s4-separate.js';
 import { toSrt } from './util/srt.js';
-import { findTool, provisionTool, TOOLS, type ToolName } from './util/tools.js';
+import { findTool, provisionTool, updateTool, TOOLS, type ToolName } from './util/tools.js';
 import { run } from './util/exec.js';
+import { formatBytes, progress } from './core/progress.js';
+import { DOWNLOAD_QUALITIES, type DownloadQuality } from './util/ytdlp.js';
+import { downloadYt, isYtDlpStale, listFormats, resolveYt, ytDlpVersion, YTDLP_MAX_AGE_DAYS } from './util/ytdlp.js';
 import { startUiServer } from './ui/server.js';
 
 function parseStage(value: string): StageId {
@@ -26,6 +29,56 @@ function parseStage(value: string): StageId {
     throw new InvalidArgumentError(`ожидается одна из стадий: ${STAGE_IDS.join(', ')}`);
   }
   return normalized as StageId;
+}
+
+function parseQuality(value: string): DownloadQuality {
+  const normalized = value.trim().toLowerCase();
+  if (!(DOWNLOAD_QUALITIES as readonly string[]).includes(normalized)) {
+    throw new InvalidArgumentError(`ожидается одно из: ${DOWNLOAD_QUALITIES.join(', ')}`);
+  }
+  return normalized as DownloadQuality;
+}
+
+/**
+ * Строка прогресса загрузки в консоли.
+ *
+ * Шина прогресса была видна только интерфейсу: `dub process <ссылка>` молчал о
+ * загрузке всё время, а идти она может час. В терминале строка перерисовывается
+ * на месте, вне терминала (планировщик, перенаправленный вывод) — не чаще раза в
+ * пять секунд, иначе журнал превращается в тысячи строк.
+ */
+function watchDownloads(): () => void {
+  const interactive = Boolean(process.stdout.isTTY);
+  let printedAt = 0;
+  let width = 0;
+  return progress.subscribe((event) => {
+    if (event.kind !== 'download') return;
+
+    const parts = [event.label];
+    if (event.percent !== null && event.percent !== undefined) parts.push(`${event.percent}%`);
+    if (event.receivedBytes !== undefined && event.totalBytes !== undefined) {
+      parts.push(`${formatBytes(event.receivedBytes)} / ${formatBytes(event.totalBytes)}`);
+    } else if (event.receivedBytes !== undefined) {
+      parts.push(formatBytes(event.receivedBytes));
+    }
+    if (event.detail) parts.push(event.detail);
+    const line = parts.join(' · ');
+
+    if (interactive) {
+      const padded = line.padEnd(width, ' ');
+      width = Math.max(width, line.length);
+      process.stdout.write(`\r${padded}`);
+      if (event.status !== 'running') {
+        process.stdout.write('\n');
+        width = 0;
+      }
+    } else {
+      const now = Date.now();
+      if (event.status === 'running' && now - printedAt < 5_000) return;
+      printedAt = now;
+      log.info(line);
+    }
+  });
 }
 
 const program = new Command();
@@ -58,24 +111,31 @@ program
     log.info(`Профиль: ${config.profile}`);
 
     const started = Date.now();
-    const report = await runPipeline({
-      input,
-      config,
-      ...(options.out ? { out: options.out as string } : {}),
-      ...(options.outDir ? { outDir: options.outDir as string } : {}),
-      ...(options.subtitles ? { subtitles: true } : {}),
-      ...(options.fromStage ? { fromStage: options.fromStage as StageId } : {}),
-      ...(options.toStage ? { toStage: options.toStage as StageId } : {}),
-      ...(options.yes
-        ? {}
-        : {
-            confirm: ({ durationSeconds }: { durationSeconds: number }) =>
-              askYesNo(
-                `Вход длиной ${(durationSeconds / 3600).toFixed(1)} ч: обработка займёт часы, ` +
-                  'а перевод потратит деньги. Продолжить?',
-              ),
-          }),
-    });
+    // Прогресс ссылки виден и здесь: у `process` с URL внутри та же загрузка.
+    const stopWatching = watchDownloads();
+    let report;
+    try {
+      report = await runPipeline({
+        input,
+        config,
+        ...(options.out ? { out: options.out as string } : {}),
+        ...(options.outDir ? { outDir: options.outDir as string } : {}),
+        ...(options.subtitles ? { subtitles: true } : {}),
+        ...(options.fromStage ? { fromStage: options.fromStage as StageId } : {}),
+        ...(options.toStage ? { toStage: options.toStage as StageId } : {}),
+        ...(options.yes
+          ? {}
+          : {
+              confirm: ({ durationSeconds }: { durationSeconds: number }) =>
+                askYesNo(
+                  `Вход длиной ${(durationSeconds / 3600).toFixed(1)} ч: обработка займёт часы, ` +
+                    'а перевод потратит деньги. Продолжить?',
+                ),
+            }),
+      });
+    } finally {
+      stopWatching();
+    }
 
     log.info('');
     log.success(`Готово за ${formatDuration(Date.now() - started)}`);
@@ -91,8 +151,102 @@ program
     if (report.output) log.success(`Итог: ${report.output}`);
   });
 
-const configCommand = program.command('config').description('Управление конфигурацией');
-configCommand
+program
+  .command('fetch')
+  .description('Скачать видео или звук по ссылке, без дубляжа')
+  .argument('<input>', 'ссылка на видео, плейлист или отдельный ролик')
+  .option('--quality <q>', `качество: ${DOWNLOAD_QUALITIES.join(', ')}`, parseQuality)
+  .option('--audio-only', 'скачать только звук')
+  .option('--all-playlist', 'скачать весь плейлист, а не первое видео')
+  .option('--playlist-items <spec>', 'элементы плейлиста, например 1-3,7')
+  .option('--cookies-from-browser <browser>', 'взять куки из браузера: chrome, firefox, edge…')
+  .option('--list-formats', 'показать доступные дорожки и выйти')
+  .option('--out-dir <dir>', 'куда сложить файлы; по умолчанию рабочая папка')
+  .option('--config <path>', 'путь к config.yaml')
+  .action(async (input: string, options) => {
+    await showLegalNoticeOnce();
+    const { config } = await loadConfig(options.config);
+    const toolsDir = path.resolve(process.cwd(), config.cache.dir, 'tools');
+    const quality: DownloadQuality = options.audioOnly ? 'audio' : (options.quality ?? config.download.quality);
+
+    if (options.listFormats) {
+      const rows = await listFormats(input, toolsDir);
+      log.info(`Дорожек: ${rows.length}`);
+      log.info('');
+      for (const row of rows) {
+        const height = row.height ? `${row.height}p` : '—';
+        const size = row.bytes ? formatBytes(row.bytes) : '—';
+        log.info(
+          `  ${row.formatId.padEnd(8)} ${row.ext.padEnd(6)} ${height.padEnd(6)} ` +
+            `${row.vcodec.padEnd(12)} ${row.acodec.padEnd(12)} ${size}`,
+        );
+      }
+      return;
+    }
+
+    const info = await resolveYt(input, toolsDir, quality);
+    const minutes = info.durationSeconds ? `${Math.round(info.durationSeconds / 60)} мин` : '?';
+    const size = info.bytes ? `, около ${formatBytes(info.bytes)}` : '';
+    log.info(`${info.title}${info.uploader ? ` — ${info.uploader}` : ''}`);
+    log.info(`${info.isPlaylist ? `плейлист, ${info.entries.length} видео, ` : ''}${minutes}${size}`);
+
+    const wholePlaylist = options.allPlaylist === true || config.download.playlist === 'all';
+    if (info.isPlaylist && !wholePlaylist && !options.playlistItems) {
+      log.warn(`Это плейлист: скачиваю первое видео. Весь список — --all-playlist, выборочно — --playlist-items`);
+    }
+
+    const targetDir = path.resolve(
+      (options.outDir as string | undefined) ?? config.download.dir ?? process.cwd(),
+    );
+    const stopWatching = watchDownloads();
+    try {
+      const files = await downloadYt(info.url || input, targetDir, toolsDir, {
+        quality,
+        container: config.download.container,
+        filenameTemplate: config.download.filename_template,
+        ...(options.playlistItems ? { playlistItems: options.playlistItems as string } : {}),
+        ...(wholePlaylist && !options.playlistItems ? { playlist: true } : {}),
+        cookiesFromBrowser:
+          (options.cookiesFromBrowser as string | undefined) ?? config.download.cookies_from_browser,
+        cookiesFile: config.download.cookies_file,
+        concurrentFragments: config.download.concurrent_fragments,
+        expectedBytes: info.bytes,
+        videoId: info.id,
+        label: info.title,
+      });
+      log.info('');
+      for (const file of files) log.success(`Скачано: ${file}`);
+    } finally {
+      stopWatching();
+    }
+  });
+
+const toolsCommand = program.command('tools').description('Внешние компоненты');
+toolsCommand
+  .command('update')
+  .description('Обновить компонент (по умолчанию yt-dlp)')
+  .argument('[name]', 'имя компонента: yt-dlp, ffmpeg, whisper-cli, piper', 'yt-dlp')
+  .option('--config <path>', 'путь к config.yaml')
+  .action(async (name: string, options) => {
+    const { config } = await loadConfig(options.config);
+    const toolsDir = path.resolve(process.cwd(), config.cache.dir, 'tools');
+    if (!Object.hasOwn(TOOLS, name)) {
+      log.error(`Неизвестный компонент: ${name}`);
+      log.info(`Известные: ${Object.keys(TOOLS).join(', ')}`);
+      process.exitCode = EXIT.CONFIG_ERROR;
+      return;
+    }
+    const tool = name as ToolName;
+    const before = tool === 'yt-dlp' ? await ytDlpVersion(toolsDir) : null;
+    const resolved = await updateTool(tool, toolsDir);
+    const after = tool === 'yt-dlp' ? await ytDlpVersion(toolsDir) : null;
+    const from = before ?? 'не установлен';
+    const to = after ?? 'установлен';
+    log.success(`${tool}: ${from} → ${to}`);
+    log.info(`Путь: ${resolved.path}`);
+  });
+
+const configCommand = program.command('config').description('Управление конфигурацией');configCommand
   .command('init')
   .description('Создать config.yaml из примера')
   .option('--force', 'перезаписать существующий файл')
@@ -182,6 +336,19 @@ program
         const level = spec.required ? log.error.bind(log) : log.warn.bind(log);
         level(`${name.padEnd(12)} не найден — ${spec.purpose}`);
         log.info(`             установка: ${spec.installHint}`);
+      }
+    }
+
+    /*
+     * yt-dlp стареет быстрее остальных компонентов: YouTube меняется, и загрузчик
+     * начинает отвечать ошибкой на каждую ссылку. Отчёт о наличии об этом молчит,
+     * а версия — это дата выпуска, по ней и видно, пора обновлять.
+     */
+    if (config.download.update_check && (await findTool('yt-dlp', toolsDir))) {
+      const version = await ytDlpVersion(toolsDir);
+      if (version && isYtDlpStale(version)) {
+        log.warn(`${'yt-dlp'.padEnd(12)} ${version} — старше ${YTDLP_MAX_AGE_DAYS} дней, YouTube мог измениться`);
+        log.info('             обновить: dub tools update yt-dlp');
       }
     }
 

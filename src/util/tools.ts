@@ -301,3 +301,23 @@ export async function provisionTool(name: ToolName, toolsDir: string): Promise<R
 export function resetToolCache(): void {
   resolveCache.clear();
 }
+
+/**
+ * Обновление инструмента: удалить локальную копию и скачать заново.
+ *
+ * Нужно ровно одному инструменту — yt-dlp: YouTube меняется, и старый загрузчик
+ * перестаёт работать не сразу заметно, отвечая ошибкой на каждую ссылку. Локальная
+ * копия при этом живёт месяцами, потому что качается один раз при установке.
+ *
+ * `downloadFile` пропускает уже существующий файл, поэтому обновление начинается
+ * с удаления — иначе оно молча ничего не сделало бы.
+ */
+export async function updateTool(name: ToolName, toolsDir: string): Promise<ResolvedTool> {
+  const spec = TOOLS[name];
+  if (!spec.fetch) {
+    throw new MissingDependencyError(name, `Обновление ${name} не поддерживается`, [`Установка: ${spec.installHint}`]);
+  }
+  await rm(path.join(toolsDir, spec.localPath), { force: true });
+  resetToolCache();
+  return await provisionTool(name, toolsDir);
+}
