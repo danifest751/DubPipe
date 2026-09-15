@@ -253,6 +253,65 @@ profile: offline
 If the key is missing or the gateway is unreachable in the `hybrid` profile, translation
 degrades to the local model instead of failing the run.
 
+### Local translation through Ollama
+
+The `offline` profile translates with a local model: nothing leaves the machine, no keys are
+needed, and every episode is free. What it takes:
+
+1. Install Ollama (`winget install Ollama.Ollama`, or from ollama.com) and pull a model:
+   `ollama pull qwen2.5:7b-instruct`. The `offline` profile uses that one unless you choose
+   another.
+2. In the interface: Settings → Translation, profile "offline" — the model field then lists
+   what is pulled locally. The same in `config.yaml`:
+
+```yaml
+profile: offline
+translate:
+  model: qwen3:8b            # the name as `ollama list` shows it
+  ollama_endpoint: http://127.0.0.1:11434
+```
+
+The Environment screen does not check that Ollama is installed; it asks the daemon whether
+the chosen model is actually there.
+
+**An integrated GPU has to be enabled explicitly.** Ollama sees it and silently drops it —
+in the log that reads `dropping integrated GPU; to enable, set OLLAMA_IGPU_ENABLE=1`. Set
+that variable and restart Ollama. Measured on a Radeon 780M with a real translation request:
+
+| | through Vulkan | CPU only |
+|---|---|---|
+| Prompt processing | 243 tok/s | 59.6 tok/s |
+| Generation | 8.9–16.2 tok/s | 6.0 tok/s |
+
+ROCm does not work on that card (`no rocblas support for gfx target gfx1103`); Vulkan does,
+through AMD's own driver. The GPU is not limited to the BIOS carve-out either: with unified
+memory Ollama reported 27.9 GB of 40 available, so a 14B model fits comfortably.
+
+**How they translate.** Measured with the project's own `dub compare` on twenty lines of a
+real episode: how many translations fit the character budget their slot allows (the spec asks
+for ≥90%).
+
+| Model | Fit | Requests for 20 lines | Time |
+|---|---|---|---|
+| `qwen3:4b` | 6/20 | 21 | 133 s |
+| `qwen3:8b` | 7/20 | 13 | 227 s |
+| `qwen3:14b` | 5/20 | 13 | 402 s |
+| `mistral-nemo:12b` | 6/20 | 13 | 284 s |
+| `qwen2.5:7b-instruct` | 6/20 | 13 | 300 s |
+
+Size does not decide it here: the 14B was the worst of the five and three times slower than
+the 4B. All of them translate understandably, but **none of them respects the length budget** —
+and that budget is what decides whether a line lands in its slot. S6 then has to make up the
+difference by shortening lines with the same local model, so the slow part multiplies. The
+sample is small, twenty lines, and other material may rank them differently, but the order of
+magnitude is this.
+
+**What to expect in time.** Generation is bound by memory bandwidth, so speed falls with
+model size: 7–8B at Q4 gives roughly 9–16 tokens per second, 12–14B about half that. An
+episode of 136 lines is on the order of 20,000 prompt tokens and 4,000 generated, which means
+**minutes, not seconds**; the same work in the cloud takes about a minute and costs cents.
+Local translation is worth it for offline use and privacy, not for savings.
+
 ### The gateway key
 
 ```bash

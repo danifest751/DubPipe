@@ -87,6 +87,22 @@ All notable changes to this project are documented here. Versions follow
 - A run can resume mid-pipeline when some replicas failed to translate: each stage is
   judged by the replicas it was supposed to touch, not by all of them.
 
+### Local translation
+
+- The `offline` profile finally works out of the box. It switched the engine to Ollama but
+  left `translate.model` holding a gateway name Ollama has never heard of, and hid the model
+  row in that very profile, so there was nothing to fix it with. The profile now fills both
+  engine and model, and the field is visible in both profiles, listing what is pulled locally.
+- Reasoning is switched off for models like qwen3. On a task whose answer is JSON it is pure
+  waste: one batch of ten lines took 800 s with thinking and 25 s without.
+- The response schema goes with the request instead of a bare "return JSON". Valid JSON with
+  no `items` array was discarded wholesale - qwen3:4b lost all eleven batches that way. With
+  the schema the same model on the same input answers correctly.
+- Readiness asks the Ollama daemon whether the chosen model is actually pulled, rather than
+  asking about a cloud key that offline does not need.
+- The README covers setting local translation up: what to install, what to expect of the
+  speed, and why an integrated GPU needs `OLLAMA_IGPU_ENABLE=1`.
+
 ### Reliability, and an interface that says what it knows
 
 - A partly downloaded file is no longer dubbed in silence. The extracted audio is compared

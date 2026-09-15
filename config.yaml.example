@@ -45,6 +45,11 @@ asr:
 translate:
   engine: kilo-gateway       # kilo-gateway | ollama (задаётся профилем)
   model: anthropic/claude-sonnet-4.5
+    # Имена у движков разные и не пересекаются: `anthropic/claude-sonnet-4.5` у
+    # шлюза, `qwen3:8b` у Ollama (как в `ollama list`). При profile: offline имя
+    # подставляется само из fallback_model, если вы не выбрали своё.
+    # Встроенную видеокарту Ollama по умолчанию не берёт — нужна переменная
+    # окружения OLLAMA_IGPU_ENABLE=1, см. README.
   fallback_engine: ollama    # куда деградировать при недоступности шлюза
   fallback_model: qwen2.5:7b-instruct
   ollama_endpoint: http://127.0.0.1:11434
