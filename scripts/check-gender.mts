@@ -7,7 +7,15 @@
  */
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { disputedSpans, profileSpan, profileSpeech, DISPUTE_MIN_VOICED_SECONDS } from '../src/providers/diarization/gender.js';
+import {
+  disputedSpans,
+  effectiveGender,
+  genderDisputed,
+  profileSpan,
+  profileSpeech,
+  DISPUTE_MIN_VOICED_SECONDS,
+} from '../src/providers/diarization/gender.js';
+import { speakerGenderByText } from '../src/core/text-gender.js';
 import type { Segment } from '../src/core/types.js';
 import { speakerNames, type DiarizationTurn } from '../src/providers/diarization/pyannote.js';
 
@@ -30,6 +38,21 @@ const segments: Segment[] = await readFile(path.join(ws, 'segments.json'), 'utf8
   .then((raw) => JSON.parse(raw) as Segment[])
   .catch(() => []);
 if (segments.length > 0) {
+  // Вторая улика о поле — род в русском переводе. Тон молчит чаще, чем кажется,
+  // а текст называет род прямо; переводчику пол не сообщают, так что улика своя.
+  const byText = speakerGenderByText(segments);
+  for (const [speaker, verdict] of Object.entries(byText)) {
+    const profile = profiles.get(speaker);
+    const merged = { ...(profile ?? { gender: '—' as const, f0: null, voicedSeconds: 0 }), text: verdict };
+    const mark = genderDisputed(merged) ? 'СПОР' : profile?.gender === '—' && verdict.gender !== '—' ? 'решает текст' : '';
+    console.log(
+      `${speaker}: по тону ${profile?.gender ?? '—'}, по тексту ${verdict.gender} ` +
+        `(о себе ${verdict.self}, обращений ${verdict.address}) -> ${effectiveGender(merged)} ${mark}` +
+        (verdict.examples.length > 0 ? `
+    ${verdict.examples.join(', ')}` : ''),
+    );
+  }
+
   const measurable = segments.filter(
     (segment) => profileSpan(segment, samples.get(segment.speaker), secondsPerFrame).voicedSeconds >= DISPUTE_MIN_VOICED_SECONDS,
   ).length;

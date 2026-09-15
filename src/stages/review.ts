@@ -1,6 +1,7 @@
 import type { DubConfig } from '../config/schema.js';
 import type { SpeakerProfiles } from '../core/overrides.js';
 import { lengthVerdict, type LengthVerdict } from './s3-translate.js';
+import { effectiveGender, genderDisputed } from '../providers/diarization/gender.js';
 import type { Segment } from '../core/types.js';
 
 /**
@@ -316,7 +317,10 @@ export function buildJournal(
 const CHECK_TEXT: Record<keyof DubConfig['translate']['review']['checks'], string> = {
   gender:
     '- **Род.** Глаголы и прилагательные должны согласовываться с полом говорящего, ' +
-    'указанным в `gender`. Он замерен по голосу в записи и надёжнее догадки по тексту. ' +
+    'указанным в `gender`. Он замерен по голосу в записи, а где замер промолчал — выведен ' +
+    'из рода в самом переводе. Правь **окончание**, а не выбрасывай слово: «я сказал» у ' +
+    'женщины становится «я сказала», а не исчезает из реплики — иначе вместе с ошибкой ' +
+    'уходит смысл, и правка ещё и не влезает в своё время. ' +
     'Следи и за родом того, о ком говорят, если это понятно из соседних реплик.',
   glossary:
     '- **Имена и термины.** Одно имя — одно написание на весь фильм, в правильных падежах. ' +
@@ -402,6 +406,8 @@ export interface ReviewLine {
   id: number;
   speaker: string;
   gender: string;
+  /** Тон и текст о поле этого говорящего спорят — род лучше не трогать. */
+  gender_disputed?: boolean;
   name?: string;
   en: string;
   ru: string;
@@ -424,7 +430,11 @@ export function buildReviewLines(
       return {
         id: segment.id,
         speaker: segment.speaker,
-        gender: options.speakers[segment.speaker]?.gender ?? '—',
+        // Пол — объединённый вердикт: тон, а где он промолчал — род в тексте.
+        // Спор двух улик рецензии сообщается прямо: правя род по ошибочному
+        // замеру, она портила верный текст, а так у неё есть повод не трогать.
+        gender: effectiveGender(options.speakers[segment.speaker]),
+        ...(genderDisputed(options.speakers[segment.speaker]) ? { gender_disputed: true } : {}),
         ...(name ? { name } : {}),
         en: segment.text_en ?? '',
         ru: text,
@@ -444,6 +454,15 @@ export interface RefitLine {
   /** На сколько знаков правка длиннее допустимого. */
   over: number;
   max_chars: number;
+  /**
+   * На сколько знаков правка короче прежнего текста.
+   *
+   * Правку отклоняют не только за длину: чаще она короче того, что исправляла,
+   * потому что модель выбросила слово вместо того, чтобы поправить окончание —
+   * «я сказал» у женщины превращалось в пустоту вместо «я сказала». Без этого
+   * числа переспрос не мог помочь: он видел правку, которая и так влезает.
+   */
+  shorter_by?: number;
 }
 
 /**
@@ -467,14 +486,16 @@ export function buildRefitLines(
     if (!segment) continue;
     const budget = charBudget(options.room(segment), options);
     const proposed = change.text_ru.trim();
+    const current = (segment.text_ru ?? '').trim();
     lines.push({
       id: change.id,
       en: segment.text_en ?? '',
-      ru: (segment.text_ru ?? '').trim(),
+      ru: current,
       proposed,
       reason: change.reason ?? '',
       max_chars: budget.max_chars,
       over: Math.max(0, proposed.length - budget.max_chars),
+      ...(current.length - proposed.length > 0 ? { shorter_by: current.length - proposed.length } : {}),
     });
   }
   return lines;

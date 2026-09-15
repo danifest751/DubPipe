@@ -239,6 +239,20 @@ describe('переспрос по правкам, не влезшим в сло�
     expect(entry!.over).toBeGreaterThan(0);
   });
 
+  it('правку, потерявшую содержание, переспрос видит по `shorter_by`', () => {
+    // Настоящий случай: у женщины стояло «я сказал», рецензия исправила род,
+    // выбросив слова целиком. Правку отклонили за недолёт, а переспрос без этого
+    // числа помочь не мог — он видел правку, которая в слот и так влезает.
+    // Слот выбран так, что прежний текст в него укладывается: правку отклоняет
+    // именно потеря содержания, а не длина сама по себе.
+    const segments = [line(1, 'ему здесь не место, я сказал — хватит', 2.73)];
+    const outcome = applyReview(segments, [{ id: 1, text_ru: 'ему здесь не место, хватит', reason: 'род' }], options());
+    expect(outcome.rejected[0]?.why).toBe('worse_fit');
+    const [refit] = buildRefitLines(segments, outcome.rejected, options());
+    expect(refit!.over).toBe(0);
+    expect(refit!.shorter_by).toBe('ему здесь не место, я сказал — хватит'.length - 'ему здесь не место, хватит'.length);
+  });
+
   it('уложившаяся со второго раза правка принимается', () => {
     const segments = [line(1, 'Ты начал.', 2)];
     const first = applyReview(segments, [{ id: 1, text_ru: `${tooLong} начала`, reason: 'род' }], options());

@@ -483,6 +483,26 @@ Without any of that, the stage is skipped with a stated reason and every line ge
 The gender of each speaker's voice is estimated from the pitch of the original recording, so
 a speaker with no explicit assignment gets a voice of their own gender.
 
+**When the pitch says nothing, the text does.** Pitch measurement starves on real audio:
+only 9% of frames yield a stable pitch, one speaker on episode 3 produced 0.62 seconds of
+it, and 171 Hz sits in the middle of the band where the detector refuses to answer. Russian
+states gender outright — «я пришёл» is a man speaking, «ты сказала» a woman being addressed.
+The clue is independent: the translator is never told who is speaking, only the line's
+number, its time and the original, so the gender in the text comes from the scene rather
+than from our own measurement. It is collected after S3, when there is a text to read.
+
+The two clues are not equally strong. First person speaks about whoever says the line.
+Second person speaks about whoever is addressed, and the pipeline does not always know who
+that is: it counts only when the line names a character the viewer has already labelled, or
+when exactly one other voice is present in the scene. A verdict needs two agreeing clues and
+none against it — one slip should not change a character's voice for the whole film.
+
+The pitch stays a measurement; the text never overwrites it. Pitch is confident — pitch
+decides; pitch is silent — the text answers; they disagree — nobody decides, and the dispute
+shows in "Voices and characters" along with what it rests on. The review is given both, and
+told to leave gender alone where they disagree: it used to correct gender from a wrong
+measurement and damage text that was right.
+
 Where the engine's own voices have a measured pitch — as all the silero speakers do — the
 choice goes further than gender: an actress gets a voice at *her* pitch rather than "a female
 voice". On a real episode the two actresses sit at 195 and 176 Hz and are given speakers at

@@ -873,7 +873,7 @@ function renderCast() {
         </span>
         <span class="meta">${t('cast.replicas', { count: counts[speaker] ?? 0 })}${
           genderClash(speaker) ? `<br><span class="clash-note">${t('cast.clash', { gender: state.speakers[speaker].gender, hz: state.speakers[speaker].f0 ?? '?' })}</span>` : ''
-        }</span>
+        }${genderDisputeNote(speaker)}</span>
         <button class="ghost small" data-cast-play="${escapeAttr(speaker)}">${icon('play')} ${t('cast.listen')}</button>
       </div>`;
     })
@@ -1069,22 +1069,30 @@ function voiceGender(name) {
 function genderMark(speaker) {
   const profile = state.speakers?.[speaker];
   const measured = profile?.gender === 'м' || profile?.gender === 'ж' ? profile.gender : '—';
-  const note = profile
+  let note = profile
     ? t(measured === '—' ? 'review.byRecordUnknown' : measured === 'м' ? 'review.byRecordMale' : 'review.byRecordFemale', {
         hz: profile.f0 ?? '?',
       }).replace(/^ · /, '')
     : t('segments.genderUnknown');
+  // Вторая улика — род в переводе. Она отвечает там, где тон промолчал, и
+  // спорит с ним там, где он ошибся; в обоих случаях человек должен это видеть.
+  const byText = profile?.text?.gender;
+  if (byText && byText !== '—') {
+    note += ` · ${t('cast.byText', { gender: byText, example: profile.text.examples?.[0] ?? '' })}`;
+  }
   const active = voiceGender(voiceOf(speaker));
   // Голос спорит с тем, что намерено по записи. Чаще всего это не ошибка
   // замера, а голос, вписанный в настройки: вписанный сильнее определённого,
   // и женский персонаж уходит к мужскому голосу молча.
   const clash = measured !== '—' && active !== '—' && active !== measured;
+  const disputed = measured !== '—' && byText && byText !== '—' && byText !== measured;
+  if (disputed) note += ` · ${t('cast.genderDispute')}`;
 
   return ['м', 'ж']
     .map(
       (gender) =>
         `<button type="button" class="gender ${gender === 'м' ? 'male' : 'female'}${gender === active ? ' on' : ''}` +
-        `${clash && gender === active ? ' clash' : ''}" ` +
+        `${(clash && gender === active) || (disputed && gender === byText) ? ' clash' : ''}" ` +
         `data-set-gender="${gender}" data-speaker="${escapeAttr(speaker)}" ` +
         `title="${escapeAttr(
           `${t(gender === 'м' ? 'segments.setMale' : 'segments.setFemale')} · ${note}` +
@@ -1092,6 +1100,28 @@ function genderMark(speaker) {
         )}">${gender}</button>`,
     )
     .join('');
+}
+
+/**
+ * Спор двух улик о поле: тон говорит одно, род в переводе — другое.
+ *
+ * Решать за человека здесь нечем: бывает цитата чужих слов, пересказ, издёвка,
+ * а бывает и ошибка замера — на реальном эпизоде устойчивый тон нашёлся у 9%
+ * кадров. Поэтому строка объясняет спор и показывает, на чём основан текст.
+ */
+function genderDisputeNote(speaker) {
+  const profile = state.speakers?.[speaker];
+  const byText = profile?.text?.gender;
+  if (!profile || profile.gender === '—' || !byText || byText === '—' || byText === profile.gender) {
+    // Тон промолчал, а текст ответил — это не спор, но знать об этом полезно.
+    if (profile && profile.gender === '—' && byText && byText !== '—') {
+      return `<br><span class="meta">${escapeHtml(t('cast.byText', { gender: byText, example: profile.text.examples?.[0] ?? '' }))}</span>`;
+    }
+    return '';
+  }
+  return `<br><span class="clash-note">${escapeHtml(
+    t('cast.disputeNote', { byPitch: profile.gender, hz: profile.f0 ?? '?', byText, example: profile.text.examples?.[0] ?? '' }),
+  )}</span>`;
 }
 
 /** Спорит ли назначенный голос с полом, определённым по записи. */

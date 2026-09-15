@@ -1,6 +1,6 @@
 import type { DubConfig } from '../config/schema.js';
 import { voicesForEngine, type VoiceInfo } from '../providers/tts/voices.js';
-import type { SpeakerProfile } from '../providers/diarization/gender.js';
+import { effectiveGender, type SpeakerProfile } from '../providers/diarization/gender.js';
 import type { Segment } from './types.js';
 import { ttsKey } from '../stages/s5-tts.js';
 
@@ -87,7 +87,9 @@ export function autoVoiceMap(
   for (const speaker of ordered) {
     if (config.tts.voice_map[speaker]) continue;
     const profile = speakers[speaker];
-    const gender = profile?.gender;
+    // Пол — по тону, а где тон молчит — по роду в тексте перевода. Молчит он
+    // часто: на третьем эпизоде у одного говорящего замер вышел на 0.62 с.
+    const gender = effectiveGender(profile);
     if (gender !== 'м' && gender !== 'ж') continue;
     const pool = voices.filter((voice) => voice.gender === gender);
     if (pool.length === 0) continue;

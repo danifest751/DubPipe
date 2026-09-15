@@ -14,6 +14,7 @@ import { readWavFormat } from '../../util/wav.js';
 export type VoiceGender = 'м' | 'ж' | '—';
 
 export interface SpeakerProfile {
+  /** Пол по тону голоса: замер, и остаётся замером — текст его не переписывает. */
   gender: VoiceGender;
   /** Медиана основного тона, Гц; null — озвученных кадров не хватило. */
   f0: number | null;
@@ -22,6 +23,35 @@ export interface SpeakerProfile {
   /** Квартили тона: широкий разброс выдаёт октавные ошибки или шум вместо речи. */
   p25?: number;
   p75?: number;
+  /**
+   * Вердикт по тексту перевода — вторая улика, появляется после S3.
+   *
+   * Тип объявлен здесь в общих чертах, чтобы профиль не тянул за собой ядро:
+   * собирает его `src/core/text-gender.ts`.
+   */
+  text?: { gender: VoiceGender; self: number; address: number; examples: string[] };
+}
+
+/**
+ * Две улики о поле говорящего рядом, и правило, как их складывать.
+ *
+ * Тон — замер, но на реальном звуке он часто молчит: устойчивый тон нашёлся у
+ * 9% кадров, у одного говорящего замер вышел на 0.62 секунды. Текст перевода
+ * называет род прямо («я пришёл»), и переводчику пол не сообщают — улика
+ * независимая. Поэтому тон главный там, где он уверен, а текст отвечает там,
+ * где тон молчит. Спорят — не решает никто: это дело человека, а он увидит спор
+ * в панели героев.
+ */
+export function effectiveGender(profile: Pick<SpeakerProfile, 'gender' | 'text'> | undefined): VoiceGender {
+  if (!profile) return '—';
+  if (profile.gender !== '—') return profile.gender;
+  return profile.text?.gender ?? '—';
+}
+
+/** Спорят ли тон и текст: оба уверены и говорят разное. */
+export function genderDisputed(profile: Pick<SpeakerProfile, 'gender' | 'text'> | undefined): boolean {
+  const byText = profile?.text?.gender ?? '—';
+  return Boolean(profile) && profile!.gender !== '—' && byText !== '—' && byText !== profile!.gender;
 }
 
 export interface SpeechInterval {

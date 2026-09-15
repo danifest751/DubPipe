@@ -235,6 +235,12 @@ const DICTIONARY = {
   'cast.title': { ru: 'Голоса и персонажи', en: 'Voices and characters' },
   'cast.lead': { ru: 'Послушайте реплику и подпишите, кто это. Имя появится во всех строках этого героя.', en: 'Listen to a line and name who it is. The name shows up in every row of that character.' },
   'segments.genderClash': { ru: 'голос не совпадает с полом по записи', en: 'the voice disagrees with the gender measured' },
+  'cast.byText': { ru: 'по тексту {gender} («{example}»)', en: '{gender} by the text (“{example}”)' },
+  'cast.genderDispute': { ru: 'текст перевода говорит иначе', en: 'the translation says otherwise' },
+  'cast.disputeNote': {
+    ru: 'по тону {byPitch} ({hz} Гц), а по тексту {byText} («{example}») — проверьте, чей это голос',
+    en: 'the pitch says {byPitch} ({hz} Hz), the text says {byText} (“{example}”) — check whose voice this is',
+  },
   'cast.clash': { ru: 'по записи {gender}, {hz} Гц — голос выбран другого пола', en: 'measured {gender}, {hz} Hz — the chosen voice is of the other sex' },
   'cast.namePlaceholder': { ru: 'имя героя', en: 'character name' },
   'cast.replicas': { ru: '{count} {реплика|реплики|реплик}', en: '{count} {replica|replicas}' },
@@ -428,6 +434,10 @@ const DICTIONARY = {
   'warn.s2.speakerDoubt': {
     ru: 'Тон спорит с говорящим у реплик: {lines}. Диаризация могла отдать их соседу по сцене — переслушайте',
     en: 'The pitch argues with the assigned speaker on: {lines}. Diarization may have handed these lines to the wrong person — listen again',
+  },
+  'warn.s3.genderDispute': {
+    ru: 'У {speaker} тон говорит «{byPitch}», а текст — «{byText}» ({lines}). Голос оставлен по тону: проверьте в панели «Голоса и персонажи»',
+    en: 'For {speaker} the pitch says “{byPitch}” while the text says “{byText}” ({lines}). The voice follows the pitch — check it in “Voices and characters”',
   },
   'warn.s3.reviewerUnavailable': {
     ru: 'Рецензент {model} недоступен ({reason}) — перевод остаётся без рецензии',

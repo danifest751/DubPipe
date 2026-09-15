@@ -12,6 +12,8 @@ import { clientFor, selectChatClient, type ChatClient, type ChatUsage } from '..
 import { formatCost } from '../providers/llm/catalog.js';
 import { effectiveSpeechShape } from '../core/calibration.js';
 import { rememberTokenRate } from '../core/translation-cost.js';
+import { speakerGenderByText } from '../core/text-gender.js';
+import { genderDisputed } from '../providers/diarization/gender.js';
 import {
   applyReview,
   buildJournal,
@@ -1124,6 +1126,49 @@ export async function runS3(workspace: Workspace, baseConfig: DubConfig, segment
 
   await workspace.writeSegments(run.segments);
   await workspace.writeJson(workspace.file('glossary.json'), run.glossary);
+
+  /*
+   * Пол говорящих по тексту — здесь, потому что раньше текста не было.
+   *
+   * Тон замерен на S2 и часто молчит: устойчивый тон нашёлся у 9% кадров, у
+   * одного говорящего замер вышел на 0.62 секунды, а 171 Гц — середина полосы,
+   * где определитель отказывается судить. Русский текст род называет прямо, и
+   * улика независимая: переводчику пол не сообщают. Замер тона при этом не
+   * переписывается — вердикт по тексту лежит рядом, а голос назначается по
+   * тому из двух, кто уверен.
+   */
+  const speakers = await workspace.readSpeakers();
+  if (Object.keys(speakers).length > 0) {
+    const overrides = await workspace.readOverrides();
+    const byText = speakerGenderByText(run.segments, { names: overrides.names });
+    const updated = Object.fromEntries(
+      Object.entries(speakers).map(([speaker, profile]) => {
+        const text = byText[speaker];
+        return [speaker, text && text.gender !== '—' ? { ...profile, text } : profile];
+      }),
+    );
+    await workspace.writeSpeakers(updated);
+
+    const decided = Object.entries(updated).filter(([, profile]) => profile.gender === '—' && profile.text?.gender !== undefined);
+    if (decided.length > 0) {
+      log.step(
+        `пол по тексту: ${decided.map(([speaker, profile]) => `${speaker} ${profile.text!.gender}`).join(', ')} ` +
+          '(по тону не определялся)',
+      );
+    }
+    const disputed = Object.entries(updated).filter(([, profile]) => genderDisputed(profile));
+    for (const [speaker, profile] of disputed) {
+      const lines = profile.text!.examples.slice(0, 3).join(', ');
+      warnings.push(
+        warn(
+          'warn.s3.genderDispute',
+          `У ${speaker} тон говорит «${profile.gender}», а текст — «${profile.text!.gender}» (${lines}). ` +
+            'Голос оставлен по тону: проверьте в панели «Голоса и персонажи»',
+          { speaker, byPitch: profile.gender, byText: profile.text!.gender, lines },
+        ),
+      );
+    }
+  }
 
   return {
     segments: run.segments,
