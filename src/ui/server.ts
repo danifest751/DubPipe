@@ -23,7 +23,7 @@ import { defaultVoiceFor, voicesForEngine } from '../providers/tts/voices.js';
 import { SILERO_MODEL } from '../providers/tts/silero-voices.js';
 import { createTtsProvider } from '../providers/tts/index.js';
 import { KiloGatewayClient } from '../providers/llm/gateway.js';
-import { missingPythonModules, probePython } from '../stages/s4-separate.js';
+import { missingPythonModules, probePython, type PythonEnvironment } from '../stages/s4-separate.js';
 import { installDiarization, probeDiarization, resetDiarizationProbe } from '../providers/diarization/pyannote.js';
 import { applyLogRecord, finishStages, type JobStage } from './job-progress.js';
 import { checkModel } from '../core/model-check.js';
@@ -322,6 +322,17 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
   /** Итоговые файлы открытых проектов: их можно отдавать плееру и после перезапуска. */
   const knownOutputs = new Set<string>();
   let deviceCache: DeviceOptions | null = null;
+  /*
+   * Проба Python — один раз на запуск программы, как и опрос железа рядом.
+   *
+   * Она запускает до трёх процессов (`python`, `py`, `python3`), а на Windows
+   * без установленного интерпретатора первый из них упирается в заглушку
+   * Microsoft Store и отвечает не сразу. Экран готовности опрашивается часто, и
+   * каждый опрос платил за это заново: на CI три проверки подряд не уложились
+   * в пять секунд. Интерпретатор посреди работы не появляется — как и видеокарта.
+   */
+  let pythonCache: PythonEnvironment | null = null;
+  const probePythonOnce = async (): Promise<PythonEnvironment> => (pythonCache ??= await probePython());
   const clients = new Set<ServerResponse>();
   const history: LogRecord[] = [];
 
@@ -496,7 +507,7 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
      */
     if (config.tts.engine === 'silero') {
       const model = path.join(modelsDir, 'silero', `${SILERO_MODEL.name}.pt`);
-      const python = await probePython();
+      const python = await probePythonOnce();
       // Мало найти Python: движку нужны torch и soundfile, а probePython
       // спрашивает про numpy и onnxruntime — это нужды разделения, не синтеза.
       const missing = python.executable === null ? ['python'] : await missingPythonModules(python.executable, ['torch', 'soundfile']);
@@ -612,7 +623,7 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
     }
 
     if (config.separation.enabled) {
-      const python = await probePython();
+      const python = await probePythonOnce();
       items.push({
         id: 'python',
         title: message('ready.python.title', lang),
@@ -807,7 +818,7 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
           installHint: TOOLS[name].installHint,
         });
       }
-      const python = await probePython();
+      const python = await probePythonOnce();
       sendJson(response, 200, {
         tools,
         python,
