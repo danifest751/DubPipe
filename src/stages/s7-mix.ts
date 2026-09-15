@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
-import { copyFile, mkdir } from 'node:fs/promises';
+import { copyFile, mkdir, rm, stat } from 'node:fs/promises';
 import type { DubConfig } from '../config/schema.js';
 import { StageError } from '../core/errors.js';
 import { log } from '../core/logger.js';
@@ -130,6 +130,32 @@ export function spokenWindows(segments: Segment[]): SpeechWindow[] {
       return { start, end: start + entry.duration! };
     })
     .sort((a, b) => a.start - b.start);
+}
+
+/**
+ * Черновые дорожки сведения после мультиплексирования.
+ *
+ * Все четыре рождаются внутри этой же стадии и больше никем не читаются: звук
+ * уже лежит в итоговом файле. Удалять их безопасно именно потому, что S7 не
+ * кэшируется никогда (см. artifactsPresent) и соберёт их заново при следующем
+ * прогоне. Входы стадии — original.wav, background.wav, vocals.wav и клипы —
+ * не трогаются: их делают более ранние стадии, и они из кэша как раз берутся.
+ */
+const INTERMEDIATES = ['voice.wav', 'presence.wav', 'duck.wav', 'mixed.wav', 'normalized.wav'] as const;
+
+async function dropIntermediates(workspace: Workspace, config: DubConfig): Promise<void> {
+  if (config.cache.keep_intermediate) return;
+  let freed = 0;
+  for (const name of INTERMEDIATES) {
+    const file = workspace.file(name);
+    try {
+      freed += (await stat(file)).size;
+      await rm(file, { force: true });
+    } catch {
+      // Файла нет — стадия шла другим путём; это не повод для шума.
+    }
+  }
+  if (freed > 0) log.debug(`черновые дорожки удалены, освобождено ${(freed / 1024 / 1024).toFixed(0)} МБ`);
 }
 
 export async function runS7(
@@ -294,6 +320,8 @@ export async function runS7(
 
   muxArgs.push(...maps, '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-shortest', outputPath);
   await run(ffmpeg, muxArgs, { timeoutMs: 3_600_000 });
+
+  await dropIntermediates(workspace, config);
 
   return { outputPath, warnings };
 }
