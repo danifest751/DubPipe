@@ -13,6 +13,7 @@ import {
   parseTranslationResponse,
   planBatches,
   profanityRule,
+  lengthRule,
   renderSystemPrompt,
   roomFor,
   targetChars,
@@ -145,6 +146,39 @@ describe('§3.4: разбиение на пакеты', () => {
     // Одно слово в двухсекундном слоте: по слоту вышло бы 29 символов.
     const request = buildBatchRequest([seg(7, 1, 3, 'Hello')], 14.5);
     expect(request).toContain('"target_chars":10');
+  });
+
+  it('без добивания до цели то же число уходит как предел, а не как цель', () => {
+    // Имя поля и есть правило: «цель» модель добивает («Лиза.» → «Лиза, Лиза»),
+    // «предел» — нет. Число одно и то же, поведение разное.
+    const request = buildBatchRequest([seg(7, 1, 3, 'Hello there, how are you doing today?')], 14.5, undefined, 0, undefined, false);
+    expect(request).toContain('"max_chars":29');
+    expect(request).not.toContain('target_chars');
+  });
+});
+
+describe('правило длины в промпте зависит от настройки', () => {
+  it('с добиванием говорит о цели и об отклонении в обе стороны', () => {
+    const rule = lengthRule(true);
+    expect(rule).toContain('target_chars');
+    expect(rule).toContain('в любую сторону');
+  });
+
+  it('без добивания нижней границы нет вовсе', () => {
+    const rule = lengthRule(false);
+    expect(rule).toContain('max_chars');
+    expect(rule).toContain('Нижней границы нет');
+    expect(rule).not.toContain('target_chars');
+  });
+
+  it('промпт подставляет то правило, которое выбрано', () => {
+    const rendered = renderSystemPrompt('L:{length_rule}|P:{profanity_rule}', {
+      glossary: '',
+      context: '',
+      profanityRule: 'x',
+      lengthRule: lengthRule(false),
+    });
+    expect(rendered).toContain('Нижней границы нет');
   });
 });
 

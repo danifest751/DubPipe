@@ -204,6 +204,11 @@ const DICTIONARY = {
   'segments.voicePick': { ru: 'Голос этого персонажа', en: 'Voice for this character' },
   'segments.revoiceConfirm': { ru: 'Голоса изменены. Переозвучить затронутые реплики ({count}) и пересвести файл?', en: 'Voices changed. Re-voice the affected replicas ({count}) and re-mix the file?' },
   'segments.savedNoRun': { ru: 'Правки сохранены. Переозвучить можно позже — кнопкой «Внести правки и пересвести»', en: 'Edits saved. You can re-voice later with “Apply edits and re-mix”' },
+  'settings.fillToTarget': { ru: 'Добивать короткие реплики до длины слота', en: 'Pad short replicas to the length of their slot' },
+  'settings.fillToTargetNote': {
+    ru: 'Так требует ТЗ, и доля укладки выходит выше. Но чтобы попасть в длину, модель дописывает то, чего нет в оригинале: «Лиза.» превращается в «Лиза, Лиза». Выключите — короткая реплика останется короткой, а лишнее время паузой.',
+    en: 'The spec asks for this, and the fit share comes out higher. But to reach the length the model writes what the original never said: «Лиза.» becomes «Лиза, Лиза». Turn it off and a short line stays short, the spare time becoming a pause.',
+  },
   'segments.reviewSummary': {
     ru: 'Рецензия {model}: принято правок {count} — они отмечены под переводом',
     en: 'Review by {model}: {count} edits accepted — marked under the translation',

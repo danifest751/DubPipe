@@ -260,14 +260,44 @@ export function profanityRule(mode: DubConfig['translate']['profanity']): string
   }
 }
 
+/**
+ * Правило длины для промпта перевода: добивать до цели или только не вылезать.
+ *
+ * Разница не в формулировке, а в том, что модель делает с короткой репликой.
+ * Пока ей говорили «попади в целевую длину», она дописывала отсутствующее в
+ * оригинале: «Лиза.» превращалось в «Лиза, Лиза». Во втором виде нижней границы
+ * нет вовсе — ни в правиле, ни в данных (вместо `target_chars` уходит
+ * `max_chars`), и дописывать становится незачем.
+ */
+export function lengthRule(fillToTarget: boolean): string {
+  if (fillToTarget) {
+    return [
+      'У каждой реплики указано поле `target_chars` — целевая длина перевода в символах,',
+      'рассчитанная из её слота. **Попадай в эту длину: допустимо отклонение не более 15%',
+      'в любую сторону.**',
+      '   - Слишком длинный перевод не успеет прозвучать — его придётся ускорять или резать.',
+      '   - Слишком короткий оставит паузу; это заметно меньше, но тоже плохо.',
+      '   Если реплика получается длиннее — режь второстепенное. Если короче — передай полнее',
+      '   **то, что есть в оригинале и ты сократил**.',
+    ].join('\n');
+  }
+  return [
+    'У каждой реплики указано поле `max_chars` — сколько знаков успеет прозвучать за её',
+    'время. **Не превышай его.** Нижней границы нет: если мысль оригинала укладывается',
+    'короче — пусть будет короче. Недостающее время останется паузой, её почти не слышно,',
+    'а вот длинную реплику придётся ускорять или резать, и это слышно на каждом просмотре.',
+  ].join('\n');
+}
+
 export function renderSystemPrompt(
   template: string,
-  values: { glossary: string; context: string; profanityRule: string; sourceLanguage?: string },
+  values: { glossary: string; context: string; profanityRule: string; sourceLanguage?: string; lengthRule?: string },
 ): string {
   return template
     .replace('{source_language}', values.sourceLanguage || 'английского')
     .replace('{glossary}', values.glossary || '(пока пуст)')
     .replace('{context}', values.context || '(начало ролика)')
+    .replace('{length_rule}', values.lengthRule ?? lengthRule(true))
     .replace('{profanity_rule}', values.profanityRule);
 }
 
@@ -291,13 +321,16 @@ export function buildBatchRequest(
   expansionCap: number = MAX_EXPANSION,
   overheadSeconds = 0,
   room: (segment: Segment) => number = slotOf,
+  fillToTarget = true,
 ): string {
   const lines = batch.map((segment) => {
     const slot = room(segment);
+    const chars = boundedTargetChars(segment.text_en, slot, charsPerSecond, expansionCap, overheadSeconds);
     return JSON.stringify({
       id: segment.id,
       slot_seconds: Number(slot.toFixed(2)),
-      target_chars: boundedTargetChars(segment.text_en, slot, charsPerSecond, expansionCap, overheadSeconds),
+      // Имя поля — это и есть правило: «цель» модель добивает, «предел» — нет.
+      ...(fillToTarget ? { target_chars: chars } : { max_chars: chars }),
       text_en: segment.text_en,
     });
   });
@@ -406,9 +439,10 @@ async function translateBatch(
   expansionCap: number,
   overheadSeconds: number,
   room: (segment: Segment) => number,
+  fillToTarget: boolean,
 ): Promise<TranslationPayload> {
   const ids = batch.map((segment) => segment.id);
-  const request = buildBatchRequest(batch, charsPerSecond, expansionCap, overheadSeconds, room);
+  const request = buildBatchRequest(batch, charsPerSecond, expansionCap, overheadSeconds, room, fillToTarget);
   let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -666,11 +700,22 @@ export async function translateSegments(
       context: formatContext(contextSegments),
       profanityRule: profanityRule(config.translate.profanity),
       sourceLanguage: sourceLanguage.name,
+      lengthRule: lengthRule(config.translate.fill_to_target),
     });
 
     let payload: TranslationPayload;
     try {
-      payload = await translateBatch(client, systemPrompt, batch, cps, usage, sourceLanguage.expansionCap, overhead, room);
+      payload = await translateBatch(
+        client,
+        systemPrompt,
+        batch,
+        cps,
+        usage,
+        sourceLanguage.expansionCap,
+        overhead,
+        room,
+        config.translate.fill_to_target,
+      );
     } catch (error) {
       // Один упрямый пакет не должен обнулять час работы: на 99 пакетах модель
       // почти наверняка где-нибудь нарушит формат ответа или не уложится в

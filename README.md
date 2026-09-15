@@ -357,11 +357,22 @@ case in one line), «Я бы **хотел** их узнать» → «хотел
 «**права**» - the gender of the person addressed, inferred from neighbouring lines - plus six
 lines left untranslated.
 
-**The ruler is a target, not a ceiling.** The first version told the model "no longer than N
-characters", and it dutifully came back at half that: 27 of 46 proposals were discarded,
-because undershooting is as much a miss as overshooting - the line finishes early and leaves a
-pause. With a target and the tolerance bounds instead of a ceiling, the model proposes a
-quarter as much noise and lands almost every time.
+**The ruler went from ceiling to target and back, and the journal says why.** The first
+version told the model "no longer than N characters", and it dutifully came back at half
+that: 27 of 46 proposals were discarded. Replacing the ceiling with a target and its
+tolerance bounds fixed that and created something worse: of 18 accepted edits on episode 3,
+every one was about length, and several padded the line with what had just been said — «Ты
+убил троих наших людей, помнишь?» became «Ты убил троих наших. Троих наших людей.»
+Forbidding it in the prompt changed nothing; the model obeys the data. So the reviewer is no
+longer told that a line is short at all: it gets `max_chars` and `over`, which is zero unless
+the line does not fit. The edits are language again — a calque undone, a filler cut, verb
+government fixed.
+
+An undershoot is also priced lower than an overshoot when an edit is judged, at a third: a
+line that runs long forces S6 to speed it up or cut it and is heard on every viewing, while a
+line that ends early leaves a pause nobody notices. Pricing it at zero was tried and
+reverted — the reviewer then stripped content it judged redundant, and the fit fell from
+72.4% to 60.5%.
 
 **The review reaches the subtitles too.** The Russian subtitles are built from the same
 `segments.json` as the voicing, so corrected text lands in them by itself.
