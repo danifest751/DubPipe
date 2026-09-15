@@ -17,6 +17,7 @@ import { loadConfig } from '../src/config/load.js';
 import { Workspace } from '../src/core/workspace.js';
 import { clientFor } from '../src/providers/llm/index.js';
 import { lengthStats, reviewTranslation, roomFor, type RunUsage } from '../src/stages/s3-translate.js';
+import { effectiveSpeechShape } from '../src/core/calibration.js';
 import type { Segment, StageWarning } from '../src/core/types.js';
 import { warningText } from '../src/core/types.js';
 
@@ -28,13 +29,13 @@ if (!input || !reviewer) {
 const shareAt = process.argv.indexOf('--share');
 const outAt = process.argv.indexOf('--out');
 
-const { config: base } = await loadConfig();
+const { config: loaded } = await loadConfig();
 const config = {
-  ...base,
+  ...loaded,
   translate: {
-    ...base.translate,
+    ...loaded.translate,
     review: {
-      ...base.translate.review,
+      ...loaded.translate.review,
       enabled: true,
       model: reviewer,
       ...(shareAt > 0 ? { max_changes_share: Number(process.argv[shareAt + 1]) } : {}),
@@ -43,6 +44,18 @@ const config = {
 };
 
 const workspace = await Workspace.open(input, config);
+/*
+ * Темп речи берётся замеренный, а не из настроек.
+ *
+ * Стадия так и делает: на этом эпизоде калибровка даёт 13.2 симв/с против 11.5
+ * в файле. С чужой меркой скрипт объявлял длинными 60 реплик из 76 там, где
+ * конвейер видит одну, и рецензия получала задание сокращать то, что и так
+ * укладывается.
+ */
+const shape = await effectiveSpeechShape(workspace, config);
+config.translate.chars_per_second = shape.charsPerSecond;
+config.translate.speech_overhead_seconds = shape.overheadSeconds;
+console.log(`темп речи: ${shape.charsPerSecond} симв/с плюс ${shape.overheadSeconds} с на реплику`);
 const draft = (await workspace.readSegments()) ?? [];
 if (draft.length === 0) {
   console.error('в рабочем каталоге нет переведённых реплик: сначала выполните S3');
