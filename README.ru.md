@@ -52,6 +52,7 @@
 ```bash
 npm install
 npm run build          # либо работать через npx tsx src/cli.ts
+npm link               # получить команду `dub` вместо длинного npx tsx src/cli.ts
 npx tsx src/cli.ts doctor --fetch   # загрузить недостающие компоненты (~165 МБ)
 ```
 
@@ -562,6 +563,7 @@ npx tsx scripts/clean-hallucinations.mts "<путь к видео>" --apply  # �
 | silero-vad (ONNX) | 2 МБ | MIT |
 | piper | 21 МБ | MIT |
 | голоса piper `ru_RU-*` | ~60 МБ каждый | MIT / CC BY |
+| silero `v5_5_ru` (5 голосов без акцента) | 138 МБ | CC BY-NC-SA 4.0 |
 | silero `v5_cis_base` (29 голосов) | 92 МБ | CC BY-NC-SA 4.0 |
 
 Все компоненты допускают личное использование. Модели скачиваются при первом обращении.
@@ -591,7 +593,7 @@ npx tsx scripts/clean-hallucinations.mts "<путь к видео>" --apply  # �
 ## Разработка
 
 ```bash
-npm test                            # 362 теста, не требуют ffmpeg, сети и ключей
+npm test                            # весь набор; без ffmpeg, сети и ключей
 npx electron scripts/screenshot-ui.cjs   # снимки всех экранов интерфейса
 npx electron scripts/check-progress.cjs  # проверка обратной связи при загрузке
 python scripts/check-separation.py  # обратимость STFT стадии S4
@@ -631,8 +633,8 @@ npx tsx src/cli.ts voices list --demo   # синтезировать образ�
 
 | | piper | silero |
 |---|---|---|
-| Русских голосов | 4, из них 1 женский | 29, из них 16 женских |
-| Вес | 21 МБ + ~60 МБ на голос | 92 МБ на все голоса сразу |
+| Русских голосов | 4, из них 1 женский | 34, из них 19 женских |
+| Вес | 21 МБ + ~60 МБ на голос | 92 МБ на 29 голосов, 138 МБ на 5 носителей |
 | Скорость | 0.45 с на реплику | 0.03 с на реплику |
 | Что нужно | ничего | Python с `torch` и `soundfile` |
 | Лицензия | MIT | CC BY-NC-SA 4.0 (некоммерческая) |

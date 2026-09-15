@@ -106,6 +106,7 @@ in this README come from Windows.
 ```bash
 npm install
 npm run build                       # or run everything through: npx tsx src/cli.ts
+npm link                            # get the `dub` command instead of the long npx tsx path
 npx tsx src/cli.ts doctor --fetch   # download the missing components (~165 MB)
 ```
 
@@ -515,8 +516,8 @@ edits always win over the automatic choice.
 
 | | piper | silero |
 |---|---|---|
-| Russian voices | 4, one of them female | 29, sixteen of them female |
-| Size | 21 MB + ~60 MB per voice | 92 MB for every voice at once |
+| Russian voices | 4, one of them female | 34, nineteen of them female |
+| Size | 21 MB + ~60 MB per voice | 92 MB for 29 voices, 138 MB for the 5 natives |
 | Speed | 0.45 s per line | 0.03 s per line |
 | Requires | nothing | Python with `torch` and `soundfile` |
 | License | MIT | CC BY-NC-SA 4.0 (non-commercial) |
@@ -696,7 +697,7 @@ To keep the scratch tracks around while working on the sound: `cache.keep_interm
 ## Development
 
 ```bash
-npm test              # 362 tests; no ffmpeg, no network and no keys required
+npm test              # the whole suite; no ffmpeg, no network and no keys required
 npm run typecheck
 npm run build
 npx electron scripts/screenshot-ui.cjs     # screenshots of every screen

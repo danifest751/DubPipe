@@ -10,7 +10,7 @@ rules keeps it that way.
 ```bash
 npm install
 npm run typecheck
-npm test            # 362 tests; no ffmpeg, no network and no API keys needed
+npm test            # the whole suite; no ffmpeg, no network and no API keys needed
 ```
 
 The tests deliberately need nothing external: if a change forces a test to require ffmpeg,

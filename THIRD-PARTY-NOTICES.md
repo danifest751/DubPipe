@@ -19,6 +19,7 @@ and the download happens on the user's machine, at the user's request.
 | silero-vad (ONNX) | voice activity detection | MIT | https://github.com/snakers4/silero-vad |
 | piper | speech synthesis | MIT | https://github.com/rhasspy/piper |
 | piper `ru_RU-*` voices | Russian voices | MIT / CC BY | https://huggingface.co/rhasspy/piper-voices |
+| silero TTS `v5_5_ru` | 5 accent-free Russian voices | CC BY-NC-SA 4.0 — **non-commercial** | https://github.com/snakers4/silero-models |
 | silero TTS `v5_cis_base` | 29 Russian voices | CC BY-NC-SA 4.0 — **non-commercial** | https://github.com/snakers4/silero-models |
 | pyannote speaker diarization | who is speaking (optional) | MIT | https://huggingface.co/pyannote |
 | UVR MDX-Net models | voice/music separation (optional) | MIT | https://huggingface.co/seanghay/uvr_models |

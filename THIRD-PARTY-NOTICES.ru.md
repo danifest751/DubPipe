@@ -19,6 +19,7 @@ DubPipe распространяется под [лицензией MIT](LICENSE
 | silero-vad (ONNX) | детектор речевой активности | MIT | https://github.com/snakers4/silero-vad |
 | piper | синтез речи | MIT | https://github.com/rhasspy/piper |
 | голоса piper `ru_RU-*` | русские голоса | MIT / CC BY | https://huggingface.co/rhasspy/piper-voices |
+| silero TTS `v5_5_ru` | 5 русских голосов без акцента | CC BY-NC-SA 4.0 — **некоммерческая** | https://github.com/snakers4/silero-models |
 | silero TTS `v5_cis_base` | 29 русских голосов | CC BY-NC-SA 4.0 — **некоммерческая** | https://github.com/snakers4/silero-models |
 | pyannote speaker diarization | кто говорит (необязательно) | MIT | https://huggingface.co/pyannote |
 | модели UVR MDX-Net | отделение голоса от музыки (необязательно) | MIT | https://huggingface.co/seanghay/uvr_models |
