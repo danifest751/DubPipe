@@ -210,6 +210,9 @@ export async function runS1(
     tool_version: TOOL_VERSION,
     has_video: info.hasVideo,
     stage_fingerprints: {},
+    // Абсолютный путь: для ссылки это скачанное в рабочую папку, для файла —
+    // разрешённый вход. По нему S7 находит источник, не гадая про `input`.
+    source_path: path.resolve(sourcePath),
   };
   await workspace.writeMeta(meta);
 

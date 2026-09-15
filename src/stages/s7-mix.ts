@@ -329,16 +329,47 @@ export async function runS7(
   return { outputPath, warnings };
 }
 
-async function resolveSource(workspace: Workspace, meta: Meta): Promise<string> {
-  for (const ext of ['mp4', 'mkv', 'webm', 'm4a', 'mp3', 'opus']) {
-    const candidate = workspace.file(`source.${ext}`);
-    if (existsSync(candidate)) return candidate;
+/** Расширения, под которыми источник лежал в рабочем каталоге старых прогонов. */
+const CACHED_SOURCE_EXTENSIONS = ['mp4', 'mkv', 'webm', 'm4a', 'mp3', 'opus'] as const;
+
+/**
+ * Откуда брать источник для сведения.
+ *
+ * Порядок: путь, записанный S1 (`meta.source_path`), затем старый кэш с
+ * `source.<ext>`, затем сам вход. Первый пункт появился после того, как
+ * скачанное по ссылке перестало складываться в кэш: для ссылки `meta.input` —
+ * это URL, и без сохранённого пути сведение искало файл по ссылке и падало.
+ *
+ * Отдельной функцией, потому что это чистый выбор без процессов и файловой
+ * системы внутри: тест проверяет все три ветки и подсказку об ошибке, не
+ * запуская ни ffmpeg, ни рабочий каталог.
+ */
+export function pickSource(
+  meta: Pick<Meta, 'input' | 'source_path'>,
+  cachedSource: (extension: string) => string,
+  exists: (filePath: string) => boolean = existsSync,
+): string {
+  if (meta.source_path && exists(meta.source_path)) return meta.source_path;
+
+  for (const extension of CACHED_SOURCE_EXTENSIONS) {
+    const candidate = cachedSource(extension);
+    if (exists(candidate)) return candidate;
   }
-  if (existsSync(meta.input)) return path.resolve(meta.input);
+
+  if (exists(meta.input)) return path.resolve(meta.input);
+
   throw new StageError('s7', 'не найден исходный файл для мультиплексирования', {
     artifact: meta.input,
-    hints: ['Перезапустите с --from-stage s1'],
+    hints: [
+      meta.source_path
+        ? `Файл, скачанный по ссылке, больше не лежит здесь: ${meta.source_path}`
+        : 'Перезапустите с --from-stage s1',
+    ],
   });
+}
+
+async function resolveSource(workspace: Workspace, meta: Meta): Promise<string> {
+  return pickSource(meta, (extension) => workspace.file(`source.${extension}`));
 }
 
 /**
