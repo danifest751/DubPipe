@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { request as httpRequest } from 'node:http';
 import path from 'node:path';
 import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -83,6 +84,40 @@ describe('§16.5: доступ по одноразовому токену', () =
   it('у статики корректный тип содержимого', async () => {
     expect((await fetch(`${base()}/style.css`)).headers.get('content-type')).toContain('text/css');
     expect((await fetch(`${base()}/app.js`)).headers.get('content-type')).toContain('javascript');
+  });
+});
+
+/**
+ * `Host` подделывается только сырым запросом: в `fetch` это запрещённый
+ * заголовок, и подменить его иначе нечем. Проверка закрывает DNS rebinding —
+ * домен, чей DNS указывает на 127.0.0.1, иначе обращался бы к серверу от
+ * своего имени и получал бы страницу.
+ */
+describe('§16.5: запрос принимается только под локальным именем', () => {
+  const withHost = (host: string, route: string) =>
+    new Promise<{ status: number }>((resolve, reject) => {
+      const request = httpRequest(
+        { host: '127.0.0.1', port: server.port, path: route, method: 'GET', headers: { Host: host } },
+        (response) => {
+          response.resume();
+          response.on('end', () => resolve({ status: response.statusCode ?? 0 }));
+        },
+      );
+      request.on('error', reject);
+      request.end();
+    });
+
+  it('отвергает чужое имя хоста', async () => {
+    expect((await withHost('evil.example', '/')).status).toBe(403);
+  });
+
+  it('отвергает чужое имя хоста и в API', async () => {
+    expect((await withHost('evil.example', `/api/state?token=${server.token}`)).status).toBe(403);
+  });
+
+  it('принимает localhost и петлевой адрес', async () => {
+    expect((await withHost(`localhost:${server.port}`, '/')).status).toBe(200);
+    expect((await withHost(`127.0.0.1:${server.port}`, '/')).status).toBe(200);
   });
 });
 

@@ -1627,6 +1627,20 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       try {
         const url = new URL(request.url ?? '/', 'http://127.0.0.1');
 
+        /*
+         * Заголовок Host проверяется до всего остального.
+         *
+         * Без этого домен, чей DNS указывает на 127.0.0.1, мог заставить
+         * браузер обратиться к серверу от своего имени (DNS rebinding). Токен
+         * защищает данные и действия, но и отдавать страницу чужому имени
+         * незачем: сервер петлевой, и приходить к нему может только петля.
+         */
+        const host = (request.headers.host ?? '').replace(/:\d+$/, '').replace(/^\[|\]$/g, '');
+        if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') {
+          sendJson(response, 403, { error: 'запрос пришёл не с локального адреса' });
+          return;
+        }
+
         // Token gate: it protects data and actions, not the page shell.
         // The browser loads style.css and app.js without any token of its own,
         // so gating static assets leaves the page unstyled and lifeless; those
@@ -1647,7 +1661,9 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
 
         const name = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
         const target = path.join(assets, name);
-        if (!target.startsWith(assets) || !existsSync(target) || !statSync(target).isFile()) {
+        // Каталог статики обозначается границей, а не префиксом строки: иначе
+        // соседняя папка «public_backup» считалась бы своим каталогом.
+        if (!(target === assets || target.startsWith(assets + path.sep)) || !existsSync(target) || !statSync(target).isFile()) {
           response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
           response.end('не найдено');
           return;
