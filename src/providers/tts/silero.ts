@@ -65,6 +65,17 @@ export class SileroProvider implements TtsProvider {
   /** Очередь ответов: мост отвечает строго в порядке запросов. */
   private readonly pending: Pending[] = [];
   private failure: Error | null = null;
+  /**
+   * Движок отпущен и больше не поднимается.
+   *
+   * Реплики синтезируются по несколько за раз, а стадия отпускает движок в
+   * `finally` — в том числе когда падает. Реплика, не успевшая дойти до моста,
+   * после этого поднимала **новый** процесс Python, который уже никто не
+   * закрывал: после сорвавшейся озвучки в системе оставался висеть торчок с
+   * моделью на 400 МБ. Проверено по списку процессов: два таких пережили свои
+   * прогоны на полчаса.
+   */
+  private closed = false;
   private voices: string[] = [];
   /** Модели, уже поднятые в мосту, и те, что сейчас поднимаются. */
   private readonly loading = new Map<string, Promise<void>>();
@@ -229,6 +240,7 @@ export class SileroProvider implements TtsProvider {
   }
 
   private async ensureStarted(): Promise<void> {
+    if (this.closed) throw new Error('движок silero уже отпущен');
     if (this.failure !== null) throw this.failure;
     this.starting ??= this.start();
     await this.starting;
@@ -287,6 +299,7 @@ export class SileroProvider implements TtsProvider {
 
   /** Отпускает процесс: без этого он переживёт стадию и удержит Node. */
   close(): void {
+    this.closed = true;
     this.reader?.close();
     this.reader = null;
     if (this.child !== null) {
