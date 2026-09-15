@@ -17,7 +17,7 @@ import {
   roomFor,
   targetChars,
 } from '../src/stages/s3-translate.js';
-import { makeSegment, type Segment } from '../src/core/types.js';
+import { makeSegment, warningText, type Segment, type StageWarning } from '../src/core/types.js';
 import { parseConfig } from '../src/config/load.js';
 
 const seg = (id: number, start: number, end: number, en: string, ru: string | null = null): Segment =>
@@ -257,20 +257,20 @@ describe('Промпт перевода', () => {
 describe('FR-3: реплика осталась без перевода', () => {
   it('латиницу оставляем как есть: русский голос её прочитает', () => {
     const segment = makeSegment({ id: 3, start: 0, end: 2, text_en: 'Fair enough.' });
-    const warnings: string[] = [];
+    const warnings: StageWarning[] = [];
     markUntranslated(segment, warnings);
     expect(segment.text_ru).toBe('Fair enough.');
     expect(segment.flags).toContain('translation_failed');
-    expect(warnings[0]).toContain('оставлен оригинал');
+    expect(warningText(warnings[0]!)).toContain('оставлен оригинал');
   });
 
   it('хангыль и иероглифы не подставляем: синтезатор сделает из них мусор', () => {
-    const warnings: string[] = [];
+    const warnings: StageWarning[] = [];
     const korean = makeSegment({ id: 4, start: 0, end: 2, text_en: '고마워요. 회의실은 어디예요?' });
     markUntranslated(korean, warnings);
     expect(korean.text_ru).toBeNull();
     expect(korean.flags).toContain('translation_failed');
-    expect(warnings[0]).toContain('без озвучки');
+    expect(warningText(warnings[0]!)).toContain('без озвучки');
 
     const chinese = makeSegment({ id: 5, start: 0, end: 2, text_en: '你好吗？' });
     markUntranslated(chinese, warnings);

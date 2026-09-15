@@ -5,7 +5,7 @@ import path from 'node:path';
 import type { DubConfig } from '../../config/schema.js';
 import { StageError } from '../../core/errors.js';
 import { log } from '../../core/logger.js';
-import type { WordTiming } from '../../core/types.js';
+import type { WordTiming, StageWarning } from '../../core/types.js';
 import type { Workspace } from '../../core/workspace.js';
 import { run } from '../../util/exec.js';
 import { downloadFile } from '../../util/download.js';
@@ -231,7 +231,7 @@ export class WhisperCppProvider implements AsrProvider {
   }
 
   async transcribe(audioPath: string): Promise<AsrResult> {
-    const warnings: string[] = [];
+    const warnings: StageWarning[] = [];
     const binary = await this.resolveBinary();
     const model = await this.ensureModel();
 

@@ -4,6 +4,7 @@ import { log } from '../../core/logger.js';
 import { KiloGatewayClient } from './gateway.js';
 import { OllamaClient } from './ollama.js';
 import type { ChatClient } from './types.js';
+import { warn, type StageWarning } from '../../core/types.js';
 
 export * from './types.js';
 export { KiloGatewayClient, resolveApiKey } from './gateway.js';
@@ -11,7 +12,7 @@ export { OllamaClient } from './ollama.js';
 
 export interface ChatClientSelection {
   client: ChatClient;
-  warnings: string[];
+  warnings: StageWarning[];
   /** True when the configured engine was unreachable and the fallback took over. */
   degraded: boolean;
 }
@@ -22,7 +23,7 @@ export interface ChatClientSelection {
  * model takes over with a warning. Only when nothing is usable is it an error.
  */
 export async function selectChatClient(config: DubConfig, model?: string): Promise<ChatClientSelection> {
-  const warnings: string[] = [];
+  const warnings: StageWarning[] = [];
 
   if (config.translate.engine === 'kilo-gateway') {
     const gateway = await KiloGatewayClient.create(config, model);

@@ -349,6 +349,115 @@ const DICTIONARY = {
   'settings.cacheDirNote': { ru: 'Кэш стадий, загруженные программы и модели.', en: 'Stage cache, downloaded programs and models.' },
   'settings.cacheFiles': { ru: 'Кэш обработанных файлов', en: 'Processed files cache' },
   'settings.cacheFilesNote': { ru: 'Программы и модели не удаляются — только промежуточные результаты.', en: 'Programs and models are kept — only intermediate results are removed.' },
+  // --- предупреждения прогона (ключи приходят от стадий вместе с русским текстом)
+  'warn.s1.noVideo': {
+    ru: 'Во входе нет видеопотока — итог будет сохранён как .m4a (ТЗ FR-7)',
+    en: 'The input has no video stream — the result will be saved as .m4a (SPEC FR-7)',
+  },
+  'warn.s1.long': {
+    ru: 'Длительность {hours} ч — обработка займёт часы (ТЗ §8)',
+    en: 'Length {hours} h — processing will take hours (SPEC §8)',
+  },
+  'warn.s1.short': {
+    ru: 'Извлечённое аудио короче заявленной длительности на {lost} — возможно, файл повреждён; конец фильма может остаться без дубляжа',
+    en: 'The extracted audio falls short of the declared length by {lost} — the file may be damaged, and the end of the film may go undubbed',
+  },
+  'warn.s2.vad': {
+    ru: 'Уточнение границ по VAD не выполнено ({reason}); границы реплик могут выходить за ±250 мс (ТЗ FR-2)',
+    en: 'VAD boundary refinement did not run ({reason}); line boundaries may fall outside ±250 ms (SPEC FR-2)',
+  },
+  'warn.s2.diarizationSkipped': {
+    ru: 'Диаризация пропущена ({reason}): все реплики помечены speaker_0, назначение голосов по спикерам работать не будет. {hint}',
+    en: 'Diarization skipped ({reason}): every line is marked speaker_0 and per-speaker voices will not work. {hint}',
+  },
+  'warn.s2.diarizationFailed': {
+    ru: 'Диаризация не удалась ({reason}): все реплики помечены speaker_0',
+    en: 'Diarization failed ({reason}): every line is marked speaker_0',
+  },
+  'warn.s2.noSpeech': {
+    ru: 'Речь не обнаружена — итог будет копией входа (ТЗ §8)',
+    en: 'No speech found — the result will be a copy of the input (SPEC §8)',
+  },
+  'warn.s2.gender': {
+    ru: 'Пол голосов не определён ({reason}): голоса по полу назначаться не будут',
+    en: 'Speaker gender undetermined ({reason}): voices will not be handed out by gender',
+  },
+  'warn.s3.untranslatedKept': {
+    ru: 'Реплика {id} не переведена — оставлен оригинал',
+    en: 'Line {id} was not translated — the original is kept',
+  },
+  'warn.s3.untranslatedDropped': {
+    ru: 'Реплика {id} не переведена — останется без озвучки',
+    en: 'Line {id} was not translated — it will go unvoiced',
+  },
+  'warn.s3.batchFailed': {
+    ru: 'Пакет {index}/{total} не переведён ({reason}): реплики {from}–{to} остались без перевода',
+    en: 'Batch {index}/{total} was not translated ({reason}): lines {from}–{to} are left untranslated',
+  },
+  'warn.s3.batchesFailed': {
+    ru: 'Не переведено пакетов: {failed} из {total}. Повторный запуск со стадии s3 переведёт их заново — стадии до неё возьмутся из кэша',
+    en: '{failed} of {total} batches were not translated. Running again from stage s3 retranslates them; the stages before it come from the cache',
+  },
+  'warn.s3.fit': {
+    ru: 'Только {share}% реплик укладываются в слот (ТЗ FR-3 требует ≥90%). Длинных: {long}, коротких: {short}. Стадия S6 доведёт их темпом и сокращением',
+    en: 'Only {share}% of lines fit their slot (SPEC FR-3 asks for ≥90%). Too long: {long}, too short: {short}. Stage S6 will settle them with tempo and shortening',
+  },
+  'warn.s4.skipped': {
+    ru: 'Отделение голоса пропущено ({reason}). Оригинал будет приглушён на {db} дБ в речевых окнах (ТЗ FR-4). {hint}',
+    en: 'Voice separation skipped ({reason}). The original will be ducked by {db} dB inside speech windows (SPEC FR-4). {hint}',
+  },
+  'warn.s4.failed': {
+    ru: 'Разделение не удалось ({reason}); оригинал будет приглушён на {db} дБ в речевых окнах',
+    en: 'Separation failed ({reason}); the original will be ducked by {db} dB inside speech windows',
+  },
+  'warn.s5.overlong': {
+    ru: '{count} реплик ({share}%) не укладываются в слот даже при максимальном темпе — стадия S6 сократит их через LLM',
+    en: '{count} lines ({share}%) do not fit their slot even at maximum tempo — stage S6 will shorten them with the model',
+  },
+  'warn.s5.overlongNoAlign': {
+    ru: '{count} реплик ({share}%) не укладываются в слот даже при максимальном темпе — стадия S6 отключена, реплики будут наезжать друг на друга',
+    en: '{count} lines ({share}%) do not fit their slot even at maximum tempo — stage S6 is off, so lines will overlap',
+  },
+  'warn.s5.rate': {
+    ru: 'Фактический темп синтеза {measured} симв/с отличается от того, в который целился перевод ({used}). Замер запомнен — следующий прогон этого голоса попадёт точнее',
+    en: 'The measured synthesis rate {measured} chars/s differs from the one the translation aimed at ({used}). The measurement is remembered, so the next run of this voice will aim better',
+  },
+  'warn.s6.drift': {
+    ru: '{share}% реплик сдвинуты больше чем на 250 мс (ТЗ M3 требует не более 10%). Проверьте длину переводов и alignment.max_tempo',
+    en: '{share}% of lines are shifted by more than 250 ms (SPEC M3 allows at most 10%). Check the translation lengths and alignment.max_tempo',
+  },
+  'warn.s6.truncated': {
+    ru: '{count} реплик обрезаны по слоту — они помечены флагом truncated',
+    en: '{count} lines were cut to their slot — they carry the truncated flag',
+  },
+  'warn.s7.noClips': {
+    ru: 'Нет синтезированных реплик — итог является копией входа',
+    en: 'No synthesised lines — the result is a copy of the input',
+  },
+  'warn.s7.collisions': {
+    ru: '{count} реплик наложились друг на друга и были сдвинуты вправо',
+    en: '{count} lines overlapped and were shifted to the right',
+  },
+  'warn.s7.collisionsNoAlign': {
+    ru: '{count} реплик наложились друг на друга и были сдвинуты вправо (стадия S6 отключена)',
+    en: '{count} lines overlapped and were shifted to the right (stage S6 is off)',
+  },
+  'warn.s7.loudnorm': {
+    ru: 'Первый проход нормализации не дал измерений — применён однопроходный режим',
+    en: 'The first loudness pass produced no measurements — single-pass mode was used',
+  },
+  'warn.subs.notTranslated': {
+    ru: 'Русские субтитры не созданы: реплики ещё не переведены',
+    en: 'Russian subtitles were not produced: the lines are not translated yet',
+  },
+  'warn.llm.noKey': {
+    ru: 'Ключ {env} не задан — перевод пойдёт локально (ТЗ §15.2)',
+    en: 'The {env} key is not set — translation will run locally (SPEC §15.2)',
+  },
+  'warn.llm.gatewayDown': {
+    ru: 'Шлюз Kilo недоступен — перевод пойдёт локально (ТЗ §15.2)',
+    en: 'The Kilo gateway is unreachable — translation will run locally (SPEC §15.2)',
+  },
   'cost.estimate': { ru: 'перевод обойдётся примерно в {cost}', en: 'translation will cost roughly {cost}' },
   'cost.spent': { ru: 'уже потрачено {cost}', en: '{cost} spent so far' },
   'cost.local': { ru: 'перевод идёт локально — бесплатно', en: 'translation runs locally — free' },
@@ -584,6 +693,11 @@ function language() {
 }
 
 /** Перевод по ключу с подстановкой {переменных}. */
+/** Знает ли словарь такой ключ: иначе показывается запасной русский текст. */
+function hasPhrase(key) {
+  return Object.prototype.hasOwnProperty.call(DICTIONARY, key);
+}
+
 function t(key, values) {
   const entry = DICTIONARY[key];
   let text = entry ? entry[current] ?? entry.ru ?? key : key;
@@ -634,4 +748,5 @@ const LANGUAGES = SUPPORTED;
 // Страница подключает скрипты обычными тегами, а не модулями, поэтому доступ —
 // через глобальные имена: `t('nav.library')` в остальном коде интерфейса.
 window.t = t;
+window.hasPhrase = hasPhrase;
 window.i18n = { t, language, setLanguage, applyTranslations, LANGUAGES };

@@ -91,7 +91,11 @@ interface JobState {
   startedAt: string;
   finishedAt: string | null;
   stages: JobStage[];
-  warnings: string[];
+  /**
+   * Предупреждения уходят на страницу ключом словаря и готовым русским текстом:
+   * ключ она переведёт сама, текст покажет, если ключа не знает.
+   */
+  warnings: Array<{ text: string; key?: string; params?: Record<string, string | number> }>;
   output: string | null;
   error: string | null;
   /** Файлы субтитров, записанные задачей. */
@@ -1412,7 +1416,11 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
               stage.provider = outcome.cached ? undefined : outcome.provider;
             }
           }
-          current.warnings = report.warnings;
+          current.warnings = report.warnings.map((warning) =>
+            typeof warning === 'string'
+              ? { text: warning }
+              : { text: warning.ru, key: warning.key, ...(warning.params ? { params: warning.params } : {}) },
+          );
           current.output = report.output;
           current.subtitles = report.subtitles;
           current.status = 'done';

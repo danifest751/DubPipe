@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import type { DubConfig } from '../config/schema.js';
 import { log } from '../core/logger.js';
-import type { Segment } from '../core/types.js';
+import { warn, type Segment, type StageWarning } from '../core/types.js';
 import type { Workspace } from '../core/workspace.js';
 import { createAsrProvider } from '../providers/asr/index.js';
 import {
@@ -27,13 +27,13 @@ import { buildSegments, segmentsSummary, type RawSegment } from './s2-segments.j
 export interface S2Result {
   segments: Segment[];
   provider: string;
-  warnings: string[];
+  warnings: StageWarning[];
   noSpeech: boolean;
   speechRegions: SpeechRegion[];
 }
 
 export async function runS2(workspace: Workspace, config: DubConfig, audioPath: string): Promise<S2Result> {
-  const warnings: string[] = [];
+  const warnings: StageWarning[] = [];
   const provider = createAsrProvider(workspace, config);
   const asr = await provider.transcribe(audioPath);
   warnings.push(...asr.warnings);
@@ -54,9 +54,13 @@ export async function runS2(workspace: Workspace, config: DubConfig, audioPath: 
       await workspace.writeJson(workspace.file('speech.json'), speechRegions);
       log.step(`VAD: речевых окон ${speechRegions.length}`);
     } catch (error) {
+      const reason = (error as Error).message;
       warnings.push(
-        `Уточнение границ по VAD не выполнено (${(error as Error).message}); ` +
-          'границы реплик могут выходить за ±250 мс (ТЗ FR-2)',
+        warn(
+          'warn.s2.vad',
+          `Уточнение границ по VAD не выполнено (${reason}); границы реплик могут выходить за ±250 мс (ТЗ FR-2)`,
+          { reason },
+        ),
       );
     }
   }
@@ -74,9 +78,15 @@ export async function runS2(workspace: Workspace, config: DubConfig, audioPath: 
   if (config.asr.diarization.enabled && config.asr.diarization.engine !== 'none' && segments.length > 0) {
     const probe = await probeDiarization(config, workspace.modelsDir);
     if (!probe.available) {
+      const reason = message(probe.reason ?? '', 'ru');
+      const hint = message(probe.hint ?? '', 'ru');
       warnings.push(
-        `Диаризация пропущена (${message(probe.reason ?? '', 'ru')}): все реплики помечены speaker_0, ` +
-          `назначение голосов по спикерам работать не будет. ${message(probe.hint ?? '', 'ru')}`,
+        warn(
+          'warn.s2.diarizationSkipped',
+          `Диаризация пропущена (${reason}): все реплики помечены speaker_0, ` +
+            `назначение голосов по спикерам работать не будет. ${hint}`,
+          { reason, hint },
+        ),
       );
     } else {
       log.step(`диаризация моделью ${config.asr.diarization.model} (Python + PyTorch)`);
@@ -111,8 +121,11 @@ export async function runS2(workspace: Workspace, config: DubConfig, audioPath: 
         const split = segments.length - before;
         log.step(`спикеров найдено: ${new Set(turns.map((t) => t.speaker)).size}` + (split > 0 ? `, реплик разделено по смене говорящего: ${split}` : ''));
       } catch (error) {
+        const failure = (error as Error).message;
         warnings.push(
-          `Диаризация не удалась (${(error as Error).message}): все реплики помечены speaker_0`,
+          warn('warn.s2.diarizationFailed', `Диаризация не удалась (${failure}): все реплики помечены speaker_0`, {
+            reason: failure,
+          }),
         );
       }
     }

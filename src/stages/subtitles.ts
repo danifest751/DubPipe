@@ -4,7 +4,7 @@ import type { DubConfig } from '../config/schema.js';
 import { log } from '../core/logger.js';
 import { languageProfile } from '../core/languages.js';
 import { formatTimestamp } from '../util/srt.js';
-import type { Segment } from '../core/types.js';
+import { warn, type Segment, type StageWarning } from '../core/types.js';
 
 /**
  * Субтитры: раскладка реплик в SRT по принятым правилам читаемости.
@@ -316,7 +316,7 @@ export function subtitleFileName(input: string, lang: string): string {
 
 export interface SubtitleResult {
   files: Array<{ lang: string; kind: 'source' | 'target'; path: string; cues: number }>;
-  warnings: string[];
+  warnings: StageWarning[];
 }
 
 /** Пишет оба файла субтитров; русский — только если реплики переведены. */
@@ -327,7 +327,7 @@ export async function writeSubtitleFiles(
   options: SubtitleOptions = DEFAULT_SUBTITLE_OPTIONS,
   sourceLanguage = 'en',
 ): Promise<SubtitleResult> {
-  const warnings: string[] = [];
+  const warnings: StageWarning[] = [];
   const files: SubtitleResult['files'] = [];
   await mkdir(targetDir, { recursive: true });
 
@@ -357,7 +357,7 @@ export async function writeSubtitleFiles(
       .filter((item) => item.text.trim().length > 0);
 
     if (items.length === 0) {
-      if (output.kind === 'target') warnings.push('Русские субтитры не созданы: реплики ещё не переведены');
+      if (output.kind === 'target') warnings.push(warn('warn.subs.notTranslated', 'Русские субтитры не созданы: реплики ещё не переведены'));
       continue;
     }
 

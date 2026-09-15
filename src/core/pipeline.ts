@@ -17,6 +17,7 @@ import { counter, formatDuration, log } from './logger.js';
 import { MANDATORY_STAGES, STAGE_IDS, STAGE_TITLES, type Segment, type StageId, type StageOutcome } from './types.js';
 import { computeFingerprints, Workspace } from './workspace.js';
 import { EMPTY_OVERRIDES, type ProjectOverrides } from './overrides.js';
+import type { StageWarning } from './types.js';
 
 /**
  * Stage orchestration with resumable caching (SPEC §2, §7).
@@ -47,7 +48,7 @@ export interface PipelineOptions {
 export interface PipelineReport {
   workspace: string;
   outcomes: StageOutcome[];
-  warnings: string[];
+  warnings: StageWarning[];
   output: string | null;
   segments: Segment[];
   /** Записанные файлы субтитров (когда запрошены). */
@@ -237,7 +238,7 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRep
   }
 
   const outcomes: StageOutcome[] = [];
-  const warnings: string[] = [];
+  const warnings: StageWarning[] = [];
   const overrides = await workspace.readOverrides();
   const knownMeta = await workspace.readMeta();
   if (knownMeta) await confirmLongInput(knownMeta.duration_seconds);
@@ -294,7 +295,7 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRep
     }
 
     let provider = '—';
-    const stageWarnings: string[] = [];
+    const stageWarnings: StageWarning[] = [];
 
     switch (stage) {
       case 's1': {

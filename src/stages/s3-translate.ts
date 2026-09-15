@@ -6,7 +6,7 @@ import { cancellation } from '../core/cancel.js';
 import { StageError } from '../core/errors.js';
 import { languageProfile } from '../core/languages.js';
 import { counter, log } from '../core/logger.js';
-import { availableSeconds, slotOf, type Segment } from '../core/types.js';
+import { availableSeconds, slotOf, warn, type Segment, type StageWarning } from '../core/types.js';
 import type { Workspace } from '../core/workspace.js';
 import { selectChatClient, type ChatClient, type ChatUsage } from '../providers/llm/index.js';
 import { formatCost } from '../providers/llm/catalog.js';
@@ -338,7 +338,7 @@ export interface TranslationRun {
   glossary: Record<string, string>;
   usage: RunUsage;
   elapsedMs: number;
-  warnings: string[];
+  warnings: StageWarning[];
 }
 
 export interface TranslateOptions {
@@ -568,14 +568,14 @@ async function fitLengths(
  * в мусор, поэтому там честнее тишина — в этом месте останется слышен
  * приглушённый оригинал.
  */
-export function markUntranslated(segment: Segment, warnings: string[]): void {
+export function markUntranslated(segment: Segment, warnings: StageWarning[]): void {
   const readable = /^[\p{Script=Latin}\p{Script=Cyrillic}\p{P}\p{N}\s]+$/u.test(segment.text_en);
   segment.text_ru = readable ? segment.text_en : null;
   if (!segment.flags.includes('translation_failed')) segment.flags.push('translation_failed');
   warnings.push(
     readable
-      ? `Реплика ${segment.id} не переведена — оставлен оригинал`
-      : `Реплика ${segment.id} не переведена — останется без озвучки`,
+      ? warn('warn.s3.untranslatedKept', `Реплика ${segment.id} не переведена — оставлен оригинал`, { id: segment.id })
+      : warn('warn.s3.untranslatedDropped', `Реплика ${segment.id} не переведена — останется без озвучки`, { id: segment.id }),
   );
 }
 
@@ -590,7 +590,7 @@ export async function translateSegments(
   options: TranslateOptions = {},
 ): Promise<TranslationRun> {
   const started = Date.now();
-  const warnings: string[] = [];
+  const warnings: StageWarning[] = [];
   const usage: RunUsage = { promptTokens: 0, completionTokens: 0, cost: 0, requests: 0 };
   const segments = input.map((segment) => ({ ...segment, flags: [...segment.flags] }));
 
@@ -646,9 +646,14 @@ export async function translateSegments(
       failedBatches++;
       const reason = (error as Error).message;
       log.warn(`Пакет ${index + 1}/${batches.length} не переведён (${reason})`);
+      const from = batch[0]!.id;
+      const to = batch[batch.length - 1]!.id;
       warnings.push(
-        `Пакет ${index + 1}/${batches.length} не переведён (${reason}): ` +
-          `реплики ${batch[0]!.id}–${batch[batch.length - 1]!.id} остались без перевода`,
+        warn(
+          'warn.s3.batchFailed',
+          `Пакет ${index + 1}/${batches.length} не переведён (${reason}): реплики ${from}–${to} остались без перевода`,
+          { index: index + 1, total: batches.length, reason, from, to },
+        ),
       );
       for (const segment of batch) markUntranslated(segment, warnings);
       await options.onBatch?.(index + 1, batches.length, segments);
@@ -680,8 +685,12 @@ export async function translateSegments(
   }
   if (failedBatches > 0) {
     warnings.push(
-      `Не переведено пакетов: ${failedBatches} из ${batches.length}. ` +
-        'Повторный запуск со стадии s3 переведёт их заново — стадии до неё возьмутся из кэша',
+      warn(
+        'warn.s3.batchesFailed',
+        `Не переведено пакетов: ${failedBatches} из ${batches.length}. ` +
+          'Повторный запуск со стадии s3 переведёт их заново — стадии до неё возьмутся из кэша',
+        { failed: failedBatches, total: batches.length },
+      ),
     );
     log.warn(`Не переведено пакетов: ${failedBatches} из ${batches.length}`);
   }
@@ -708,7 +717,7 @@ export async function translateSegments(
 export interface S3Result {
   segments: Segment[];
   provider: string;
-  warnings: string[];
+  warnings: StageWarning[];
   stats: LengthStats;
   glossary: Record<string, string>;
   usage: RunUsage;
@@ -778,9 +787,14 @@ export async function runS3(workspace: Workspace, baseConfig: DubConfig, segment
 
   const warnings = [...selection.warnings, ...run.warnings];
   if (!stats.passed) {
+    const fitShare = (stats.share * 100).toFixed(1);
     warnings.push(
-      `Только ${(stats.share * 100).toFixed(1)}% реплик укладываются в слот (ТЗ FR-3 требует ≥90%). ` +
-        `Длинных: ${stats.tooLong}, коротких: ${stats.tooShort}. Стадия S6 доведёт их темпом и сокращением`,
+      warn(
+        'warn.s3.fit',
+        `Только ${fitShare}% реплик укладываются в слот (ТЗ FR-3 требует ≥90%). ` +
+          `Длинных: ${stats.tooLong}, коротких: ${stats.tooShort}. Стадия S6 доведёт их темпом и сокращением`,
+        { share: fitShare, long: stats.tooLong, short: stats.tooShort },
+      ),
     );
   }
 

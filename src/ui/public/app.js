@@ -549,7 +549,11 @@ function renderJob() {
   const notices = [];
   if (job.error) notices.push({ tone: 'error', text: job.error });
   if (job.output) notices.push({ tone: 'ok', text: t('job.result', { path: job.output }) });
-  for (const warning of job.warnings ?? []) notices.push({ tone: 'warn', text: warning });
+  for (const warning of job.warnings ?? []) {
+    // Ключ словаря, если страница его знает, иначе готовый русский текст.
+    const text = typeof warning === 'string' ? warning : warning.key && hasPhrase(warning.key) ? t(warning.key, warning.params ?? {}) : warning.text;
+    notices.push({ tone: 'warn', text });
+  }
 
   result.innerHTML = notices
     .filter((notice) => !dismissedNotices.has(notice.text))

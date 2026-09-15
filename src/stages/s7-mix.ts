@@ -4,7 +4,7 @@ import { copyFile, mkdir, rm, stat } from 'node:fs/promises';
 import type { DubConfig } from '../config/schema.js';
 import { StageError } from '../core/errors.js';
 import { log } from '../core/logger.js';
-import type { Meta, Segment } from '../core/types.js';
+import { warn, type Meta, type Segment, type StageWarning } from '../core/types.js';
 import type { Workspace } from '../core/workspace.js';
 import { applyOverrides } from '../core/overrides.js';
 import { run } from '../util/exec.js';
@@ -23,7 +23,7 @@ import { buildDuckEnvelope, buildSpeechPresenceEnvelope, buildVoiceTrack, type S
 
 export interface S7Result {
   outputPath: string;
-  warnings: string[];
+  warnings: StageWarning[];
 }
 
 interface LoudnormMeasurement {
@@ -168,7 +168,7 @@ export async function runS7(
 ): Promise<S7Result> {
   // Громкости, выставленные в режиме просмотра этого видео, важнее общих настроек.
   const config = applyOverrides(baseConfig, await workspace.readOverrides());
-  const warnings: string[] = [];
+  const warnings: StageWarning[] = [];
   const ffmpeg = await requireTool('ffmpeg', workspace.toolsDir);
   const sourcePath = await resolveSource(workspace, meta);
 
@@ -192,7 +192,7 @@ export async function runS7(
 
   // No speech at all: the spec asks for a copy of the input (SPEC §8).
   if (clips.length === 0) {
-    warnings.push('Нет синтезированных реплик — итог является копией входа');
+    warnings.push(warn('warn.s7.noClips', 'Нет синтезированных реплик — итог является копией входа'));
     await copyFile(sourcePath, outputPath);
     return { outputPath, warnings };
   }
@@ -205,8 +205,12 @@ export async function runS7(
   const voiceTrack = await buildVoiceTrack(clips, duration, sampleRate, workspace.file('voice.wav'));
   if (voiceTrack.collisions > 0) {
     warnings.push(
-      `${voiceTrack.collisions} реплик наложились друг на друга и были сдвинуты вправо` +
-        (config.alignment.enabled ? '' : ' (стадия S6 отключена)'),
+      warn(
+        config.alignment.enabled ? 'warn.s7.collisions' : 'warn.s7.collisionsNoAlign',
+        `${voiceTrack.collisions} реплик наложились друг на друга и были сдвинуты вправо` +
+          (config.alignment.enabled ? '' : ' (стадия S6 отключена)'),
+        { count: voiceTrack.collisions },
+      ),
     );
   }
 
@@ -289,7 +293,7 @@ export async function runS7(
         `measured_I=${measured.input_i}:measured_TP=${measured.input_tp}:measured_LRA=${measured.input_lra}:` +
         `measured_thresh=${measured.input_thresh}:offset=${measured.target_offset}:linear=true`
       : `loudnorm=I=${config.mix.loudnorm_target_lufs}:TP=-1.5:LRA=11`;
-    if (!measured) warnings.push('Первый проход нормализации не дал измерений — применён однопроходный режим');
+    if (!measured) warnings.push(warn('warn.s7.loudnorm', 'Первый проход нормализации не дал измерений — применён однопроходный режим'));
 
     await run(
       ffmpeg,

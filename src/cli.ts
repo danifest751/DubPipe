@@ -8,7 +8,7 @@ import { showLegalNoticeOnce } from './core/legal.js';
 import { formatDuration, log } from './core/logger.js';
 import { inspectCompute } from './core/compute.js';
 import { runPipeline } from './core/pipeline.js';
-import { STAGE_IDS, STAGE_TITLES, type StageId } from './core/types.js';
+import { STAGE_IDS, STAGE_TITLES, type StageId, warningText } from './core/types.js';
 import { TOOL_VERSION, Workspace } from './core/workspace.js';
 import { evaluateTimecodes, formatEvaluation, type GoldenSegment } from './core/evaluate.js';
 import { compareModels, formatSideBySide, formatSummary } from './core/compare.js';
@@ -86,7 +86,7 @@ program
     }
     if (report.warnings.length) {
       log.info('');
-      for (const warning of report.warnings) log.warn(warning);
+      for (const warning of report.warnings) log.warn(warningText(warning));
     }
     if (report.output) log.success(`Итог: ${report.output}`);
   });

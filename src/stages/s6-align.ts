@@ -5,7 +5,7 @@ import type { DubConfig } from '../config/schema.js';
 import { cancellation } from '../core/cancel.js';
 import { StageError } from '../core/errors.js';
 import { counter, log } from '../core/logger.js';
-import { availableSeconds, slotOf, type Segment } from '../core/types.js';
+import { availableSeconds, slotOf, warn, type Segment, type StageWarning } from '../core/types.js';
 import type { Workspace } from '../core/workspace.js';
 import { applyOverrides } from '../core/overrides.js';
 import { selectChatClient, type ChatClient } from '../providers/llm/index.js';
@@ -221,14 +221,14 @@ async function shortenReplica(
 
 export interface S6Result {
   segments: Segment[];
-  warnings: string[];
+  warnings: StageWarning[];
   stats: AlignmentStats;
   provider: string;
 }
 
 export async function runS6(workspace: Workspace, baseConfig: DubConfig, segments: Segment[]): Promise<S6Result> {
   const config = applyOverrides(baseConfig, await workspace.readOverrides(), await workspace.readSpeakers());
-  const warnings: string[] = [];
+  const warnings: StageWarning[] = [];
   const { charsPerSecond, overheadSeconds } = await effectiveSpeechShape(workspace, config);
   const options: AlignmentOptions = {
     minTempo: config.alignment.min_tempo,
@@ -343,13 +343,22 @@ export async function runS6(workspace: Workspace, baseConfig: DubConfig, segment
       `ускорено ${stats.speedUp}, обрезано ${stats.truncated}`,
   );
   if (stats.outsideToleranceShare > 0.1) {
+    const driftShare = Math.round(stats.outsideToleranceShare * 100);
     warnings.push(
-      `${Math.round(stats.outsideToleranceShare * 100)}% реплик сдвинуты больше чем на 250 мс ` +
-        '(ТЗ M3 требует не более 10%). Проверьте длину переводов и alignment.max_tempo',
+      warn(
+        'warn.s6.drift',
+        `${driftShare}% реплик сдвинуты больше чем на 250 мс ` +
+          '(ТЗ M3 требует не более 10%). Проверьте длину переводов и alignment.max_tempo',
+        { share: driftShare },
+      ),
     );
   }
   if (stats.truncated > 0) {
-    warnings.push(`${stats.truncated} реплик обрезаны по слоту — они помечены флагом truncated`);
+    warnings.push(
+      warn('warn.s6.truncated', `${stats.truncated} реплик обрезаны по слоту — они помечены флагом truncated`, {
+        count: stats.truncated,
+      }),
+    );
   }
 
   await workspace.writeSegments(segments);

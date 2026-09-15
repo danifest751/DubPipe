@@ -2,7 +2,7 @@ import type { DubConfig } from '../../config/schema.js';
 import { StageError } from '../../core/errors.js';
 import type { Workspace } from '../../core/workspace.js';
 import type { RawSegment } from '../../stages/s2-segments.js';
-import type { WordTiming } from '../../core/types.js';
+import type { WordTiming, StageWarning } from '../../core/types.js';
 import { WhisperCppProvider } from './whispercpp.js';
 
 export interface AsrResult {
@@ -10,7 +10,7 @@ export interface AsrResult {
   /** Flat word timings on the original timeline, used for boundary refinement. */
   words: WordTiming[];
   provider: string;
-  warnings: string[];
+  warnings: StageWarning[];
 }
 
 export interface AsrProvider {

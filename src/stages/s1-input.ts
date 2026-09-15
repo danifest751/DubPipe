@@ -3,7 +3,7 @@ import path from 'node:path';
 import { StageError } from '../core/errors.js';
 import { log } from '../core/logger.js';
 import { TOOL_VERSION, type Workspace } from '../core/workspace.js';
-import type { Meta } from '../core/types.js';
+import { warn, type Meta, type StageWarning } from '../core/types.js';
 import { isUrl } from '../util/hash.js';
 import { run } from '../util/exec.js';
 import { requireTool } from '../util/tools.js';
@@ -52,7 +52,7 @@ export interface S1Result {
   sourcePath: string;
   analysisAudio: string;
   originalAudio: string;
-  warnings: string[];
+  warnings: StageWarning[];
 }
 
 async function downloadFromUrl(url: string, workspace: Workspace): Promise<string> {
@@ -87,7 +87,7 @@ async function downloadFromUrl(url: string, workspace: Workspace): Promise<strin
 }
 
 export async function runS1(workspace: Workspace, input: string): Promise<S1Result> {
-  const warnings: string[] = [];
+  const warnings: StageWarning[] = [];
 
   const sourcePath = isUrl(input) ? await downloadFromUrl(input, workspace) : path.resolve(input);
   if (!existsSync(sourcePath)) {
@@ -101,12 +101,11 @@ export async function runS1(workspace: Workspace, input: string): Promise<S1Resu
     throw new StageError('s1', 'Во входном файле нет аудиодорожки', { artifact: sourcePath });
   }
   if (!info.hasVideo) {
-    warnings.push('Во входе нет видеопотока — итог будет сохранён как .m4a (ТЗ FR-7)');
+    warnings.push(warn('warn.s1.noVideo', 'Во входе нет видеопотока — итог будет сохранён как .m4a (ТЗ FR-7)'));
   }
   if (info.durationSeconds > LONG_INPUT_SECONDS) {
-    warnings.push(
-      `Длительность ${(info.durationSeconds / 3600).toFixed(1)} ч — обработка займёт часы (ТЗ §8)`,
-    );
+    const hours = (info.durationSeconds / 3600).toFixed(1);
+    warnings.push(warn('warn.s1.long', `Длительность ${hours} ч — обработка займёт часы (ТЗ §8)`, { hours }));
   }
 
   const analysisAudio = workspace.file('audio.wav');
@@ -130,8 +129,12 @@ export async function runS1(workspace: Workspace, input: string): Promise<S1Resu
       });
     }
     warnings.push(
-      `Извлечённое аудио короче заявленной длительности на ${lost} — ` +
-        'возможно, файл повреждён; конец фильма может остаться без дубляжа',
+      warn(
+        'warn.s1.short',
+        `Извлечённое аудио короче заявленной длительности на ${lost} — ` +
+          'возможно, файл повреждён; конец фильма может остаться без дубляжа',
+        { lost },
+      ),
     );
   }
 

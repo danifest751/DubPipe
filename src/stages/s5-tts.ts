@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import type { DubConfig } from '../config/schema.js';
 import { cancellation } from '../core/cancel.js';
 import { counter, log } from '../core/logger.js';
-import type { Segment } from '../core/types.js';
+import { warn, type Segment, type StageWarning } from '../core/types.js';
 import type { Workspace } from '../core/workspace.js';
 import { applyOverrides } from '../core/overrides.js';
 import { createTtsProvider, voiceForSpeaker, type TtsProvider } from '../providers/tts/index.js';
@@ -19,7 +19,7 @@ import { sha256 } from '../util/hash.js';
 export interface S5Result {
   segments: Segment[];
   provider: string;
-  warnings: string[];
+  warnings: StageWarning[];
   /** Measured characters per second, fed back into the FR-3 length estimate. */
   measuredCps: number | null;
 }
@@ -145,7 +145,7 @@ async function synthesizeAll(
   segments: Segment[],
   provider: TtsProvider,
 ): Promise<S5Result> {
-  const warnings: string[] = [];
+  const warnings: StageWarning[] = [];
   const outputDir = await workspace.subdir('tts');
 
   const pending = segments.filter((segment) => segment.text_ru && segment.text_ru.trim().length > 0);
@@ -196,11 +196,15 @@ async function synthesizeAll(
   );
   if (overlong.length > 0) {
     const share = ((overlong.length / pending.length) * 100).toFixed(0);
+    const tail = config.alignment.enabled
+      ? 'стадия S6 сократит их через LLM'
+      : 'стадия S6 отключена, реплики будут наезжать друг на друга';
     warnings.push(
-      `${overlong.length} реплик (${share}%) не укладываются в слот даже при максимальном темпе — ` +
-        (config.alignment.enabled
-          ? 'стадия S6 сократит их через LLM'
-          : 'стадия S6 отключена, реплики будут наезжать друг на друга'),
+      warn(
+        config.alignment.enabled ? 'warn.s5.overlong' : 'warn.s5.overlongNoAlign',
+        `${overlong.length} реплик (${share}%) не укладываются в слот даже при максимальном темпе — ${tail}`,
+        { count: overlong.length, share },
+      ),
     );
   }
 
@@ -227,8 +231,12 @@ async function synthesizeAll(
     );
     if (drift > 0.12) {
       warnings.push(
-        `Фактический темп синтеза ${measuredCps} симв/с отличается от того, в который целился перевод ` +
-          `(${used}). Замер запомнен — следующий прогон этого голоса попадёт точнее`,
+        warn(
+          'warn.s5.rate',
+          `Фактический темп синтеза ${measuredCps} симв/с отличается от того, в который целился перевод ` +
+            `(${used}). Замер запомнен — следующий прогон этого голоса попадёт точнее`,
+          { measured: measuredCps, used },
+        ),
       );
     }
   }

@@ -10,6 +10,7 @@ import type { Workspace } from '../core/workspace.js';
 import { run, ProcessError } from '../util/exec.js';
 import { downloadFile } from '../util/download.js';
 import { requireTool } from '../util/tools.js';
+import { warn, type StageWarning } from '../core/types.js';
 
 /**
  * S4 — separating voice from music and effects (SPEC FR-4).
@@ -109,7 +110,7 @@ export async function missingPythonModules(executable: string, names: string[]):
 
 export interface S4Result {
   backgroundPath: string | null;
-  warnings: string[];
+  warnings: StageWarning[];
   provider: string;
   /** True when the stage stepped aside and S7 must duck instead. */
   degradedToDucking: boolean;
@@ -123,7 +124,7 @@ function sidecarPath(): string {
 }
 
 export async function runS4(workspace: Workspace, config: DubConfig): Promise<S4Result> {
-  const warnings: string[] = [];
+  const warnings: StageWarning[] = [];
 
   const python = await probePython();
   if (!python.available) {
@@ -140,8 +141,12 @@ export async function runS4(workspace: Workspace, config: DubConfig): Promise<S4
 
     if (config.separation.fallback_to_ducking) {
       warnings.push(
-        `Отделение голоса пропущено (${reason}). Оригинал будет приглушён на ${config.mix.duck_db} дБ ` +
-          'в речевых окнах (ТЗ FR-4). ' + hints[0],
+        warn(
+          'warn.s4.skipped',
+          `Отделение голоса пропущено (${reason}). Оригинал будет приглушён на ${config.mix.duck_db} дБ ` +
+            'в речевых окнах (ТЗ FR-4). ' + hints[0],
+          { reason, db: config.mix.duck_db, hint: hints[0] ?? '' },
+        ),
       );
       return { backgroundPath: null, warnings, provider: 'пропущено', degradedToDucking: true };
     }
@@ -222,9 +227,13 @@ export async function runS4(workspace: Workspace, config: DubConfig): Promise<S4
   } catch (error) {
     const detail = error instanceof ProcessError ? error.stderr.trim().split('\n').slice(-3).join('; ') : '';
     if (config.separation.fallback_to_ducking) {
+      const why = detail || (error as Error).message;
       warnings.push(
-        `Разделение не удалось (${detail || (error as Error).message}); ` +
-          `оригинал будет приглушён на ${config.mix.duck_db} дБ в речевых окнах`,
+        warn(
+          'warn.s4.failed',
+          `Разделение не удалось (${why}); оригинал будет приглушён на ${config.mix.duck_db} дБ в речевых окнах`,
+          { reason: why, db: config.mix.duck_db },
+        ),
       );
       return { backgroundPath: null, warnings, provider: 'ошибка, откат на дакинг', degradedToDucking: true };
     }

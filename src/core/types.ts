@@ -91,11 +91,38 @@ export interface Meta {
   translation_cost_usd?: number;
 }
 
+/**
+ * Предупреждение прогона: русский текст плюс ключ словаря для интерфейса.
+ *
+ * Ход стадий интерфейс переводит по ключам (`Phrase` в logger.ts), а
+ * предупреждения оставались русскими на английском экране — двадцать четыре
+ * места собирали готовую фразу и отдавали её как есть. Русский текст здесь
+ * остаётся: им пользуется консоль, он же запасной вариант для ключа, которого
+ * страница не знает.
+ */
+export interface WarningPhrase {
+  key: string;
+  ru: string;
+  params?: Record<string, string | number>;
+}
+
+export type StageWarning = string | WarningPhrase;
+
+/** Короткая запись: `warn('warn.noVideo', 'Во входе нет видеопотока…')`. */
+export function warn(key: string, ru: string, params?: Record<string, string | number>): WarningPhrase {
+  return params === undefined ? { key, ru } : { key, ru, params };
+}
+
+/** Текст предупреждения по-русски — для консоли и для журнала прогона. */
+export function warningText(warning: StageWarning): string {
+  return typeof warning === 'string' ? warning : warning.ru;
+}
+
 export interface StageOutcome {
   stage: StageId;
   cached: boolean;
   provider: string;
-  warnings: string[];
+  warnings: StageWarning[];
   durationMs: number;
 }
 
