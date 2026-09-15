@@ -274,6 +274,9 @@ export async function runS6(workspace: Workspace, baseConfig: DubConfig, segment
         cancellation.throwIfCancelled();
 
         segment.text_ru = shortened;
+        // Разметка фраз была сделана по прежнему тексту: теперь она лжёт, и
+        // синтез по ней произнёс бы то, что мы только что сократили.
+        segment.phrases = null;
         segment.retranslate_count++;
         const voice = voiceForSpeaker(segment.speaker, config.tts.voice_map, config.tts.default_voice);
         const result = await tts.synthesize({

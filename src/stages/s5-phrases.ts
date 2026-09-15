@@ -131,3 +131,80 @@ export function splitTranslation(text: string, phrases: SourcePhrase[], options:
 
   return { parts, pauses: cuts.map((cut) => taken.get(cut)!) };
 }
+
+/**
+ * Запрос к модели: где делится реплика.
+ *
+ * Пунктуация — замена языковой модели, и замена бедная: «С этого момента клан
+ * Сиртр переходит под власть Варака» знаков внутри не имеет вовсе, и разбить её
+ * нечем, хотя говорящий там паузу делал. Модель это место назовёт.
+ *
+ * Запрос отдельный и с одной задачей намеренно. Рецензии однажды дали вторую
+ * работу — следить за длиной, — и она занялась только ею: из 18 принятых правок
+ * все 18 были про длину, а язык остался нетронутым. Повторять не станем.
+ */
+export interface PhraseRequestLine {
+  id: number;
+  ru: string;
+  /** Длительности фраз оригинала и пауз между ними, секунды. */
+  phrases: number[];
+  pauses: number[];
+}
+
+export function buildPhraseRequest(
+  segments: Array<{ id: number; text_ru: string | null; words: WordTiming[] | null }>,
+  minPause = 0.3,
+): PhraseRequestLine[] {
+  const lines: PhraseRequestLine[] = [];
+  for (const segment of segments) {
+    const text = (segment.text_ru ?? '').trim();
+    if (!text) continue;
+    const phrases = sourcePhrases(segment.words, minPause);
+    if (phrases.length < 2) continue;
+    lines.push({
+      id: segment.id,
+      ru: text,
+      phrases: phrases.map((phrase) => Number((phrase.end - phrase.start).toFixed(2))),
+      pauses: phrases.slice(0, -1).map((phrase) => phrase.pauseAfter),
+    });
+  }
+  return lines;
+}
+
+/** Слова текста без пробелов и регистра — по ним сверяется, что текст не подменили. */
+function skeleton(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Разбор ответа: куски принимаются, только если из них складывается ровно тот
+ * же текст.
+ *
+ * Иначе модель, попросив её «разделить», перепишет заодно и слова — и подмена
+ * уедет в фильм молча. Здесь она не проходит: куски, не сложившиеся обратно,
+ * отбрасываются вместе со всей репликой.
+ */
+export function parsePhraseResponse(raw: string, expected: Map<number, PhraseRequestLine>): Map<number, PhrasePlan> {
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start < 0 || end <= start) throw new Error('в ответе нет JSON');
+  const parsed = JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
+  const items = parsed['items'];
+  if (!Array.isArray(items)) throw new Error('в ответе нет массива items');
+
+  const plans = new Map<number, PhrasePlan>();
+  for (const entry of items) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const record = entry as Record<string, unknown>;
+    const id = Number(record['id']);
+    const asked = expected.get(id);
+    if (!asked || !Array.isArray(record['parts'])) continue;
+    const parts = record['parts'].filter((part): part is string => typeof part === 'string').map((part) => part.trim());
+    if (parts.length < 2 || parts.length > asked.phrases.length) continue;
+    if (parts.some((part) => part.length === 0)) continue;
+    if (skeleton(parts.join(' ')) !== skeleton(asked.ru)) continue;
+    // Пауз нужно на одну меньше, чем кусков; берём первые — они в порядке речи.
+    plans.set(id, { parts, pauses: asked.pauses.slice(0, parts.length - 1) });
+  }
+  return plans;
+}

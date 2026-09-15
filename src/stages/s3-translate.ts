@@ -13,6 +13,7 @@ import { formatCost } from '../providers/llm/catalog.js';
 import { effectiveSpeechShape } from '../core/calibration.js';
 import { rememberTokenRate } from '../core/translation-cost.js';
 import { speakerGenderByText } from '../core/text-gender.js';
+import { buildPhraseRequest, parsePhraseResponse } from './s5-phrases.js';
 import { genderDisputed } from '../providers/diarization/gender.js';
 import {
   applyReview,
@@ -870,6 +871,67 @@ const REVIEW_SCHEMA: Record<string, unknown> = {
  * пользуются перевод и подгонка, а рецензия, переписавшая полфильма, отвергается
  * целиком — см. applyReview.
  */
+/** Схема ответа разметки фраз: без неё модель возвращает JSON без нужного массива. */
+const PHRASES_SCHEMA = {
+  type: 'object',
+  properties: {
+    items: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { id: { type: 'integer' }, parts: { type: 'array', items: { type: 'string' } } },
+        required: ['id', 'parts'],
+      },
+    },
+  },
+  required: ['items'],
+} as const;
+
+/**
+ * Где делится реплика, у которой говорящий делал паузу внутри.
+ *
+ * Отдельный запрос с одной задачей: рецензии однажды дали вторую работу —
+ * следить за длиной, — и она занялась только ею, все 18 её правок оказались про
+ * длину. Здесь спрашивают только про границы фраз, и куски сверяются с исходным
+ * текстом: переписанное отбрасывается.
+ *
+ * Стоит это одного маленького запроса на фильм: реплик с паузой внутри около
+ * десятой части, на эпизоде их 8–15.
+ */
+async function markPhrases(
+  client: ChatClient,
+  segments: Segment[],
+  usage: RunUsage,
+  warnings: StageWarning[],
+): Promise<number> {
+  const lines = buildPhraseRequest(segments);
+  if (lines.length === 0) return 0;
+
+  const template = await loadPromptTemplate('phrases.md');
+  try {
+    const reply = await client.complete(
+      [
+        { role: 'system', content: template },
+        { role: 'user', content: JSON.stringify({ lines }) },
+      ],
+      { json: true, schema: PHRASES_SCHEMA, temperature: 0 },
+    );
+    addUsage(usage, reply.usage);
+    const plans = parsePhraseResponse(reply.text, new Map(lines.map((line) => [line.id, line])));
+    for (const segment of segments) {
+      const plan = plans.get(segment.id);
+      if (plan) segment.phrases = plan.parts;
+    }
+    return plans.size;
+  } catch (error) {
+    const reason = (error as Error).message;
+    warnings.push(
+      warn('warn.s3.phrasesFailed', `Разметка фраз не удалась (${reason}): реплики озвучатся целиком`, { reason }),
+    );
+    return 0;
+  }
+}
+
 /**
  * Кто рецензирует: та же модель, что переводила, или названная в настройках.
  *
@@ -1192,6 +1254,16 @@ export async function runS3(
   await workspace.writeJson(workspace.file('glossary.json'), run.glossary);
   // Стадия дошла до конца — продолжать больше нечего.
   await rm(progressPath, { force: true });
+
+  /*
+   * Где делится реплика — спрашиваем у модели, пока она под рукой и текст готов.
+   * Пользуется этим S5: реплику с паузами говорящего он озвучивает по кускам.
+   */
+  const marked = await markPhrases(client, run.segments, run.usage, warnings);
+  if (marked > 0) {
+    log.step(`разметка фраз: ${marked} реплик`);
+    await workspace.writeSegments(run.segments);
+  }
 
   /*
    * Пол говорящих по тексту — здесь, потому что раньше текста не было.

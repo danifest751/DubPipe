@@ -218,6 +218,8 @@ export function planReview(
       tts_file: null,
       tts_duration: null,
       tts_key: null,
+      // Правка текста делает разметку фраз ложью: она резала прежнюю реплику.
+      ...(old && old.text_ru !== segment.text_ru ? { phrases: null } : {}),
       aligned_file: null,
       aligned_duration: null,
       tempo: null,

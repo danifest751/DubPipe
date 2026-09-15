@@ -259,11 +259,21 @@ async function synthesizeAll(
      * оставил бы клип, склеенный по-старому.
      */
     const predicted = segment.text_ru!.length / shape.charsPerSecond + shape.overheadSeconds;
+    /*
+     * Разметку фраз даёт S3, спросив у модели: она видит, где фраза делится, а
+     * знаков препинания там может не быть вовсе («С этого момента клан Сиртр
+     * переходит под власть Варака»). Своё деление по знакам остаётся запасным —
+     * на случай, когда разметки нет: модель не ответила или реплику правили руками.
+     */
+    const phrases = sourcePhrases(segment.words);
+    const marked = segment.phrases && segment.phrases.length > 1 ? segment.phrases : null;
     const plan =
-      config.tts.phrase_rhythm && predicted < slotOf(segment) - 0.08
-        ? splitTranslation(segment.text_ru!, sourcePhrases(segment.words))
+      config.tts.phrase_rhythm && predicted < slotOf(segment) - 0.08 && phrases.length >= 2
+        ? marked
+          ? { parts: marked, pauses: phrases.slice(0, marked.length - 1).map((phrase) => phrase.pauseAfter) }
+          : splitTranslation(segment.text_ru!, phrases)
         : null;
-    const key = ttsKey(voice, segment.text_ru!, provider.fingerprint + (plan ? `|фразы:${plan.pauses.join(',')}` : ''));
+    const key = ttsKey(voice, segment.text_ru!, provider.fingerprint + (plan ? `|фразы:${plan.parts.length}:${plan.pauses.join(',')}` : ''));
     if (
       existsSync(outputPath) &&
       segment.tts_file === outputPath &&
@@ -277,7 +287,7 @@ async function synthesizeAll(
     const result = plan
       ? await synthesizePhrases(provider, segment, plan, voice, outputPath)
       : await provider.synthesize({ id: segment.id, text: segment.text_ru!, voice, outputPath });
-    recordClip(segment, result, voice, segment.text_ru!, provider.fingerprint + (plan ? `|фразы:${plan.pauses.join(',')}` : ''));
+    recordClip(segment, result, voice, segment.text_ru!, provider.fingerprint + (plan ? `|фразы:${plan.parts.length}:${plan.pauses.join(',')}` : ''));
     if (plan && 'rhythm' in result && result.rhythm) byRhythm++;
 
     done++;

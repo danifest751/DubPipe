@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { sourcePhrases, splitTranslation } from '../src/stages/s5-phrases.js';
+import { buildPhraseRequest, parsePhraseResponse, sourcePhrases, splitTranslation } from '../src/stages/s5-phrases.js';
+import { applyReview } from '../src/stages/review.js';
+import { makeSegment } from '../src/core/types.js';
 
 /**
  * Разбиение перевода по ритму оригинала — та самая «prosodic alignment» из
@@ -77,5 +79,89 @@ describe('разбиение перевода', () => {
   it('огрызков не делает и одну фразу не делит', () => {
     expect(splitTranslation('Да, нет', twoPhrases)).toBeNull();
     expect(splitTranslation('Мира больше нет', [{ start: 0, end: 1, pauseAfter: 0 }])).toBeNull();
+  });
+});
+
+describe('разметка фраз моделью', () => {
+  const asked = () =>
+    new Map([
+      [
+        7,
+        {
+          id: 7,
+          ru: 'С этого момента клан Сиртр переходит под власть Варака',
+          phrases: [1.26, 0.58],
+          pauses: [0.42],
+        },
+      ],
+    ]);
+
+  it('в запрос попадают только реплики с паузой внутри', () => {
+    const lines = buildPhraseRequest([
+      { id: 1, text_ru: 'Без пауз', words: [{ word: 'No', start: 0, end: 0.3 }, { word: 'pause', start: 0.32, end: 0.6 }] },
+      {
+        id: 2,
+        text_ru: 'С паузой внутри',
+        words: [{ word: 'With', start: 0, end: 0.3 }, { word: 'pause', start: 0.8, end: 1.1 }],
+      },
+      { id: 3, text_ru: null, words: null },
+    ]);
+    expect(lines.map((line) => line.id)).toEqual([2]);
+    expect(lines[0]!.pauses).toEqual([0.5]);
+  });
+
+  it('берёт разбиение, которое складывается обратно в тот же текст', () => {
+    const plans = parsePhraseResponse(
+      '{"items":[{"id":7,"parts":["С этого момента","клан Сиртр переходит под власть Варака"]}]}',
+      asked(),
+    );
+    expect(plans.get(7)!.parts).toHaveLength(2);
+    expect(plans.get(7)!.pauses).toEqual([0.42]);
+  });
+
+  it('переписанный текст отбрасывается целиком', () => {
+    // Попросили разделить — модель заодно «улучшила» слова. Такое молча уедет
+    // в фильм, если не сверять: куски обязаны складываться в исходную реплику.
+    const plans = parsePhraseResponse(
+      '{"items":[{"id":7,"parts":["С этой минуты","клан Сиртр переходит к Вараку"]}]}',
+      asked(),
+    );
+    expect(plans.size).toBe(0);
+  });
+
+  it('пустые куски, лишние куски и чужие реплики не берутся', () => {
+    expect(parsePhraseResponse('{"items":[{"id":7,"parts":["С этого момента",""]}]}', asked()).size).toBe(0);
+    expect(parsePhraseResponse('{"items":[{"id":7,"parts":["С","этого","момента"]}]}', asked()).size).toBe(0);
+    expect(parsePhraseResponse('{"items":[{"id":99,"parts":["а","б"]}]}', asked()).size).toBe(0);
+  });
+
+  it('ответ без JSON — это ошибка, а не молчаливый пропуск', () => {
+    expect(() => parsePhraseResponse('не могу', asked())).toThrow();
+  });
+});
+
+describe('разметка живёт ровно столько, сколько текст, к которому относится', () => {
+  it('правка рецензии уносит разметку с собой', () => {
+    // Иначе синтез разрежет новый текст по границам старого — и произнесёт
+    // куски того, что рецензия только что исправила.
+    const segment = makeSegment({
+      id: 1,
+      start: 0,
+      end: 3,
+      text_en: 'line',
+      text_ru: 'Ты начал вести себя странно',
+      phrases: ['Ты начал', 'вести себя странно'],
+    });
+    const outcome = applyReview([segment], [{ id: 1, text_ru: 'Ты начала вести себя странно' }], {
+      room: (line) => line.end - line.start,
+      charsPerSecond: 15,
+      overheadSeconds: 0.26,
+      tolerance: 0.15,
+      toleranceFloorSeconds: 0.25,
+      allowWorseFit: false,
+      maxChangesShare: 0.5,
+    });
+    expect(outcome.applied).toHaveLength(1);
+    expect(outcome.segments[0]!.phrases).toBeNull();
   });
 });

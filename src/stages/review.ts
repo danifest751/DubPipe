@@ -184,7 +184,8 @@ export function applyReview(
 
   const updated = segments.map((segment) => {
     const change = applied.find((entry) => entry.id === segment.id);
-    return change ? { ...segment, text_ru: change.text_ru.trim() } : segment;
+    // Разметка фраз относилась к прежнему тексту — вместе с ним она и уходит.
+    return change ? { ...segment, text_ru: change.text_ru.trim(), phrases: null } : segment;
   });
   return { segments: updated, applied, rejected, discarded: false };
 }
