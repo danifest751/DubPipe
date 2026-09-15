@@ -411,7 +411,17 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRep
       );
     const result = await writeSubtitleFiles(current, input, targetDir, subtitleOptionsFrom(config), config.asr.language);
     subtitleFiles = result.files;
-    warnings.push(...result.warnings.map((warning) => `[субтитры] ${warning}`));
+    /*
+     * Предупреждения кладутся как есть, без приставки стадии.
+     *
+     * Здесь стояло `[субтитры] ${warning}`, и это давало в отчёте
+     * «[субтитры] [object Object]»: `warning` — не строка, а `WarningPhrase`
+     * (types.ts), и шаблонная строка печатала объект, теряя само объяснение.
+     * Ту же ошибку для стадий чинит ветка выше; субтитры — выход конвейера,
+     * а не стадия, и приставки им не положено: текст говорит о себе сам
+     * («Русские субтитры не созданы…»), а страница переводит его по ключу.
+     */
+    warnings.push(...result.warnings);
     if (meta) {
       meta.subtitles = result.files.map((file) => ({ lang: file.lang, kind: file.kind, path: file.path }));
       await workspace.writeMeta(meta);
