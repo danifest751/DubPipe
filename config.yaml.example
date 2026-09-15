@@ -61,7 +61,12 @@ translate:
 
 # --- S5. Синтез речи ---------------------------------------------------------
 tts:
-  engine: piper              # piper | edge-tts  (kilo-gateway невозможен, ТЗ §3.1.1)
+  engine: piper              # piper | silero  (edge-tts не реализован; kilo-gateway невозможен, ТЗ §3.1.1)
+    # silero — 29 русских дикторов в одной модели на 92 МБ, из них 16 женских, и
+    # героине подбирается голос её собственной высоты, а не «женский вообще».
+    # Синтезирует в пятнадцать раз быстрее piper, но требует Python с torch.
+    # Имена голосов у движков разные и не пересекаются: ru_RU-irina-medium у
+    # piper, ru_zhadyra у silero — меняя движок, поменяйте и default_voice.
   model: null
   default_voice: ru_RU-irina-medium
   voice_map: {}
@@ -78,7 +83,7 @@ tts:
 # --- S4. Отделение голоса от фона -------------------------------------------
 separation:
   enabled: false             # выключено по умолчанию: дорого по времени на CPU
-  engine: mdx-onnx           # mdx-onnx | demucs
+  engine: mdx-onnx           # единственный движок разделения
   model: UVR-MDX-NET-Inst_HQ_3
   fallback_to_ducking: true  # нет разделителя — приглушаем оригинал (ТЗ FR-4)
 

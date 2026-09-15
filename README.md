@@ -70,7 +70,7 @@ Everything except the translation step runs locally on the CPU. No GPU required.
 | S2 | Recognition, word timings, speaker diarization | whisper.cpp, silero VAD, pyannote |
 | S3 | Translation into Russian, written to fit the slot | Kilo Gateway (cloud) or Ollama (local) |
 | S4 | Voice/music separation (optional) | MDX-Net through a Python sidecar |
-| S5 | Russian speech synthesis | piper |
+| S5 | Russian speech synthesis | piper or silero |
 | S6 | Fitting each line into its slot (tempo, shortening) | ffmpeg + LLM |
 | S7 | Mixing and muxing back into the video | ffmpeg |
 
@@ -319,9 +319,40 @@ Without any of that, the stage is skipped with a stated reason and every line ge
 `speaker_0`.
 
 The gender of each speaker's voice is estimated from the pitch of the original recording, so
-a speaker with no explicit assignment gets a voice of their own gender — different male
-voices in rotation for different men. Explicit `tts.voice_map` entries and per-video edits
-always win over the automatic choice.
+a speaker with no explicit assignment gets a voice of their own gender.
+
+Where the engine's own voices have a measured pitch — as all the silero speakers do — the
+choice goes further than gender: an actress gets a voice at *her* pitch rather than "a female
+voice". On a real episode the two actresses sit at 195 and 176 Hz and are given speakers at
+195 and 177; before that they shared piper's single female voice and blurred into one. A
+voice already handed out is not handed out twice. Piper's voices carry no measured pitch, so
+there the rotation by gender still applies. Explicit `tts.voice_map` entries and per-video
+edits always win over the automatic choice.
+
+### Two synthesis engines
+
+| | piper | silero |
+|---|---|---|
+| Russian voices | 4, one of them female | 29, sixteen of them female |
+| Size | 21 MB + ~60 MB per voice | 92 MB for every voice at once |
+| Speed | 0.45 s per line | 0.03 s per line |
+| Requires | nothing | Python with `torch` and `soundfile` |
+| License | MIT | CC BY-NC-SA 4.0 (non-commercial) |
+
+Measured on the same 136-line episode: piper voiced it in a minute, silero in twelve seconds.
+
+Pick one with `tts.engine`. Voice names do not overlap between the engines
+(`ru_RU-irina-medium` for piper, `ru_zhadyra` for silero), so change `tts.default_voice`
+along with the engine — otherwise the configuration is rejected and says so. The silero
+speakers read Russian as speakers of other CIS languages, and some of them have an accent.
+Piper stays the default because its voices are MIT-licensed, while the silero model is
+non-commercial.
+
+To measure the pitch of your own samples with the same code the program uses on actors:
+
+```bash
+npx tsx scripts/voice-pitch.mts <directory with wav files> --match 195,176
+```
 
 ## Review and fix the result
 
@@ -434,6 +465,7 @@ downloaded from their upstream sources on first use and stay under their own lic
 | silero-vad (ONNX) | 2 MB | MIT |
 | piper | 21 MB | MIT |
 | piper `ru_RU-*` voices | ~60 MB each | MIT / CC BY |
+| silero `v5_cis_base` (29 voices) | 92 MB | CC BY-NC-SA 4.0 |
 | pyannote diarization (optional) | 38 MB | MIT, gated by a free Hugging Face account |
 | MDX-Net separation model (optional) | 67 MB | MIT |
 
@@ -441,8 +473,8 @@ See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for the details, including 
 means if you package the application yourself.
 
 **About edge-tts:** it is an unofficial client for a Microsoft service. Using it may violate
-that service's terms and its limits can change without notice, so the default synthesis path
-is local piper; edge-tts has to be enabled explicitly.
+that service's terms and its limits can change without notice, so it is not implemented:
+synthesis runs locally, through `piper` or `silero`.
 
 ## Privacy and security
 

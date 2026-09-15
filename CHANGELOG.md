@@ -87,8 +87,33 @@ All notable changes to this project are documented here. Versions follow
 - A run can resume mid-pipeline when some replicas failed to translate: each stage is
   judged by the replicas it was supposed to touch, not by all of them.
 
+### Voices
+
+- A `silero` synthesis engine: 29 Russian speakers in a single 92 MB model, sixteen of them
+  female. Piper has exactly one Russian female voice, so two actresses in one film sounded
+  the same; now each gets her own.
+- Voices are matched by the speaker's pitch, not by gender alone. Every silero speaker has a
+  measured pitch, taken with the same code the program uses on actors, so an actress gets a
+  voice at her own height: on a real episode the two actresses at 195 and 176 Hz were given
+  speakers at 195 and 177. A voice already handed out is not handed out twice.
+- `scripts/voice-pitch.mts` measures the pitch of any samples with that same ruler; the voice
+  catalogue was built with it.
+- The silero model is loaded once per stage and kept in a sidecar process: importing torch
+  costs seconds while synthesising one line costs thirty milliseconds. A 136-line episode is
+  voiced in twelve seconds against a minute with piper.
+- The readiness screen and the voice list now ask the engine that will actually do the work.
+  They used to check piper unconditionally, so another engine was reported as "voice missing"
+  for a voice that engine never had, and the picker offered names from the wrong catalogue.
+- The configuration refuses a voice name from another engine's catalogue and says what the
+  chosen engine's voices are called.
+
 ### Configuration
 
+- `demucs` is gone from `separation.engine`: it was listed among the accepted values but was
+  never implemented, so the stage failed on it. Separation runs through MDX-Net, which
+  computes on the GPU through onnxruntime; demucs needs PyTorch and would fall back to the
+  CPU on a machine without CUDA.
+- `tts.engine` accepts `silero` alongside `piper`.
 - `asr.backend` selects the whisper build: auto, cpu, blas, cuda, vulkan.
 - `asr.diarization.device` and `separation.device` select where each stage computes, with
   one shared vocabulary: auto, cpu, gpu, igpu, dgpu, cuda.
