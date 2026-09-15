@@ -876,7 +876,7 @@ function renderCast() {
         </span>
         <span class="meta">${t('cast.replicas', { count: counts[speaker] ?? 0 })}${
           genderClash(speaker) ? `<br><span class="clash-note">${t('cast.clash', { gender: state.speakers[speaker].gender, hz: state.speakers[speaker].f0 ?? '?' })}</span>` : ''
-        }${genderDisputeNote(speaker)}</span>
+        }${foreignVoiceNote(speaker)}${genderDisputeNote(speaker)}</span>
         <button class="ghost small" data-cast-play="${escapeAttr(speaker)}">${icon('play')} ${t('cast.listen')}</button>
       </div>`;
     })
@@ -1053,8 +1053,29 @@ function setSpeakerName(speaker, name) {
 }
 
 /** Голос, которым озвучен этот говорящий сейчас. */
+/**
+ * Голос говорящего — но только тот, который этот движок знает.
+ *
+ * Имена у движков свои и не пересекаются, а назначения голосов этого видео
+ * живут отдельно от настроек и переживают смену движка. Страница брала такое имя
+ * как есть: значок пола не подсвечивался (голос не найден), а выпадающий список
+ * показывал свой первый пункт — выходило, что герою назначен `safarhuja`, хотя
+ * записан был `ru_RU-denis-medium`. Синтез его отбрасывает и выбирает по полу;
+ * здесь то же самое, чтобы показанное совпадало со звучащим.
+ */
 function voiceOf(speaker) {
-  return state.overrides?.voices?.[speaker] ?? state.voiceMap?.[speaker] ?? state.defaultVoice ?? '';
+  const known = (name) => Boolean(name) && (state.voices ?? []).some((voice) => voice.name === name);
+  const own = state.overrides?.voices?.[speaker];
+  if (known(own)) return own;
+  const mapped = state.voiceMap?.[speaker];
+  if (known(mapped)) return mapped;
+  return state.defaultVoice ?? '';
+}
+
+/** Назначен ли говорящему голос от другого движка: его не будет и в озвучке. */
+function foreignVoice(speaker) {
+  const own = state.overrides?.voices?.[speaker] ?? state.voiceMap?.[speaker];
+  return own && (state.voices ?? []).length > 0 && !(state.voices ?? []).some((voice) => voice.name === own) ? own : null;
 }
 
 function voiceGender(name) {
@@ -1112,6 +1133,11 @@ function genderMark(speaker) {
  * а бывает и ошибка замера — на реальном эпизоде устойчивый тон нашёлся у 9%
  * кадров. Поэтому строка объясняет спор и показывает, на чём основан текст.
  */
+function foreignVoiceNote(speaker) {
+  const stale = foreignVoice(speaker);
+  return stale ? `<br><span class="clash-note">${escapeHtml(t('cast.foreignVoice', { voice: stale }))}</span>` : '';
+}
+
 function genderDisputeNote(speaker) {
   const profile = state.speakers?.[speaker];
   const byText = profile?.text?.gender;

@@ -235,6 +235,10 @@ const DICTIONARY = {
   'cast.title': { ru: 'Голоса и персонажи', en: 'Voices and characters' },
   'cast.lead': { ru: 'Послушайте реплику и подпишите, кто это. Имя появится во всех строках этого героя.', en: 'Listen to a line and name who it is. The name shows up in every row of that character.' },
   'segments.genderClash': { ru: 'голос не совпадает с полом по записи', en: 'the voice disagrees with the gender measured' },
+  'cast.foreignVoice': {
+    ru: 'назначен голос «{voice}» от другого движка — при озвучке он не возьмётся, голос выберется по полу',
+    en: 'the assigned voice “{voice}” belongs to another engine — it will be ignored and one chosen by gender',
+  },
   'cast.byText': { ru: 'по тексту {gender} («{example}»)', en: '{gender} by the text (“{example}”)' },
   'cast.genderDispute': { ru: 'текст перевода говорит иначе', en: 'the translation says otherwise' },
   'cast.disputeNote': {
