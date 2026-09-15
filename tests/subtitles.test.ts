@@ -189,7 +189,7 @@ describe('FR-8: перевод идёт за озвучкой, оригинал 
   const cuesOf = async (lang: string, dir: string, files: Awaited<ReturnType<typeof writeSubtitleFiles>>['files']) => {
     const file = files.find((item) => item.lang === lang)!;
     expect(file).toBeDefined();
-    return parseSrt((await readFile(path.join(dir, path.basename(file.path)), 'utf8')).replace(/^﻿/, ''));
+    return parseSrt((await readFile(path.join(dir, path.basename(file.path)), 'utf8')).replace(/^\uFEFF/, ''));
   };
 
   it('русский титр сдвигается вместе с репликой, английский — нет', async () => {

@@ -364,7 +364,7 @@ export async function writeSubtitleFiles(
     const cues = planCues(items, optionsForLanguage(options, output.code));
     const target = path.join(targetDir, subtitleFileName(input, output.code));
     // BOM: Windows-проигрыватели иначе показывают кириллицу как «кракозябры».
-    await writeFile(target, `﻿${formatSrt(cues)}`, 'utf8');
+    await writeFile(target, `\uFEFF${formatSrt(cues)}`, 'utf8');
     files.push({ lang: output.code, kind: output.kind, path: target, cues: cues.length });
     log.step(`субтитры ${output.code}: ${cues.length} титров → ${target}`);
   }

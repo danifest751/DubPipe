@@ -32,7 +32,11 @@ const running = () => {
   if (process.platform !== 'win32') return 0;
   try {
     const out = execFileSync('tasklist', ['/FI', `IMAGENAME eq ${PROCESS_NAME}`, '/NH'], { encoding: 'utf8' });
-    return (out.match(new RegExp(PROCESS_NAME.replace('.', '\.'), 'g')) ?? []).length;
+    // Имя процесса попадает в регулярное выражение, поэтому его спецсимволы
+    // экранируются целиком. Раньше здесь стояло PROCESS_NAME.replace('.', '\.'),
+    // что в обычной строке означает просто точку: экранирования не было.
+    const quoted = PROCESS_NAME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return (out.match(new RegExp(quoted, 'g')) ?? []).length;
   } catch {
     return 0;
   }

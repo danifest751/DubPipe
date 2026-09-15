@@ -29,12 +29,14 @@ export async function selectChatClient(config: DubConfig, model?: string): Promi
     const gateway = await KiloGatewayClient.create(config, model);
     if (!gateway) {
       warnings.push(
-        `Ключ ${config.kilo_gateway.api_key_env} не задан — перевод пойдёт локально (ТЗ §15.2)`,
+        warn('warn.llm.noKey', `Ключ ${config.kilo_gateway.api_key_env} не задан — перевод пойдёт локально (ТЗ §15.2)`, {
+          env: config.kilo_gateway.api_key_env,
+        }),
       );
     } else if (await gateway.available()) {
       return { client: gateway, warnings, degraded: false };
     } else {
-      warnings.push('Шлюз Kilo недоступен — перевод пойдёт локально (ТЗ §15.2)');
+      warnings.push(warn('warn.llm.gatewayDown', 'Шлюз Kilo недоступен — перевод пойдёт локально (ТЗ §15.2)'));
     }
 
     if (config.translate.fallback_engine === 'none') {

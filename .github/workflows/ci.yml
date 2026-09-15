@@ -30,6 +30,9 @@ jobs:
       - name: Type-check
         run: npm run typecheck
 
+      - name: Lint
+        run: npm run lint
+
       # The suite needs no ffmpeg, no network and no API keys — that is a project rule.
       - name: Test
         run: npm test

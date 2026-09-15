@@ -9,7 +9,6 @@ import type { Workspace } from '../core/workspace.js';
 import { applyOverrides } from '../core/overrides.js';
 import { run } from '../util/exec.js';
 import { requireTool } from '../util/tools.js';
-import { probeMedia } from '../util/ffmpeg.js';
 import { readWavFormat } from '../util/wav.js';
 import { buildDuckEnvelope, buildSpeechPresenceEnvelope, buildVoiceTrack, type SpeechWindow, type TrackClip } from '../util/pcm.js';
 
