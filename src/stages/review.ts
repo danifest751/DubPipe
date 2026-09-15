@@ -201,16 +201,49 @@ export function checksSection(checks: DubConfig['translate']['review']['checks']
   return lines.length > 0 ? lines.join('\n') : '- Ничего: все проверки отключены, верни пустой список правок.';
 }
 
+/**
+ * Сколько знаков просить у реплики: цель и границы допуска.
+ *
+ * Одного потолка мало, и это стоило целого захода переспроса: рецензент,
+ * получив «не длиннее 104 знаков», честно вернул 69 — и правка была отвергнута,
+ * потому что мерка конвейера требует не «не длиннее», а попадания в слот.
+ * Недолёт — такой же промах, как перелёт: реплика отзвучит раньше и оставит
+ * паузу. Поэтому даём цель и обе границы, как это делает проход подгонки длины.
+ */
+export interface CharBudget {
+  target_chars: number;
+  min_chars: number;
+  max_chars: number;
+}
+
+export function charBudget(seconds: number, options: ApplyReviewOptions): CharBudget {
+  const allowedSeconds = Math.max(seconds * options.tolerance, options.toleranceFloorSeconds);
+  const chars = (value: number) =>
+    Math.max(1, Math.round(Math.max(0, value - options.overheadSeconds) * options.charsPerSecond));
+  return {
+    target_chars: chars(seconds),
+    min_chars: chars(seconds - allowedSeconds),
+    max_chars: chars(seconds + allowedSeconds),
+  };
+}
+
+/** На сколько знаков текст выходит за допуск: плюс — длинный, минус — короткий, 0 — в цель. */
+export function charsOutside(text: string, budget: CharBudget): number {
+  if (text.length > budget.max_chars) return text.length - budget.max_chars;
+  if (text.length < budget.min_chars) return text.length - budget.min_chars;
+  return 0;
+}
+
 /** Одна реплика в том виде, в каком её видит рецензент. */
-export interface ReviewLine {
+export interface ReviewLine extends CharBudget {
   id: number;
   speaker: string;
   gender: string;
   name?: string;
   en: string;
   ru: string;
-  max_chars: number;
-  over: number;
+  /** Насколько нынешний перевод вне допуска: плюс — длинный, минус — короткий. */
+  off: number;
 }
 
 /** Собирает реплики для рецензии: оригинал, перевод, кто говорит и сколько места. */
@@ -222,11 +255,7 @@ export function buildReviewLines(
     .filter((segment) => (segment.text_ru ?? '').trim())
     .map((segment) => {
       const text = segment.text_ru!.trim();
-      const seconds = options.room(segment);
-      const maxChars = Math.max(
-        1,
-        Math.round(Math.max(0, seconds - options.overheadSeconds) * options.charsPerSecond),
-      );
+      const budget = charBudget(options.room(segment), options);
       const name = options.names[segment.speaker];
       return {
         id: segment.id,
@@ -235,10 +264,55 @@ export function buildReviewLines(
         ...(name ? { name } : {}),
         en: segment.text_en ?? '',
         ru: text,
-        max_chars: maxChars,
-        over: Math.max(0, text.length - maxChars),
+        ...budget,
+        off: charsOutside(text, budget),
       };
     });
+}
+
+/** Отклонённая за длину правка в том виде, в каком её показывают модели на переспросе. */
+export interface RefitLine extends CharBudget {
+  id: number;
+  en: string;
+  ru: string;
+  proposed: string;
+  reason: string;
+  /** На сколько знаков правка вне допуска: плюс — длинная, минус — короткая. */
+  off: number;
+}
+
+/**
+ * Собирает переспрос по правкам, отклонённым за длину.
+ *
+ * Молча выбрасывать их расточительно: рецензия нашла настоящую ошибку и лишь
+ * сформулировала длиннее, чем помещается, — на реальном эпизоде так отсеивалось
+ * 27 правок из 46. Модели показывают её же правку, её же причину и точную
+ * нехватку знаков.
+ */
+export function buildRefitLines(
+  segments: Segment[],
+  rejected: RejectedChange[],
+  options: ApplyReviewOptions,
+): RefitLine[] {
+  const byId = new Map(segments.map((segment) => [segment.id, segment]));
+  const lines: RefitLine[] = [];
+  for (const change of rejected) {
+    if (change.why !== 'worse_fit') continue;
+    const segment = byId.get(change.id);
+    if (!segment) continue;
+    const budget = charBudget(options.room(segment), options);
+    const proposed = change.text_ru.trim();
+    lines.push({
+      id: change.id,
+      en: segment.text_en ?? '',
+      ru: (segment.text_ru ?? '').trim(),
+      proposed,
+      reason: change.reason ?? '',
+      ...budget,
+      off: charsOutside(proposed, budget),
+    });
+  }
+  return lines;
 }
 
 /**

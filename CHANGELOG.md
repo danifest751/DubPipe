@@ -95,8 +95,15 @@ All notable changes to this project are documented here. Versions follow
   formal address mixed with informal are invisible inside a batch. Off by default: it is
   another pass the size of the translation itself.
 - Its edits go through the same fit ruler the translation and the length pass use: an edit
-  that fits worse is rejected. On a real episode the guard rejected 27 of 46 proposals -
-  without it, "improving the style" would have broken the timing on every second line.
+  that fits worse is rejected.
+- An edit rejected for length is not thrown away in silence: the model is shown its own
+  proposal, its own reason and the exact shortfall, and asked to fit while keeping the
+  correction. The number of retries is set by `fit_retries`.
+- The review is given a length target rather than a ceiling. With a ceiling the model came
+  back at half the needed length and 27 of 46 proposals were discarded: undershooting is as
+  much a miss as overshooting, since the line finishes early and leaves a pause. With a target
+  and the tolerance bounds, on the same material: 13 proposed, 13 accepted, four of them
+  recovered by the refit round.
 - A review that rewrites more than half the lines is discarded whole: that is a
   retranslation, not an edit. The threshold is configurable and does not apply to short
   pieces, where a share means nothing.

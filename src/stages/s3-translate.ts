@@ -14,6 +14,7 @@ import { effectiveSpeechShape } from '../core/calibration.js';
 import { rememberTokenRate } from '../core/translation-cost.js';
 import {
   applyReview,
+  buildRefitLines,
   buildReviewLines,
   checksSection,
   parseReviewResponse,
@@ -815,6 +816,10 @@ async function reviewTranslation(
   const systemPrompt = template
     .replace('{checks}', checksSection(review.checks))
     .replace('{profanity_rule}', profanityRule(config.translate.profanity));
+  const refitPrompt = (await loadPromptTemplate('review-fit.md')).replace(
+    '{profanity_rule}',
+    profanityRule(config.translate.profanity),
+  );
 
   const chunks = reviewChunks(lines, review.batch_lines, review.overlap_lines);
   const collected: ReviewChange[] = [];
@@ -855,7 +860,44 @@ async function reviewTranslation(
     if (chunks.length > 1) log.step(`рецензия: заход ${counter(index + 1, chunks.length)}`);
   }
 
-  const outcome = applyReview(segments, collected, applyOptions);
+  let outcome = applyReview(segments, collected, applyOptions);
+
+  /*
+   * Правки, отклонённые за длину, не выбрасываются молча.
+   *
+   * Рецензия нашла настоящую ошибку — род, имя, смысл — и лишь сформулировала
+   * длиннее, чем помещается. На реальном эпизоде так отсеивалось 27 правок из
+   * 46, и все они содержали найденное исправление. Модели показывают её же
+   * правку с точной нехваткой знаков и просят уложиться, сохранив суть.
+   */
+  for (let attempt = 1; attempt <= review.fit_retries && !outcome.discarded; attempt++) {
+    const refit = buildRefitLines(segments, outcome.rejected, applyOptions);
+    if (refit.length === 0) break;
+    cancellation.throwIfCancelled();
+    log.step(`рецензия: переспрос по ${refit.length} правкам, не влезшим в слот (заход ${attempt})`);
+    try {
+      const reply = await client.complete(
+        [
+          { role: 'system', content: refitPrompt },
+          { role: 'user', content: JSON.stringify({ lines: refit }) },
+        ],
+        { json: true, schema: REVIEW_SCHEMA, temperature: review.temperature },
+      );
+      addUsage(usage, reply.usage);
+      const retried = parseReviewResponse(reply.text, new Set(refit.map((line) => line.id)));
+      if (retried.length === 0) break;
+      // Пересобираем набор целиком: принятое раньше плюс то, что уложилось теперь.
+      const merged = [...outcome.applied];
+      for (const change of retried) {
+        if (!merged.some((entry) => entry.id === change.id)) merged.push(change);
+      }
+      outcome = applyReview(segments, merged, applyOptions);
+    } catch (error) {
+      log.warn(`рецензия: переспрос не удался (${(error as Error).message})`);
+      break;
+    }
+  }
+
   if (outcome.discarded) {
     log.warn('рецензия отброшена целиком: переписано слишком много реплик');
     warnings.push(

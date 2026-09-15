@@ -332,19 +332,30 @@ the length pass use: an edit that fits its slot worse than the old text is rejec
 trading accuracy for drift is a bad deal. And a review that rewrites more than half the lines
 is discarded whole - that is a retranslation, not an edit.
 
-Measured on a real episode (136 lines, `anthropic/claude-sonnet-4.5`, 29 seconds):
+An edit that misses its slot is not thrown away in silence: the reviewer is shown its own
+proposal, its own stated reason and the exact shortfall in characters, and asked to fit while
+keeping the correction (`fit_retries`).
+
+Measured on a real episode - 136 lines, the translation deliberately damaged by a weak model,
+reviewed by `anthropic/claude-sonnet-4.5`, 18 seconds:
 
 | | |
 |---|---|
-| Edits proposed | 46 |
-| **Accepted** | **16** |
-| Rejected for fit | 27 |
-| Rejected as unchanged | 3 |
+| Edits proposed | 13 |
+| **Accepted** | **13** |
+| Of those, recovered by the refit round | 4 |
 
-So the guard does real work: more than half the proposals would have broken the timing. Among
-those accepted: «Я бы **хотел** их узнать» → «хотела» for a female character, and «**Эвей**,
-мне нужно проверить тебя полностью» → «Ева, мне нужна полная диагностика», fixing the name
-and the length at once.
+Among them: «ты действительно **начал** вести себя странным — что случилось с **Эвей**» →
+«**начала** вести себя странно — что случилось с **Евой**» (gender, grammar and the name's
+case in one line), «Я бы **хотел** их узнать» → «хотела», and «ты, наверно, **прав**» →
+«**права**» - the gender of the person addressed, inferred from neighbouring lines - plus six
+lines left untranslated.
+
+**The ruler is a target, not a ceiling.** The first version told the model "no longer than N
+characters", and it dutifully came back at half that: 27 of 46 proposals were discarded,
+because undershooting is as much a miss as overshooting - the line finishes early and leaves a
+pause. With a target and the tolerance bounds instead of a ceiling, the model proposes a
+quarter as much noise and lands almost every time.
 
 **The review reaches the subtitles too.** The Russian subtitles are built from the same
 `segments.json` as the voicing, so corrected text lands in them by itself.

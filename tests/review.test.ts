@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { makeSegment, type Segment } from '../src/core/types.js';
 import {
   applyReview,
+  buildRefitLines,
   buildReviewLines,
   checksSection,
   parseReviewResponse,
@@ -144,7 +145,7 @@ describe('что рецензент видит и как это режется',
     });
     expect(lines[0]!.gender).toBe('ж');
     expect(lines[0]!.name).toBe('Ева');
-    expect(lines[0]!.over).toBeGreaterThan(0);
+    expect(lines[0]!.off).toBeGreaterThan(0);
   });
 
   it('непереведённые реплики рецензенту не показываются', () => {
@@ -180,5 +181,51 @@ describe('список проверок в промпте', () => {
   it('при всех выключенных честно говорит, что проверять нечего', () => {
     const none = checksSection({ gender: false, glossary: false, address: false, consistency: false, meaning: false, length: false });
     expect(none).toContain('все проверки отключены');
+  });
+});
+
+describe('переспрос по правкам, не влезшим в слот', () => {
+  const tooLong = 'Совершенно непомерно длинная правка, которая никак не помещается в своё время';
+
+  it('собирает переспрос только по отклонённым за длину', () => {
+    const segments = [line(1, 'Короткая реплика.', 2), line(2, 'Другая реплика.', 2)];
+    const outcome = applyReview(
+      segments,
+      [
+        { id: 1, text_ru: tooLong, reason: 'род говорящего' },
+        { id: 2, text_ru: 'Другая реплика.' },
+        { id: 99, text_ru: 'ниоткуда' },
+      ],
+      options(),
+    );
+    const refit = buildRefitLines(segments, outcome.rejected, options());
+    expect(refit.map((entry) => entry.id)).toEqual([1]);
+  });
+
+  it('модель видит свою правку, свою причину и точную нехватку знаков', () => {
+    const segments = [line(1, 'Короткая реплика.', 2)];
+    const outcome = applyReview(segments, [{ id: 1, text_ru: tooLong, reason: 'род говорящего' }], options());
+    const [entry] = buildRefitLines(segments, outcome.rejected, options());
+    expect(entry!.ru).toBe('Короткая реплика.');
+    expect(entry!.proposed).toBe(tooLong);
+    expect(entry!.reason).toBe('род говорящего');
+    expect(entry!.off).toBe(tooLong.length - entry!.max_chars);
+    expect(entry!.off).toBeGreaterThan(0);
+    // Цель и обе границы: одного потолка мало, недолёт — такой же промах.
+    expect(entry!.min_chars).toBeLessThan(entry!.target_chars);
+    expect(entry!.target_chars).toBeLessThan(entry!.max_chars);
+  });
+
+  it('уложившаяся со второго раза правка принимается', () => {
+    const segments = [line(1, 'Ты начал.', 2)];
+    const first = applyReview(segments, [{ id: 1, text_ru: `${tooLong} начала`, reason: 'род' }], options());
+    expect(first.applied).toEqual([]);
+
+    const refit = buildRefitLines(segments, first.rejected, options());
+    expect(refit).toHaveLength(1);
+    // Модель переписала короче, сохранив исправление рода.
+    const second = applyReview(segments, [{ id: 1, text_ru: 'Ты начала.', reason: 'род' }], options());
+    expect(second.applied).toHaveLength(1);
+    expect(second.segments[0]!.text_ru).toBe('Ты начала.');
   });
 });
