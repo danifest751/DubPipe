@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from 'vitest';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { parseConfig } from '../src/config/load.js';
@@ -27,8 +27,16 @@ afterAll(async () => {
 async function workspaceWithDuration(durationSeconds: number): Promise<{ input: string; cacheDir: string }> {
   const root = await mkdtemp(path.join(tmpdir(), 'dubpipe-long-'));
   roots.push(root);
+  /*
+   * Файла намеренно нет на диске.
+   *
+   * Там, где подтверждение получено, прогон идёт дальше и упирается в S1 —
+   * а ей для настоящего файла понадобились бы ffprobe и ffmpeg, то есть
+   * загрузка из сети. Правило проекта: тестам не нужны ни сеть, ни ffmpeg.
+   * С отсутствующим файлом S1 отказывается сразу, на проверке существования,
+   * и проверяемое здесь — был вопрос или нет — от этого не зависит.
+   */
   const input = path.join(root, 'episode.mp4');
-  await writeFile(input, 'не настоящее видео: до стадий дело не дойдёт', 'utf8');
 
   const cacheDir = path.join(root, 'cache');
   const config = parseConfig({ cache: { dir: cacheDir } }, 'тест');
@@ -72,7 +80,7 @@ describe('длинный вход: спросить, прежде чем тра�
 
   it('на коротком входе не спрашивает вовсе', async () => {
     let asked = 0;
-    // Прогон дойдёт до ffmpeg и упадёт — важно лишь то, что вопроса не было.
+    // Прогон упрётся в отсутствующий файл — важно лишь то, что вопроса не было.
     await runWith(600, async () => {
       asked += 1;
       return true;
@@ -82,7 +90,7 @@ describe('длинный вход: спросить, прежде чем тра�
 
   it('без обработчика (это и есть --yes) прогон не спрашивает и не останавливается', async () => {
     const result = await runWith(LONG_INPUT_SECONDS + 1, undefined).catch((error: unknown) => error);
-    // Дальше он упирается в ненастоящее видео, но останов по отказу — не наш случай.
+    // Дальше он упирается в отсутствующий файл, но останов по отказу — не наш случай.
     expect(result).not.toBeInstanceOf(CancelledError);
   });
 });

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { startUiServer, type UiServerHandle } from '../src/ui/server.js';
 
 /**
@@ -378,22 +379,35 @@ describe('§16: задачи', () => {
  * ровно здесь чтение однажды и подвело.
  */
 describe('FR-U7: готовность спрашивает у выбранного движка синтеза', () => {
-  const configPath = path.resolve(process.cwd(), 'config.yaml');
-  let hadConfig = false;
-  let originalConfig = '';
+  /*
+   * Свой файл настроек во временном каталоге, а не общий config.yaml проекта.
+   *
+   * Файлы тестов vitest выполняет параллельно, и подмена общего файла на время
+   * блока задевала соседей: на CI из-за неё по таймауту отваливались проверки
+   * провижининга и готовности, читающие тот же файл. Рабочий каталог тоже
+   * отдельный — иначе готовность смотрела бы на программы проекта.
+   */
+  let root = '';
   let silero: UiServerHandle;
 
   beforeAll(async () => {
-    hadConfig = existsSync(configPath);
-    if (hadConfig) originalConfig = readFileSync(configPath, 'utf8');
-    writeFileSync(configPath, ['tts:', '  engine: silero', '  default_voice: ru_zhadyra', ''].join('\n'), 'utf8');
-    silero = await startUiServer({ port: 0 });
+    root = mkdtempSync(path.join(tmpdir(), 'dubpipe-ui-silero-'));
+    const configPath = path.join(root, 'config.yaml');
+    const lines = [
+      'tts:',
+      '  engine: silero',
+      '  default_voice: ru_zhadyra',
+      'cache:',
+      `  dir: ${JSON.stringify(path.join(root, 'cache'))}`,
+      '',
+    ];
+    writeFileSync(configPath, lines.join('\n'), 'utf8');
+    silero = await startUiServer({ port: 0, configPath });
   }, 60_000);
 
   afterAll(async () => {
     await silero?.close();
-    if (hadConfig) writeFileSync(configPath, originalConfig, 'utf8');
-    else if (existsSync(configPath)) unlinkSync(configPath);
+    if (root) rmSync(root, { recursive: true, force: true });
   });
 
   const ask = async (route: string): Promise<ResponseBody> =>

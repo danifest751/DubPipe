@@ -25,7 +25,11 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        # onnxruntime-node докачивает нативные бинарники в postinstall, и этот
+        # шаг уже падал по таймауту к чужой CDN. Две повторные попытки дешевле
+        # красного прогона из-за сети, а сам пакет нужен: на нём работает VAD.
+        shell: bash
+        run: npm ci || (sleep 15 && npm ci) || (sleep 60 && npm ci)
 
       - name: Type-check
         run: npm run typecheck
