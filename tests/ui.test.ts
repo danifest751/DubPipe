@@ -368,3 +368,55 @@ describe('§16: задачи', () => {
     expect((await asBody(response)).error).toContain('нет обработчика');
   });
 });
+
+/**
+ * Экран готовности должен спрашивать у того движка, которым будут озвучивать.
+ *
+ * Пока он всегда проверял piper, при движке silero он уверенно сообщал «нет
+ * голоса» о голосе, которого у этого движка не бывает, и предлагал в выборе
+ * имена из чужого каталога. Проверяется на поднятом сервере, а не чтением кода:
+ * ровно здесь чтение однажды и подвело.
+ */
+describe('FR-U7: готовность спрашивает у выбранного движка синтеза', () => {
+  const configPath = path.resolve(process.cwd(), 'config.yaml');
+  let hadConfig = false;
+  let originalConfig = '';
+  let silero: UiServerHandle;
+
+  beforeAll(async () => {
+    hadConfig = existsSync(configPath);
+    if (hadConfig) originalConfig = readFileSync(configPath, 'utf8');
+    writeFileSync(configPath, ['tts:', '  engine: silero', '  default_voice: ru_zhadyra', ''].join('\n'), 'utf8');
+    silero = await startUiServer({ port: 0 });
+  }, 60_000);
+
+  afterAll(async () => {
+    await silero?.close();
+    if (hadConfig) writeFileSync(configPath, originalConfig, 'utf8');
+    else if (existsSync(configPath)) unlinkSync(configPath);
+  });
+
+  const ask = async (route: string): Promise<ResponseBody> =>
+    (await (await fetch(`http://127.0.0.1:${silero.port}${route}?token=${silero.token}`)).json()) as ResponseBody;
+
+  it('в готовности стоит silero, а не piper', async () => {
+    const data = await ask('/api/readiness');
+    const ids = data.items.map((item: { id: string }) => item.id);
+    expect(ids).toContain('silero');
+    expect(ids).not.toContain('piper');
+  });
+
+  it('пункт про синтез не нарушает общего правила: не в порядке — сказано, что сломается', async () => {
+    const data = await ask('/api/readiness');
+    const tts = data.items.find((item: { id: string }) => item.id === 'silero');
+    expect(['ok', 'warn', 'blocked']).toContain(tts.state);
+    if (tts.state !== 'ok') expect(tts.blocks).toBeTruthy();
+  });
+
+  it('в выборе голоса — имена этого движка, а не чужого каталога', async () => {
+    const data = await ask('/api/voices');
+    const names = data.voices.map((voice: { name: string }) => voice.name);
+    expect(names).toContain('ru_zhadyra');
+    expect(names.every((name: string) => !name.startsWith('ru_RU-'))).toBe(true);
+  });
+});

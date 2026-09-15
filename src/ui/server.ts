@@ -17,7 +17,8 @@ import { STAGE_IDS, STAGE_TITLES, type Segment, type StageId } from '../core/typ
 import { Workspace, TOOL_VERSION } from '../core/workspace.js';
 import { compareModels } from '../core/compare.js';
 import { filterCatalog, loadCatalog } from '../providers/llm/catalog.js';
-import { RUSSIAN_VOICES } from '../providers/tts/voices.js';
+import { voicesForEngine } from '../providers/tts/voices.js';
+import { SILERO_MODEL } from '../providers/tts/silero-voices.js';
 import { createTtsProvider } from '../providers/tts/index.js';
 import { KiloGatewayClient } from '../providers/llm/gateway.js';
 import { probePython } from '../stages/s4-separate.js';
@@ -456,19 +457,48 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       size: message('ready.size.whisper', lang),
     });
 
-    const piper = await findTool('piper', toolsDir);
-    const voice = path.join(modelsDir, 'voices', `${config.tts.default_voice}.onnx`);
-    const ttsReady = Boolean(piper) && existsSync(voice);
-    items.push({
-      id: 'piper',
-      title: message('ready.piper.title', lang, { voice: config.tts.default_voice }),
-      state: ttsReady ? 'ok' : 'blocked',
-      detail: message(!piper ? 'ready.piper.noProgram' : existsSync(voice) ? 'ready.ready' : 'ready.piper.noVoice', lang),
-      blocks: ttsReady ? null : message('ready.piper.blocks', lang),
-      hint: ttsReady ? null : message('ready.hintFetch', lang),
-      canFix: !ttsReady,
-      size: message('ready.size.piper', lang),
-    });
+    /*
+     * Готовность синтеза спрашивается у того движка, которым будут озвучивать.
+     *
+     * Раньше здесь всегда проверялся piper: его программа и файл голоса. При
+     * движке silero — своя модель и Python вместо программы — экран уверенно
+     * сообщал «нет голоса» о голосе, которого у этого движка и не бывает, и
+     * блокировал запуск там, где всё на месте.
+     */
+    if (config.tts.engine === 'silero') {
+      const model = path.join(modelsDir, 'silero', `${SILERO_MODEL.name}.pt`);
+      const python = await probePython();
+      const hasPython = python.executable !== null;
+      const hasModel = existsSync(model);
+      // Модель скачивается сама при первом синтезе, поэтому её отсутствие —
+      // не преграда, а предупреждение о предстоящей загрузке. Кнопка «докачать»
+      // про неё не знает, и обещать её здесь нечестно.
+      const ttsReady = hasPython && hasModel;
+      items.push({
+        id: 'silero',
+        title: message('ready.silero.title', lang, { voice: config.tts.default_voice }),
+        state: ttsReady ? 'ok' : hasPython ? 'warn' : 'blocked',
+        detail: message(!hasPython ? 'ready.silero.noPython' : hasModel ? 'ready.ready' : 'ready.silero.noModel', lang),
+        blocks: ttsReady ? null : message('ready.piper.blocks', lang),
+        hint: ttsReady ? null : message(hasPython ? 'ready.silero.willFetch' : 'diarization.noPythonHint', lang),
+        canFix: false,
+        size: message('ready.size.silero', lang),
+      });
+    } else {
+      const piper = await findTool('piper', toolsDir);
+      const voice = path.join(modelsDir, 'voices', `${config.tts.default_voice}.onnx`);
+      const ttsReady = Boolean(piper) && existsSync(voice);
+      items.push({
+        id: 'piper',
+        title: message('ready.piper.title', lang, { voice: config.tts.default_voice }),
+        state: ttsReady ? 'ok' : 'blocked',
+        detail: message(!piper ? 'ready.piper.noProgram' : existsSync(voice) ? 'ready.ready' : 'ready.piper.noVoice', lang),
+        blocks: ttsReady ? null : message('ready.piper.blocks', lang),
+        hint: ttsReady ? null : message('ready.hintFetch', lang),
+        canFix: !ttsReady,
+        size: message('ready.size.piper', lang),
+      });
+    }
 
     const keySet = Boolean(process.env[config.kilo_gateway.api_key_env]);
     const viaGateway = config.translate.engine === 'kilo-gateway';
@@ -986,7 +1016,7 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
 
     if (route === '/api/voices' && method === 'GET') {
       sendJson(response, 200, {
-        voices: RUSSIAN_VOICES,
+        voices: voicesForEngine(config.tts.engine),
         defaultVoice: config.tts.default_voice,
         voiceMap: config.tts.voice_map,
       });
@@ -1041,7 +1071,7 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
         fit: await fitRuler(workspace, config, segments),
         output,
         overrides: await workspace.readOverrides(),
-        voices: RUSSIAN_VOICES,
+        voices: voicesForEngine(config.tts.engine),
         defaultVoice: config.tts.default_voice,
         // Карта голосов с учётом пола, определённого на S2; правки видео поверх неё — в overrides.
         voiceMap: applyOverrides(config, EMPTY_OVERRIDES, await workspace.readSpeakers()).tts.voice_map,

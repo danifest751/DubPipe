@@ -13,7 +13,7 @@ import { TOOL_VERSION, Workspace } from './core/workspace.js';
 import { evaluateTimecodes, formatEvaluation, type GoldenSegment } from './core/evaluate.js';
 import { compareModels, formatSideBySide, formatSummary } from './core/compare.js';
 import { filterCatalog, loadCatalog } from './providers/llm/catalog.js';
-import { createTtsProvider, RUSSIAN_VOICES } from './providers/tts/index.js';
+import { createTtsProvider, voicesForEngine } from './providers/tts/index.js';
 import { probePython } from './stages/s4-separate.js';
 import { toSrt } from './util/srt.js';
 import { findTool, provisionTool, TOOLS, type ToolName } from './util/tools.js';
@@ -389,7 +389,7 @@ voicesCommand
     log.info(`Движок синтеза: ${config.tts.engine}`);
     log.info('');
 
-    for (const voice of RUSSIAN_VOICES) {
+    for (const voice of voicesForEngine(config.tts.engine)) {
       const assigned = Object.entries(config.tts.voice_map)
         .filter(([, name]) => name === voice.name)
         .map(([speaker]) => speaker);
@@ -410,7 +410,7 @@ voicesCommand
         log.warn('Текущий движок не умеет синтезировать образцы');
         return;
       }
-      for (const voice of RUSSIAN_VOICES) {
+      for (const voice of voicesForEngine(config.tts.engine)) {
         const target = path.resolve(`demo-${voice.name}.wav`);
         await provider.sample(voice.name, 'Проверка голоса. Так будет звучать дубляж.', target);
         log.success(`образец: ${target}`);
