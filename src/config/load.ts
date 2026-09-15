@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { z } from 'zod';
 import { ConfigError } from '../core/errors.js';
-import { configSchema, type DubConfig, type Profile } from './schema.js';
+import { configSchema, type DubConfig, type Profile, LOCAL_DEFAULT_MODEL } from './schema.js';
 
 export const DEFAULT_CONFIG_NAME = 'config.yaml';
 
@@ -36,6 +36,17 @@ function applyProfile(raw: Record<string, unknown>): Record<string, unknown> {
   const translate = { ...((raw['translate'] as Record<string, unknown> | undefined) ?? {}) };
   if (translate['engine'] === undefined) {
     translate['engine'] = profile === 'offline' ? 'ollama' : 'kilo-gateway';
+  }
+  /*
+   * Имя модели тоже зависит от движка, и его тоже надо подставить.
+   *
+   * Профиль переключал движок на Ollama, а `translate.model` оставался именем
+   * из каталога шлюза — `anthropic/claude-sonnet-4.5`. Ollama такого не знает,
+   * и офлайн-профиль из коробки падал на «модель не установлена». Берём то же
+   * имя, что стоит запасным для локального пути: там оно осмысленное.
+   */
+  if (translate['engine'] === 'ollama' && translate['model'] === undefined) {
+    translate['model'] = translate['fallback_model'] ?? LOCAL_DEFAULT_MODEL;
   }
   return { ...raw, profile, translate };
 }

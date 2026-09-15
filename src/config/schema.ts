@@ -97,12 +97,20 @@ const asrSchema = z.object({
     .default({}),
 });
 
+/**
+ * Модель локального перевода по умолчанию.
+ *
+ * Одно имя на два места: сюда смотрит и запасной путь при недоступном шлюзе, и
+ * профиль `offline`, когда человек не выбрал модель сам.
+ */
+export const LOCAL_DEFAULT_MODEL = 'qwen2.5:7b-instruct';
+
 const translateSchema = z.object({
   engine: z.enum(['kilo-gateway', 'ollama']).default('kilo-gateway'),
   model: z.string().min(1).default('anthropic/claude-sonnet-4.5'),
   /** Fallback engine used when the primary is unreachable (SPEC §15.2). */
   fallback_engine: z.enum(['ollama', 'none']).default('ollama'),
-  fallback_model: z.string().min(1).default('qwen2.5:7b-instruct'),
+  fallback_model: z.string().min(1).default(LOCAL_DEFAULT_MODEL),
   ollama_endpoint: z.string().url().default('http://127.0.0.1:11434'),
   batch_size: z.number().int().min(1).max(50).default(10),
   profanity: z.enum(['soft', 'hard', 'keep']).default('soft'),

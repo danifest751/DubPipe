@@ -281,6 +281,16 @@ const DICTIONARY = {
     ru: 'Ключ Kilo Code. Хранится на этом компьютере отдельно от настроек и никуда не передаётся, кроме шлюза.',
     en: 'A Kilo Code key. Kept on this computer apart from the settings and sent nowhere except the gateway.',
   },
+  'settings.modelNote.local': {
+    ru: 'Модели, скачанные локальной Ollama. Перевод бесплатный и не уходит в сеть, но медленнее и слабее облачного. Скачать новую: ollama pull <имя>.',
+    en: 'Models pulled by the local Ollama. Translation is free and never leaves the machine, but slower and weaker than the cloud. To add one: ollama pull <name>.',
+  },
+  'settings.model.placeholder.local': { ru: 'начните вводить: qwen, mistral…', en: 'start typing: qwen, mistral…' },
+  'settings.catalogEmpty.local': {
+    ru: 'Ollama не отвечает или моделей нет. Запустите «ollama serve» и скачайте модель.',
+    en: 'Ollama is not answering, or no models are pulled. Start “ollama serve” and pull a model.',
+  },
+  'settings.catalogCount.local': { ru: 'моделей скачано: {count}', en: '{count} models pulled' },
   'settings.modelNote': {
     ru: 'Весь каталог шлюза Kilo Code; цена — за миллион токенов запроса / ответа. Сравнить несколько на своём материале можно на вкладке «Сравнение моделей».',
     en: 'The whole Kilo Code gateway catalogue; the price is per million request / response tokens. Several can be compared on your own material under “Model comparison”.',

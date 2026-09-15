@@ -17,7 +17,45 @@ interface OllamaChatResponse {
 }
 
 interface OllamaTagsResponse {
-  models?: Array<{ name?: string }>;
+  models?: Array<{ name?: string; size?: number; details?: { parameter_size?: string; quantization_level?: string } }>;
+}
+
+/** Установленная локально модель — то, из чего человеку выбирать. */
+export interface LocalModel {
+  name: string;
+  /** Размер файла на диске, байты: по нему видно, влезет ли она в память. */
+  bytes: number;
+  /** «7.6B», «12.2B» — как их называет сама Ollama. */
+  parameters: string;
+  /** «Q4_K_M» и подобное. */
+  quantization: string;
+}
+
+/**
+ * Что скачано у местной Ollama. Пустой список значит либо «демон не отвечает»,
+ * либо «моделей нет» — для интерфейса это одно и то же: выбирать не из чего.
+ */
+export async function listLocalModels(endpoint: string): Promise<LocalModel[]> {
+  const base = endpoint.replace(/\/+$/, '');
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const response = await fetch(`${base}/api/tags`, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!response.ok) return [];
+    const parsed = (await response.json()) as OllamaTagsResponse;
+    return (parsed.models ?? [])
+      .filter((model) => typeof model.name === 'string' && model.name.length > 0)
+      .map((model) => ({
+        name: model.name!,
+        bytes: model.size ?? 0,
+        parameters: model.details?.parameter_size ?? '',
+        quantization: model.details?.quantization_level ?? '',
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  } catch {
+    return [];
+  }
 }
 
 export class OllamaClient implements ChatClient {
@@ -40,9 +78,22 @@ export class OllamaClient implements ChatClient {
       model: this.model,
       messages,
       stream: false,
+      /*
+       * Рассуждения выключены.
+       *
+       * У новых моделей (qwen3 и подобных) режим размышлений включён по
+       * умолчанию, а здесь он — чистый расход: от модели нужен JSON с
+       * переводом, а не ход мысли, и ни то ни другое от рассуждений не
+       * улучшается. Замер на qwen3:4b, один пакет из десяти реплик: 800 с с
+       * размышлениями против 25 без. Модели без такого режима поле просто
+       * игнорируют — проверено на qwen2.5.
+       */
+      think: false,
       options: { temperature: options.temperature ?? 0.3 },
     };
-    if (options.json) body['format'] = 'json';
+    // Схема сильнее простого «json»: см. ChatOptions.schema.
+    if (options.schema) body['format'] = options.schema;
+    else if (options.json) body['format'] = 'json';
 
     return await withRetry(
       async () => {

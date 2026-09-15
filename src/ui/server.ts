@@ -17,6 +17,7 @@ import { STAGE_IDS, STAGE_TITLES, type Segment, type StageId } from '../core/typ
 import { directorySize, Workspace, TOOL_VERSION } from '../core/workspace.js';
 import { compareModels } from '../core/compare.js';
 import { filterCatalog, loadCatalog } from '../providers/llm/catalog.js';
+import { listLocalModels } from '../providers/llm/ollama.js';
 import { tokenRateFor } from '../core/translation-cost.js';
 import { defaultVoiceFor, voicesForEngine } from '../providers/tts/voices.js';
 import { SILERO_MODEL } from '../providers/tts/silero-voices.js';
@@ -525,6 +526,38 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       canFix: false,
       size: null,
     });
+
+    /*
+     * Локальный перевод проверяется по факту, а не по настройке: отвечает ли
+     * демон и скачана ли именно та модель, которая указана. «Ollama
+     * установлена» само по себе не значит ничего — без модели стадия встанет.
+     */
+    if (config.translate.engine === 'ollama') {
+      const installed = await listLocalModels(config.translate.ollama_endpoint);
+      const wanted = config.translate.model;
+      const found = installed.find((model) => model.name === wanted || model.name.split(':')[0] === wanted.split(':')[0]);
+      const daemon = installed.length > 0;
+      items.push({
+        id: 'ollama',
+        title: message('ready.ollama.title', lang, { model: wanted }),
+        state: found ? 'ok' : 'blocked',
+        detail: found
+          ? message('ready.ready', lang)
+          : daemon
+            ? message('ready.ollama.noModel', lang, {
+                installed: installed.map((model) => model.name).join(', ') || message('ready.ollama.none', lang),
+              })
+            : message('ready.ollama.noDaemon', lang, { endpoint: config.translate.ollama_endpoint }),
+        blocks: found ? null : message('ready.ollama.blocks', lang),
+        hint: found
+          ? null
+          : daemon
+            ? message('ready.ollama.pullHint', lang, { model: wanted })
+            : message('ready.ollama.startHint', lang),
+        canFix: false,
+        size: found ? null : message('ready.size.ollama', lang),
+      });
+    }
 
     const ytDlp = await findTool('yt-dlp', toolsDir);
     items.push({
@@ -1066,9 +1099,44 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
     }
 
     if (route === '/api/models' && method === 'GET') {
+      /*
+       * Список моделей — того движка, которым будут переводить.
+       *
+       * Каталог шлюза и то, что скачано у местной Ollama, — разные множества с
+       * разными именами (`anthropic/claude-sonnet-4.5` против `qwen3:8b`).
+       * Показывать первый, когда работает вторая, значит предлагать имена,
+       * которых движок не знает, — та же беда, что была с голосами.
+       */
+      const askedEngine = url.searchParams.get('engine');
+      const engine = askedEngine === 'ollama' || askedEngine === 'kilo-gateway' ? askedEngine : config.translate.engine;
+      if (engine === 'ollama') {
+        const local = await listLocalModels(config.translate.ollama_endpoint);
+        const search = (url.searchParams.get('search') ?? '').trim().toLowerCase();
+        const matching = search ? local.filter((model) => model.name.toLowerCase().includes(search)) : local;
+        sendJson(response, 200, {
+          engine,
+          local: true,
+          endpoint: config.translate.ollama_endpoint,
+          models: matching.map((model) => ({
+            id: model.name,
+            name: model.name,
+            contextLength: 0,
+            promptPrice: 0,
+            completionPrice: 0,
+            free: true,
+            parameters: model.parameters,
+            quantization: model.quantization,
+            bytes: model.bytes,
+          })),
+          total: local.length,
+        });
+        return true;
+      }
       try {
         const catalog = await loadCatalog(config, url.searchParams.get('refresh') === '1');
         sendJson(response, 200, {
+          engine,
+          local: false,
           models: filterCatalog(catalog, {
             search: url.searchParams.get('search') ?? undefined,
             freeOnly: url.searchParams.get('free') === '1',

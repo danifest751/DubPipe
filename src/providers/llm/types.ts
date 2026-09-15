@@ -10,6 +10,16 @@ export interface ChatOptions {
   maxTokens?: number;
   /** Ask the provider for a JSON object when it supports response formats. */
   json?: boolean;
+  /**
+   * Схема ответа, если движок умеет её соблюдать.
+   *
+   * «Верни JSON» и «верни вот такой JSON» — разные требования. Локальные модели
+   * первое выполняют, а второе нет: qwen3:4b на настоящем запросе возвращала
+   * валидный JSON, в котором просто не было массива items, и стадия отбрасывала
+   * все одиннадцать пакетов. С переданной схемой та же модель на том же запросе
+   * отвечает правильно. Облачному шлюзу схема не нужна — он и так справляется.
+   */
+  schema?: Record<string, unknown>;
 }
 
 /** Token spend of one call, used for run cost reporting. */

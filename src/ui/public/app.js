@@ -1999,8 +1999,11 @@ $('#ttsEngine').addEventListener('change', async (event) => {
 $$('input[name="profile"]').forEach((radio) =>
   radio.addEventListener('change', () => {
     markDirty('profile', radio.value);
-    markDirty('translate.engine', radio.value === 'offline' ? 'ollama' : 'kilo-gateway');
+    const engine = radio.value === 'offline' ? 'ollama' : 'kilo-gateway';
+    markDirty('translate.engine', engine);
     applyProfileVisibility(radio.value);
+    // Список моделей — под новый движок, иначе в поле останутся чужие имена.
+    void loadSettingsCatalog(false, engine).then(renderModelList);
   }),
 );
 
@@ -2079,7 +2082,7 @@ function renderModelList() {
   combo.items = items;
   if (combo.active >= items.length) combo.active = items.length ? 0 : -1;
   if (!state.catalog.length) {
-    list.innerHTML = `<div class="combo-empty">${t('settings.catalogEmpty')}</div>`;
+    list.innerHTML = `<div class="combo-empty">${t(state.catalogLocal ? 'settings.catalogEmpty.local' : 'settings.catalogEmpty')}</div>`;
   } else if (!items.length) {
     list.innerHTML = `<div class="combo-empty">${t('settings.catalogNoMatch')}</div>`;
   } else {
@@ -2099,7 +2102,7 @@ function renderModelList() {
     item.addEventListener('mousemove', () => { combo.active = Number(item.dataset.index); markActive(); });
   });
   $('#settingsModelNote').textContent = state.catalog.length
-    ? `${t('settings.catalogCount', { count: state.catalog.length })}${input.value.trim() ? t('settings.catalogMatched', { count: total }) : ''}`
+    ? `${t(state.catalogLocal ? 'settings.catalogCount.local' : 'settings.catalogCount', { count: state.catalog.length })}${input.value.trim() ? t('settings.catalogMatched', { count: total }) : ''}`
     : t('settings.catalogMissing');
 }
 
@@ -2130,14 +2133,42 @@ function chooseModel(id) {
   renderModelList();
 }
 
-async function loadSettingsCatalog(refresh = false) {
+/**
+ * Список моделей — того движка, которым будут переводить.
+ *
+ * В офлайн-профиле это то, что скачано локальной Ollama, а не каталог шлюза:
+ * имена там свои, и предлагать чужие значило бы обещать несуществующее.
+ * Заодно меняются пояснение под полем и подсказка ввода.
+ */
+async function loadSettingsCatalog(refresh = false, engine = state.config?.translate?.engine) {
+  // Признак ставится по ответу, а не по намерению: до прихода списка мы ещё не
+  // знаем, что там. Иначе поле успевает соврать, что показывает локальные
+  // модели, пока в нём лежит облачный каталог.
+  const suffix = engine ? `&engine=${encodeURIComponent(engine)}` : '';
   try {
-    const data = await api(`/api/models?limit=0${refresh ? '&refresh=1' : ''}`);
+    const data = await api(`/api/models?limit=0${refresh ? '&refresh=1' : ''}${suffix}`);
     state.catalog = data.models;
+    state.catalogLocal = Boolean(data.local);
   } catch (error) {
     state.catalog = [];
     $('#settingsModelNote').textContent = t('settings.catalogFailed', { error: error.message });
   }
+  applyModelEngineLabels();
+}
+
+/** Подписи у поля модели: облачный каталог и локальные модели описываются по-разному. */
+function applyModelEngineLabels() {
+  const local = Boolean(state.catalogLocal);
+  const note = $('#settingsModel').closest('.opt').querySelector('.opt-text span');
+  if (note) {
+    const key = local ? 'settings.modelNote.local' : 'settings.modelNote';
+    note.dataset.i18n = key;
+    note.textContent = t(key);
+  }
+  const input = $('#settingsModel');
+  const placeholder = local ? 'settings.model.placeholder.local' : 'settings.model.placeholder';
+  input.dataset.i18nPlaceholder = placeholder;
+  input.placeholder = t(placeholder);
 }
 
 {

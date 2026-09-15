@@ -178,6 +178,29 @@ export function extractJson(raw: string): string | null {
  * Validates a batch reply. Matching is by `id`, never by position, because
  * models drop and merge array elements (SPEC §3.4, revised).
  */
+/**
+ * Схема ответа пакета — та же, что описана в промпте, но в машиночитаемом виде.
+ *
+ * Держится рядом с разбором ответа: если поменять одно и забыть другое, модель
+ * начнёт отвечать не тем, что мы читаем. Движки, умеющие соблюдать схему,
+ * получают её; остальным достаётся прежнее «верни JSON».
+ */
+export const TRANSLATION_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  properties: {
+    items: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { id: { type: 'integer' }, text_ru: { type: 'string' } },
+        required: ['id', 'text_ru'],
+      },
+    },
+    glossary: { type: 'object', additionalProperties: { type: 'string' } },
+  },
+  required: ['items'],
+};
+
 export function parseTranslationResponse(raw: string, expectedIds: number[]): TranslationPayload {
   const json = extractJson(raw);
   if (!json) throw new Error('в ответе модели нет JSON');
@@ -385,7 +408,7 @@ async function translateBatch(
           { role: 'system', content: systemPrompt },
           { role: 'user', content: request },
         ],
-        { json: true, temperature: attempt === 1 ? 0.3 : 0.1 },
+        { json: true, schema: TRANSLATION_SCHEMA, temperature: attempt === 1 ? 0.3 : 0.1 },
       );
       addUsage(usage, reply.usage);
 

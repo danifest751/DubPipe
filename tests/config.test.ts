@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { LOCAL_DEFAULT_MODEL } from '../src/config/schema.js';
 import { parseConfig } from '../src/config/load.js';
 import { ConfigError } from '../src/core/errors.js';
 
@@ -111,5 +112,32 @@ describe('Где считать: один словарь на все стади�
     expect(parseConfig({ asr: { backend: 'vulkan' } }, 'test').asr.backend).toBe('vulkan');
     expect(parseConfig({ asr: { backend: 'blas' } }, 'test').asr.backend).toBe('blas');
     expect(() => parseConfig({ asr: { backend: 'igpu' } }, 'test')).toThrow(ConfigError);
+  });
+});
+
+describe('§15: профиль подставляет и движок перевода, и модель', () => {
+  it('офлайн берёт локальный движок и локальную модель', () => {
+    const config = parseConfig({ profile: 'offline' }, 'тест');
+    expect(config.translate.engine).toBe('ollama');
+    // Имя из каталога шлюза Ollama не знает: офлайн из коробки падал бы на
+    // «модель не установлена», хотя человек ничего не настраивал неправильно.
+    expect(config.translate.model).toBe(LOCAL_DEFAULT_MODEL);
+    expect(config.translate.model).not.toContain('/');
+  });
+
+  it('гибридный профиль остаётся на облачной модели', () => {
+    const config = parseConfig({ profile: 'hybrid' }, 'тест');
+    expect(config.translate.engine).toBe('kilo-gateway');
+    expect(config.translate.model).toContain('/');
+  });
+
+  it('явно выбранная модель сильнее профиля', () => {
+    const config = parseConfig({ profile: 'offline', translate: { model: 'qwen3:14b' } }, 'тест');
+    expect(config.translate.model).toBe('qwen3:14b');
+  });
+
+  it('запасная модель тоже задаёт выбор для офлайна', () => {
+    const config = parseConfig({ profile: 'offline', translate: { fallback_model: 'gemma3:12b' } }, 'тест');
+    expect(config.translate.model).toBe('gemma3:12b');
   });
 });
