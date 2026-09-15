@@ -1,5 +1,5 @@
 import type { DubConfig } from '../config/schema.js';
-import { RUSSIAN_VOICES, type VoiceInfo } from '../providers/tts/voices.js';
+import { voicesForEngine, type VoiceInfo } from '../providers/tts/voices.js';
 import type { SpeakerProfile } from '../providers/diarization/gender.js';
 import type { Segment } from './types.js';
 import { ttsKey } from '../stages/s5-tts.js';
@@ -64,31 +64,69 @@ export function normalizeOverrides(raw: unknown): ProjectOverrides {
  * получает голос своего пола (ТЗ FR-5, [2.3]). Спикеры одного пола разбираются по
  * кругу — чтобы двое мужчин не звучали одинаково, пока есть разные голоса.
  * Голос по умолчанию идёт первым, если его пол подходит: он уже загружен.
+ *
+ * Когда у голосов движка замерен тон, круг уступает место подбору по высоте:
+ * героине достаётся не «женский голос вообще», а тот, что ближе к её
+ * собственному. На пятом эпизоде актрисы звучат на 195 и 176 Гц, и по кругу они
+ * получали бы соседние по списку голоса безотносительно того, как звучат сами.
+ * Уже занятый голос второй раз не выдаётся — иначе подбор по высоте свёл бы двух
+ * похожих героинь к одному диктору, ровно к тому, от чего уходим.
  */
 export function autoVoiceMap(
   speakers: SpeakerProfiles,
   config: DubConfig,
-  voices: VoiceInfo[] = RUSSIAN_VOICES,
+  voices: VoiceInfo[] = voicesForEngine(config.tts.engine),
 ): Record<string, string> {
   const result: Record<string, string> = {};
   const counters: Record<string, number> = {};
+  const taken = new Set<string>(Object.values(config.tts.voice_map));
   const ordered = Object.keys(speakers).sort((a, b) => {
     const numeric = (name: string) => Number(/(\d+)$/.exec(name)?.[1] ?? Number.MAX_SAFE_INTEGER);
     return numeric(a) - numeric(b) || a.localeCompare(b);
   });
   for (const speaker of ordered) {
     if (config.tts.voice_map[speaker]) continue;
-    const gender = speakers[speaker]?.gender;
+    const profile = speakers[speaker];
+    const gender = profile?.gender;
     if (gender !== 'м' && gender !== 'ж') continue;
     const pool = voices.filter((voice) => voice.gender === gender);
     if (pool.length === 0) continue;
+
+    const byPitch = pickByPitch(pool, profile?.f0 ?? null, taken);
+    if (byPitch !== null) {
+      result[speaker] = byPitch;
+      taken.add(byPitch);
+      continue;
+    }
+
     const preferred = pool.findIndex((voice) => voice.name === config.tts.default_voice);
     const rotated = preferred > 0 ? [...pool.slice(preferred), ...pool.slice(0, preferred)] : pool;
     const index = counters[gender] ?? 0;
     counters[gender] = index + 1;
-    result[speaker] = rotated[index % rotated.length]!.name;
+    const chosen = rotated[index % rotated.length]!.name;
+    result[speaker] = chosen;
+    taken.add(chosen);
   }
   return result;
+}
+
+/**
+ * Свободный голос, ближайший по основному тону. `null` — когда подбирать не по
+ * чему: тон говорящего не измерился или у голосов движка его нет.
+ */
+function pickByPitch(pool: VoiceInfo[], f0: number | null | undefined, taken: Set<string>): string | null {
+  if (typeof f0 !== 'number') return null;
+  const measured = pool.filter((voice) => typeof voice.f0 === 'number');
+  if (measured.length === 0) return null;
+  const free = measured.filter((voice) => !taken.has(voice.name));
+  // Голосов меньше, чем говорящих: пусть лучше двое звучат одинаково, чем
+  // кто-то останется без голоса — но выбор всё равно делается по высоте.
+  const candidates = free.length > 0 ? free : measured;
+  let best = candidates[0]!;
+  for (const voice of candidates) {
+    if (Math.abs(voice.f0! - f0) < Math.abs(best.f0! - f0)) best = voice;
+  }
+  return best.name;
 }
 
 /**
