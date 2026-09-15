@@ -53,6 +53,29 @@ function dictionary(): Map<string, Set<string>> {
   return result;
 }
 
+/**
+ * Предупреждение, положенное в массив строкой, а не через `warn()`.
+ *
+ * Такое не переведётся: страница знает только ключ. Проверка `keysInCode()`
+ * их не видит по построению — она ищет вызовы `warn()`, — и два предупреждения
+ * S2 («речь не обнаружена», «пол не определён») месяцами оставались русскими
+ * на английском экране, пока тест печатал «пройдено». Ключи для обоих лежали
+ * в словаре и никем не вызывались.
+ */
+function rawWarningsInCode(): Array<{ file: string; text: string }> {
+  const found: Array<{ file: string; text: string }> = [];
+  for (const file of sources(root)) {
+    const text = readFileSync(file, 'utf8');
+    // Литерал сразу после `warnings.push(` — значит warn() не позван.
+    for (const match of text.matchAll(/warnings\.push\(\s*([`'"])([\s\S]*?)\1/g)) {
+      const literal = match[2]!;
+      if (!/[а-яА-ЯёЁ]/.test(literal)) continue;
+      found.push({ file: path.relative(root, file), text: literal.slice(0, 60) });
+    }
+  }
+  return found;
+}
+
 describe('предупреждения прогона переводятся', () => {
   const used = keysInCode();
   const known = dictionary();
@@ -67,6 +90,18 @@ describe('предупреждения прогона переводятся', (
       return !languages || !languages.has('ru') || !languages.has('en');
     });
     expect(missing.map((entry) => `${entry.key} (${entry.file})`)).toEqual([]);
+  });
+
+  it('каждое предупреждение собирается через warn(), а не строкой', () => {
+    expect(rawWarningsInCode()).toEqual([]);
+  });
+
+  it('в словаре нет ключей предупреждений, которых никто не зовёт', () => {
+    // Сирота — это ключ, для которого текст написан, а код о нём не знает:
+    // ровно так разошлись `warn.s2.noSpeech` и `warn.s2.gender`.
+    const usedKeys = new Set(used.map((entry) => entry.key));
+    const orphans = [...known.keys()].filter((key) => key.startsWith('warn.') && !usedKeys.has(key));
+    expect(orphans).toEqual([]);
   });
 
   it('запасной русский текст есть всегда — ключа страница может и не знать', () => {

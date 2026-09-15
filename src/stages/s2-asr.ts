@@ -133,7 +133,7 @@ export async function runS2(workspace: Workspace, config: DubConfig, audioPath: 
 
   const noSpeech = segments.length === 0;
   if (noSpeech) {
-    warnings.push('Речь не обнаружена — итог будет копией входа (ТЗ §8)');
+    warnings.push(warn('warn.s2.noSpeech', 'Речь не обнаружена — итог будет копией входа (ТЗ §8)'));
   }
 
   // Пол голоса каждого спикера по основному тону — чтобы мужчине не достался
@@ -173,7 +173,12 @@ export async function runS2(workspace: Workspace, config: DubConfig, audioPath: 
         );
       }
     } catch (error) {
-      warnings.push(`Пол голосов не определён (${(error as Error).message}): голоса по полу назначаться не будут`);
+      const reason = (error as Error).message;
+      warnings.push(
+        warn('warn.s2.gender', `Пол голосов не определён (${reason}): голоса по полу назначаться не будут`, {
+          reason,
+        }),
+      );
     }
   }
 
