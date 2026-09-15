@@ -1,8 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { parseConfig } from '../src/config/load.js';
 import { configSchema } from '../src/config/schema.js';
-import { autoVoiceMap } from '../src/core/overrides.js';
-import { SILERO_VOICES } from '../src/providers/tts/silero-voices.js';
+import { ACCENT_SLACK_HZ, autoVoiceMap } from '../src/core/overrides.js';
+import {
+  SILERO_CIS,
+  SILERO_DEFAULT_VOICE,
+  SILERO_MODELS,
+  SILERO_NATIVE,
+  SILERO_VOICES,
+  sileroModelFor,
+} from '../src/providers/tts/silero-voices.js';
 import { voicesForEngine, RUSSIAN_VOICES } from '../src/providers/tts/voices.js';
 import { FEMALE_QUARTILE_MIN_HZ, MALE_QUARTILE_MAX_HZ } from '../src/providers/diarization/gender.js';
 
@@ -22,12 +29,31 @@ describe('голоса silero', () => {
     }
   });
 
+  it('у каждого голоса есть модель, и имена не спорят между моделями', () => {
+    // Диктор живёт ровно в одной модели: по имени голоса движок решает, какую
+    // качать и поднимать. Совпади имена — фильм озвучился бы не тем голосом.
+    const names = SILERO_VOICES.map((voice) => voice.name);
+    expect(new Set(names).size).toBe(names.length);
+    for (const voice of SILERO_VOICES) expect(sileroModelFor(voice.name), voice.name).not.toBeNull();
+    expect(sileroModelFor('ru_RU-irina-medium')).toBeNull();
+    expect(SILERO_MODELS.map((model) => model.name)).toEqual(['v5_5_ru', 'v5_cis_base']);
+  });
+
+  it('носители помечены как носители, дикторы СНГ — как акцент', () => {
+    // По этой пометке автоподбор и раздаёт главные роли; спутай её — и акцент
+    // вернётся туда, откуда его убирали.
+    for (const voice of SILERO_NATIVE.voices) expect(voice.accent, voice.name).toBe(false);
+    for (const voice of SILERO_CIS.voices) expect(voice.accent, voice.name).toBe(true);
+    expect(SILERO_NATIVE.voices).toHaveLength(5);
+    expect(SILERO_CIS.voices).toHaveLength(29);
+  });
+
   it('движку нельзя подсунуть имя голоса из каталога piper', () => {
     const bad = configSchema.safeParse({ tts: { engine: 'silero', default_voice: 'ru_RU-irina-medium' } });
     expect(bad.success).toBe(false);
     if (!bad.success) {
       expect(bad.error.issues[0]!.path).toEqual(['tts', 'default_voice']);
-      expect(bad.error.issues[0]!.message).toContain('ru_zhadyra');
+      expect(bad.error.issues[0]!.message).toContain(SILERO_DEFAULT_VOICE);
     }
   });
 });
@@ -49,9 +75,33 @@ describe('подбор голоса по тону', () => {
 
   it('каждому говорящему достаётся голос его высоты', () => {
     const map = autoVoiceMap(profiles, silero);
-    expect(Math.abs(f0Of(map['speaker_0']!) - 110)).toBeLessThanOrEqual(5);
-    expect(Math.abs(f0Of(map['speaker_1']!) - 195)).toBeLessThanOrEqual(5);
-    expect(Math.abs(f0Of(map['speaker_2']!) - 176)).toBeLessThanOrEqual(5);
+    // Точность — с точностью до уступки носителю: акцент слышно сразу, а
+    // разницу в два десятка герц — нет.
+    expect(Math.abs(f0Of(map['speaker_0']!) - 110)).toBeLessThanOrEqual(ACCENT_SLACK_HZ);
+    expect(Math.abs(f0Of(map['speaker_1']!) - 195)).toBeLessThanOrEqual(ACCENT_SLACK_HZ);
+    expect(Math.abs(f0Of(map['speaker_2']!) - 176)).toBeLessThanOrEqual(ACCENT_SLACK_HZ);
+  });
+
+  it('носитель выигрывает у диктора с акцентом, если разница по тону невелика', () => {
+    // На 110 Гц есть точное попадание — ru_kejilgan, но он читает с акцентом,
+    // а носитель ru_eugene стоит в семи герцах. Семь герц не слышно, акцент —
+    // слышно с первой фразы.
+    const map = autoVoiceMap({ speaker_0: { gender: 'м', f0: 110, voicedSeconds: 14.7 } }, silero);
+    expect(map['speaker_0']).toBe('ru_eugene');
+  });
+
+  it('но далёкий носитель уступает близкому диктору с акцентом', () => {
+    // Героиню в 176 Гц отдать носителю значит отдать её голосу за 240 Гц:
+    // ближе носителей нет, они заняты. Это уже не «чуть выше», а чужой голос.
+    const map = autoVoiceMap(
+      {
+        speaker_0: { gender: 'ж', f0: 198, voicedSeconds: 7 },
+        speaker_1: { gender: 'ж', f0: 176, voicedSeconds: 7 },
+      },
+      silero,
+    );
+    expect(map['speaker_0']).toBe('ru_xenia');
+    expect(map['speaker_1']).toBe('ru_ramilia');
   });
 
   it('две героини получают разные голоса', () => {

@@ -655,6 +655,7 @@ downloaded from their upstream sources on first use and stay under their own lic
 | silero-vad (ONNX) | 2 MB | MIT |
 | piper | 21 MB | MIT |
 | piper `ru_RU-*` voices | ~60 MB each | MIT / CC BY |
+| silero `v5_5_ru` (5 accent-free voices) | 138 MB | CC BY-NC-SA 4.0 |
 | silero `v5_cis_base` (29 voices) | 92 MB | CC BY-NC-SA 4.0 |
 | pyannote diarization (optional) | 38 MB | MIT, gated by a free Hugging Face account |
 | MDX-Net separation model (optional) | 67 MB | MIT |

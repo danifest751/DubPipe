@@ -233,6 +233,10 @@ const DICTIONARY = {
     en: 'This line’s pitch argues with its speaker — diarization may have handed it to the wrong person. Listen again and fix it here',
   },
   'segments.character': { ru: 'Персонаж', en: 'Character' },
+  'segments.unnamed': {
+    ru: 'Герой не подписан. Имя задаётся в панели «Голоса и персонажи» — там же видно, каким голосом он зазвучит',
+    en: 'This character has no name yet. Name them in “Voices and characters” — the same panel shows which voice they get',
+  },
   'cast.title': { ru: 'Голоса и персонажи', en: 'Voices and characters' },
   'cast.lead': { ru: 'Послушайте реплику и подпишите, кто это. Имя появится во всех строках этого героя.', en: 'Listen to a line and name who it is. The name shows up in every row of that character.' },
   'segments.genderClash': { ru: 'голос не совпадает с полом по записи', en: 'the voice disagrees with the gender measured' },
@@ -250,6 +254,7 @@ const DICTIONARY = {
   'cast.namePlaceholder': { ru: 'имя героя', en: 'character name' },
   'cast.replicas': { ru: '{count} {реплика|реплики|реплик}', en: '{count} {replica|replicas}' },
   'cast.try': { ru: 'Проба', en: 'Try' },
+  'cast.accent': { ru: 'с акцентом', en: 'accented' },
   'cast.tryHint': { ru: 'Озвучить первую реплику героя выбранным голосом прямо сейчас', en: 'Voice the character’s first line in the chosen voice right now' },
   'cast.listen': { ru: 'Послушать', en: 'Listen' },
   'segments.columns': { ru: 'Колонки', en: 'Columns' },
@@ -357,7 +362,10 @@ const DICTIONARY = {
     en: 'piper needs nothing extra. silero offers 29 Russian voices instead of four and synthesises much faster, but it needs Python with torch.',
   },
   'settings.ttsEngine.piper': { ru: 'piper — 4 голоса, без Python', en: 'piper — 4 voices, no Python' },
-  'settings.ttsEngine.silero': { ru: 'silero — 29 голосов, нужен Python с torch', en: 'silero — 29 voices, needs Python with torch' },
+  'settings.ttsEngine.silero': {
+    ru: 'silero — 34 голоса, из них пять без акцента; нужен Python с torch',
+    en: 'silero — 34 voices, five of them accent-free; needs Python with torch',
+  },
   'settings.defaultVoiceNote.piper': {
     ru: 'Русские голоса piper: четыре, из них один женский. Работают без сети.',
     en: 'The Russian piper voices: four, one of them female. They work offline.',

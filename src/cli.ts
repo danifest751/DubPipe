@@ -403,6 +403,9 @@ voicesCommand
         .filter(([, name]) => name === voice.name)
         .map(([speaker]) => speaker);
       const marks = [
+        // Акцент — первое, что слышно в дубляже, и по имени диктора его не
+        // угадать: `ru_ekaterina` читает по-русски с акцентом, `ru_kseniya` нет.
+        voice.accent ? 'с акцентом' : '',
         voice.name === config.tts.default_voice ? 'по умолчанию' : '',
         assigned.length ? `назначен: ${assigned.join(', ')}` : '',
       ].filter(Boolean);

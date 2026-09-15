@@ -101,8 +101,11 @@ export function autoVoiceMap(
       continue;
     }
 
-    const preferred = pool.findIndex((voice) => voice.name === config.tts.default_voice);
-    const rotated = preferred > 0 ? [...pool.slice(preferred), ...pool.slice(0, preferred)] : pool;
+    // Дикторы без акцента впереди — и здесь тоже; названный в настройках голос
+    // всё равно идёт первым, потому что это прямой выбор человека.
+    const ordered = [...pool.filter((voice) => voice.accent !== true), ...pool.filter((voice) => voice.accent === true)];
+    const preferred = ordered.findIndex((voice) => voice.name === config.tts.default_voice);
+    const rotated = preferred > 0 ? [...ordered.slice(preferred), ...ordered.slice(0, preferred)] : ordered;
     const index = counters[gender] ?? 0;
     counters[gender] = index + 1;
     const chosen = rotated[index % rotated.length]!.name;
@@ -111,6 +114,22 @@ export function autoVoiceMap(
   }
   return result;
 }
+
+/**
+ * Насколько можно промахнуться по тону ради диктора без акцента, Гц.
+ *
+ * У silero 29 голосов из 34 — дикторы народов СНГ, читающие по-русски; акцент в
+ * дубляже слышно с первой фразы, а разницу в несколько герц не слышно вовсе.
+ * Поэтому носитель выигрывает, даже будучи чуть дальше по высоте.
+ *
+ * Но не любой ценой: носителей пятеро, и когда близких по тону среди них не
+ * остаётся, попытка отдать роль всё равно им звучит хуже акцента. На пятом
+ * эпизоде героине в 176 Гц из свободных носителей оставались только два голоса
+ * за 240 Гц — это чужой голос, а не «чуть выше». Порог отделяет первое от
+ * второго: 25 Гц — примерно четверть расстояния между соседними голосами в
+ * женской половине каталога.
+ */
+export const ACCENT_SLACK_HZ = 25;
 
 /**
  * Свободный голос, ближайший по основному тону. `null` — когда подбирать не по
@@ -124,11 +143,17 @@ function pickByPitch(pool: VoiceInfo[], f0: number | null | undefined, taken: Se
   // Голосов меньше, чем говорящих: пусть лучше двое звучат одинаково, чем
   // кто-то останется без голоса — но выбор всё равно делается по высоте.
   const candidates = free.length > 0 ? free : measured;
-  let best = candidates[0]!;
-  for (const voice of candidates) {
-    if (Math.abs(voice.f0! - f0) < Math.abs(best.f0! - f0)) best = voice;
-  }
-  return best.name;
+  const nearest = (list: VoiceInfo[]): VoiceInfo | null => {
+    let best: VoiceInfo | null = null;
+    for (const voice of list) {
+      if (best === null || Math.abs(voice.f0! - f0) < Math.abs(best.f0! - f0)) best = voice;
+    }
+    return best;
+  };
+  const closest = nearest(candidates)!;
+  const clean = nearest(candidates.filter((voice) => voice.accent !== true));
+  if (clean === null) return closest.name;
+  return Math.abs(clean.f0! - f0) <= Math.abs(closest.f0! - f0) + ACCENT_SLACK_HZ ? clean.name : closest.name;
 }
 
 /**

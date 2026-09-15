@@ -41,8 +41,8 @@ const MESSAGES: Record<string, Record<UiLanguage, string>> = {
   'ready.silero.noPython': { ru: 'не хватает для синтеза: {missing}', en: 'missing for synthesis: {missing}' },
   'ready.silero.noModel': { ru: 'модель голосов не скачана', en: 'the voice model is not downloaded' },
   'ready.silero.willFetch': {
-    ru: 'скачается сама при первой озвучке, 92 МБ на все 29 голосов',
-    en: 'downloads itself on the first synthesis, 92 MB for all 29 voices',
+    ru: 'скачается сама при первой озвучке: 138 МБ на голоса без акцента, 92 МБ — на остальные 29',
+    en: 'downloads itself on the first synthesis: 138 MB for the accent-free voices, 92 MB for the other 29',
   },
   'ready.key.title': { ru: 'Ключ доступа к моделям — {env}', en: 'Model access key — {env}' },
   'ready.key.envFallback': { ru: 'переменная', en: 'variable' },
@@ -95,7 +95,10 @@ const MESSAGES: Record<string, Record<UiLanguage, string>> = {
   'ready.size.ffmpeg': { ru: '106 МБ', en: '106 MB' },
   'ready.size.whisper': { ru: '20 МБ + 465 МБ веса', en: '20 MB + 465 MB weights' },
   'ready.size.piper': { ru: '21 МБ + 60 МБ голос', en: '21 MB + 60 MB voice' },
-  'ready.size.silero': { ru: '92 МБ на все 29 голосов', en: '92 MB for all 29 voices' },
+  'ready.size.silero': {
+    ru: '138 МБ на голоса без акцента, 92 МБ на остальные 29',
+    en: '138 MB for the accent-free voices, 92 MB for the other 29',
+  },
   'ready.size.ytdlp': { ru: '17 МБ', en: '17 MB' },
   'ready.size.diarizationWeights': { ru: '30 МБ веса', en: '30 MB weights' },
   'ready.size.diarizationFull': { ru: '~1 ГБ (PyTorch) + 30 МБ веса', en: '~1 GB (PyTorch) + 30 MB weights' },

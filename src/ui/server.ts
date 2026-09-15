@@ -20,7 +20,7 @@ import { filterCatalog, loadCatalog } from '../providers/llm/catalog.js';
 import { listLocalModels } from '../providers/llm/ollama.js';
 import { tokenRateFor } from '../core/translation-cost.js';
 import { defaultVoiceFor, voicesForEngine } from '../providers/tts/voices.js';
-import { SILERO_MODEL } from '../providers/tts/silero-voices.js';
+import { SILERO_NATIVE, sileroModelFor } from '../providers/tts/silero-voices.js';
 import { createTtsProvider } from '../providers/tts/index.js';
 import { KiloGatewayClient } from '../providers/llm/gateway.js';
 import { missingPythonModules, probePython, type PythonEnvironment } from '../stages/s4-separate.js';
@@ -506,13 +506,21 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
      * блокировал запуск там, где всё на месте.
      */
     if (config.tts.engine === 'silero') {
-      const model = path.join(modelsDir, 'silero', `${SILERO_MODEL.name}.pt`);
+      // Моделей у движка две, и нужна та, в которой живут голоса этого видео:
+      // фильму на пятерых носителей вторая не понадобится вовсе.
+      const wanted = new Set(
+        [config.tts.default_voice, ...Object.values(config.tts.voice_map)]
+          .map((voice) => sileroModelFor(voice)?.name ?? null)
+          .filter((name): name is string => name !== null),
+      );
+      if (wanted.size === 0) wanted.add(SILERO_NATIVE.name);
+      const absent = [...wanted].filter((name) => !existsSync(path.join(modelsDir, 'silero', `${name}.pt`)));
       const python = await probePythonOnce();
       // Мало найти Python: движку нужны torch и soundfile, а probePython
       // спрашивает про numpy и onnxruntime — это нужды разделения, не синтеза.
       const missing = python.executable === null ? ['python'] : await missingPythonModules(python.executable, ['torch', 'soundfile']);
       const hasPython = python.executable !== null && missing.length === 0;
-      const hasModel = existsSync(model);
+      const hasModel = absent.length === 0;
       // Модель скачивается сама при первом синтезе, поэтому её отсутствие —
       // не преграда, а предупреждение о предстоящей загрузке. Кнопка «докачать»
       // про неё не знает, и обещать её здесь нечестно.
