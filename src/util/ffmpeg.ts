@@ -15,11 +15,46 @@ interface FfprobeStream {
   codec_type?: string;
   channels?: number;
   sample_rate?: string;
+  /** Обложка в контейнере помечена здесь: `attached_pic: 1`. */
+  disposition?: { attached_pic?: number };
 }
 
 interface FfprobeOutput {
   streams?: FfprobeStream[];
   format?: { duration?: string };
+}
+
+/**
+ * Настоящий ли это видеопоток, а не обложка.
+ *
+ * Обложка внутри файла (`--embed-thumbnail`) — тоже поток с `codec_type: video`,
+ * только с пометкой `attached_pic`. Без этой проверки скачанный «только звук»
+ * файл с обложкой считался бы видео: длительность и дорожки сходились бы, а S7
+ * собрал бы из него mp4 со статичной картинкой вместо m4a. То же случилось бы с
+ * любым чужим файлом, где в обложку вложена картинка.
+ */
+function isRealVideo(stream: FfprobeStream): boolean {
+  return stream.codec_type === 'video' && stream.disposition?.attached_pic !== 1;
+}
+
+/**
+ * Разбор ответа ffprobe в то, что нужно стадиям.
+ *
+ * Отделено от запуска ffprobe, чтобы правило про обложку проверялось тестом без
+ * самого ffprobe: разбор — единственное место, где легко ошибиться.
+ */
+export function describeMedia(probe: unknown): MediaInfo {
+  const parsed = (probe ?? {}) as FfprobeOutput;
+  const streams = parsed.streams ?? [];
+  const audio = streams.find((stream) => stream.codec_type === 'audio');
+
+  return {
+    durationSeconds: Number(parsed.format?.duration ?? 0),
+    hasVideo: streams.some(isRealVideo),
+    hasAudio: audio !== undefined,
+    audioChannels: audio?.channels ?? 0,
+    audioSampleRate: Number(audio?.sample_rate ?? 0),
+  };
 }
 
 export async function probeMedia(filePath: string, toolsDir: string): Promise<MediaInfo> {
@@ -29,18 +64,7 @@ export async function probeMedia(filePath: string, toolsDir: string): Promise<Me
     ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', filePath],
     { timeoutMs: 120_000, captureStdout: true },
   );
-
-  const parsed = JSON.parse(stdout) as FfprobeOutput;
-  const streams = parsed.streams ?? [];
-  const audio = streams.find((s) => s.codec_type === 'audio');
-
-  return {
-    durationSeconds: Number(parsed.format?.duration ?? 0),
-    hasVideo: streams.some((s) => s.codec_type === 'video'),
-    hasAudio: audio !== undefined,
-    audioChannels: audio?.channels ?? 0,
-    audioSampleRate: Number(audio?.sample_rate ?? 0),
-  };
+  return describeMedia(JSON.parse(stdout));
 }
 
 /** Analysis track: WAV, 48 kHz, mono, 16-bit (SPEC FR-1). */
