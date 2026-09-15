@@ -66,6 +66,15 @@ program
       ...(options.subtitles ? { subtitles: true } : {}),
       ...(options.fromStage ? { fromStage: options.fromStage as StageId } : {}),
       ...(options.toStage ? { toStage: options.toStage as StageId } : {}),
+      ...(options.yes
+        ? {}
+        : {
+            confirm: ({ durationSeconds }: { durationSeconds: number }) =>
+              askYesNo(
+                `Вход длиной ${(durationSeconds / 3600).toFixed(1)} ч: обработка займёт часы, ` +
+                  'а перевод потратит деньги. Продолжить?',
+              ),
+          }),
     });
 
     log.info('');
@@ -419,6 +428,22 @@ voicesCommand
   });
 
 type PiperSample = (voice: string, text: string, outputPath: string) => Promise<unknown>;
+
+/**
+ * Вопрос «да/нет» в консоли. Без терминала (запуск из скрипта, из планировщика,
+ * с перенаправленным вводом) спрашивать некого — работа идёт, как и раньше.
+ */
+async function askYesNo(question: string): Promise<boolean> {
+  if (!process.stdin.isTTY) return true;
+  const { createInterface } = await import('node:readline/promises');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = (await rl.question(`${question} [y/N] `)).trim().toLowerCase();
+    return ['y', 'yes', 'д', 'да'].includes(answer);
+  } finally {
+    rl.close();
+  }
+}
 
 function reportError(error: unknown): void {
   if (error instanceof DubPipeError) {

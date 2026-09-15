@@ -2,7 +2,7 @@ import { appendFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import type { DubConfig } from '../config/schema.js';
-import { runS1 } from '../stages/s1-input.js';
+import { LONG_INPUT_SECONDS, runS1 } from '../stages/s1-input.js';
 import { runS2 } from '../stages/s2-asr.js';
 import { runS3 } from '../stages/s3-translate.js';
 import { runS4 } from '../stages/s4-separate.js';
@@ -12,7 +12,7 @@ import { resolveOutputPath, runS7 } from '../stages/s7-mix.js';
 import { subtitleOptionsFrom, writeSubtitleFiles, type SubtitleResult } from '../stages/subtitles.js';
 import { sha256 } from '../util/hash.js';
 import { StageError } from './errors.js';
-import { cancellation } from './cancel.js';
+import { cancellation, CancelledError } from './cancel.js';
 import { counter, formatDuration, log } from './logger.js';
 import { MANDATORY_STAGES, STAGE_IDS, STAGE_TITLES, type Segment, type StageId, type StageOutcome } from './types.js';
 import { computeFingerprints, Workspace } from './workspace.js';
@@ -34,6 +34,13 @@ export interface PipelineOptions {
   subtitles?: boolean;
   fromStage?: StageId;
   toStage?: StageId;
+  /**
+   * Спросить перед долгой работой. Вызывается не более одного раза и только на
+   * входах длиннее `LONG_INPUT_SECONDS`; «нет» останавливает прогон до того,
+   * как он потратит часы и деньги. Интерфейс длительность показывает и так,
+   * поэтому спрашивает только консоль.
+   */
+  confirm?: (info: { durationSeconds: number; input: string }) => Promise<boolean>;
 }
 
 export interface PipelineReport {
@@ -182,6 +189,17 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRep
   const fingerprints = computeFingerprints(config, workspace.inputHash);
   const state = await workspace.readState();
 
+  // Спрашиваем один раз и в одном месте: длительность приходит либо из свежей
+  // стадии S1, либо из meta.json прошлого прогона, если S1 взялась из кэша.
+  let confirmationPending = options.confirm !== undefined;
+  const confirmLongInput = async (durationSeconds: number): Promise<void> => {
+    if (!confirmationPending || durationSeconds <= LONG_INPUT_SECONDS) return;
+    confirmationPending = false;
+    if (!(await options.confirm!({ durationSeconds, input }))) {
+      throw new CancelledError('Отменено: длинный вход не подтверждён');
+    }
+  };
+
   // Журнал прогона на диске: поток событий интерфейса живёт только в памяти,
   // а разбирать проблемы на реальном материале без файла невозможно.
   const logFile = workspace.file('run.log');
@@ -203,6 +221,8 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRep
 
   const outcomes: StageOutcome[] = [];
   const warnings: string[] = [];
+  const knownMeta = await workspace.readMeta();
+  if (knownMeta) await confirmLongInput(knownMeta.duration_seconds);
   let segments: Segment[] = (await workspace.readSegments()) ?? [];
   let analysisAudio = workspace.file('audio.wav');
   let output: string | null = null;
@@ -248,6 +268,7 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRep
     switch (stage) {
       case 's1': {
         const result = await runS1(workspace, input);
+        await confirmLongInput(result.meta.duration_seconds);
         analysisAudio = result.analysisAudio;
         provider = 'ffmpeg';
         stageWarnings.push(...result.warnings);

@@ -140,7 +140,12 @@ const translateSchema = z.object({
 });
 
 const ttsSchema = z.object({
-  engine: z.enum(['piper', 'silero', 'edge-tts', 'kilo-gateway']).default('piper'),
+  /**
+   * `edge-tts` стоял здесь и реализован не был. Это неофициальный клиент сервиса
+   * Microsoft: его использование нарушает условия сервиса, а лимиты меняются без
+   * предупреждения — поэтому он и не появился. Синтез идёт локально.
+   */
+  engine: z.enum(['piper', 'silero', 'kilo-gateway']).default('piper'),
   model: z.string().nullable().default(null),
   default_voice: z.string().min(1).default('ru_RU-irina-medium'),
   /**

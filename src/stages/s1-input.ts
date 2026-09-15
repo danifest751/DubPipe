@@ -14,6 +14,15 @@ import { extractAnalysisAudio, extractOriginalAudio, probeMedia } from '../util/
  * Produces: source media (for URLs), audio.wav (mono 48k), original.wav, meta.json.
  */
 
+/**
+ * Вход, на котором стоит переспросить: обработка займёт часы, а перевод — денег.
+ *
+ * Порог один на всё: и предупреждение стадии, и вопрос в консоли считают
+ * «длинным» одно и то же. Два числа разошлись бы в первый же раз, когда одно
+ * из них поправят.
+ */
+export const LONG_INPUT_SECONDS = 3 * 3600;
+
 export interface S1Result {
   meta: Meta;
   sourcePath: string;
@@ -70,7 +79,7 @@ export async function runS1(workspace: Workspace, input: string): Promise<S1Resu
   if (!info.hasVideo) {
     warnings.push('Во входе нет видеопотока — итог будет сохранён как .m4a (ТЗ FR-7)');
   }
-  if (info.durationSeconds > 3 * 3600) {
+  if (info.durationSeconds > LONG_INPUT_SECONDS) {
     warnings.push(
       `Длительность ${(info.durationSeconds / 3600).toFixed(1)} ч — обработка займёт часы (ТЗ §8)`,
     );

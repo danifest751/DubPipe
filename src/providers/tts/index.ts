@@ -43,10 +43,6 @@ export function createTtsProvider(workspace: Workspace, config: DubConfig): TtsP
       return new PiperProvider(workspace, config);
     case 'silero':
       return new SileroProvider(workspace, config);
-    case 'edge-tts':
-      throw new StageError('s5', 'Движок edge-tts пока не реализован', {
-        hints: ['Используйте tts.engine: piper или silero — оба работают офлайн и без ключей'],
-      });
     case 'kilo-gateway':
       // Also rejected by config validation; kept so the reason survives.
       throw new StageError('s5', 'Синтез через Kilo Gateway непригоден для дубляжа (ТЗ §3.1.2)', {
