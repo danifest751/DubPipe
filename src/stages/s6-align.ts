@@ -188,6 +188,29 @@ export function shortenTargetChars(
   return Math.max(4, Math.round(speaking * charsPerSecond));
 }
 
+/**
+ * Ожидание с пределом: ни один шаг стадии не должен висеть молча.
+ *
+ * Сокращение реплик — единственное место укладки, где ходят наружу, и оно
+ * подвесило прогон целиком: за десять минут ни строки в журнале, процессорное
+ * время не росло, сокетов не было. Человек видел «ожидает» и не мог понять,
+ * работает программа или умерла. Предел превращает зависание в обычный отказ:
+ * реплика останется несокращённой, и стадия пойдёт дальше.
+ */
+async function withLimit<T>(work: Promise<T>, seconds: number, what: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${what} не ответило за ${seconds} с`)), seconds * 1000);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function shortenReplica(
   client: ChatClient,
   template: string,
@@ -247,7 +270,13 @@ export async function runS6(workspace: Workspace, baseConfig: DubConfig, segment
   if (needShorten.length > 0 && config.alignment.max_retranslate > 0) {
     log.step(`не укладываются в слот: ${needShorten.length} — сокращаю через модель`);
     const template = await readFile(path.join(packageRoot(), 'prompts', 'shorten.md'), 'utf8');
-    const selection = await selectChatClient(config);
+    // Строка о ходе — до первого запроса: иначе полоса стоит «ожидает», пока
+    // стадия уже работает, и непонятно, жива ли она.
+    log.progress(`сокращение реплик 0/${needShorten.length}`, null, { done: 0, total: needShorten.length }, {
+      key: 'work.shorten',
+      params: { done: 0, total: needShorten.length, iteration: 1 },
+    });
+    const selection = await withLimit(selectChatClient(config), 120, 'выбор модели');
     warnings.push(...selection.warnings);
     const tts = createTtsProvider(workspace, config);
     const byId = new Map(segments.map((segment) => [segment.id, segment]));
@@ -262,14 +291,16 @@ export async function runS6(workspace: Workspace, baseConfig: DubConfig, segment
         if (!segment?.text_ru) continue;
 
         const target = shortenTargetChars(item.slot, charsPerSecond, options.maxTempo, overheadSeconds);
-        const shortened = await shortenReplica(
-          selection.client,
-          template,
-          segment,
-          target,
-          profanityRule(config.translate.profanity),
-          item.slot,
-        );
+        let shortened: string | null = null;
+        try {
+          shortened = await withLimit(
+            shortenReplica(selection.client, template, segment, target, profanityRule(config.translate.profanity), item.slot),
+            180,
+            `сокращение реплики ${segment.id}`,
+          );
+        } catch (error) {
+          log.warn(`сокращение реплики ${segment.id} пропущено: ${(error as Error).message}`);
+        }
         if (!shortened) continue;
         cancellation.throwIfCancelled();
 
