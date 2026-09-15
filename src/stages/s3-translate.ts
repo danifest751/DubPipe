@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { packageRoot } from '../config/load.js';
 import type { DubConfig } from '../config/schema.js';
@@ -412,11 +412,28 @@ export interface TranslationRun {
   usage: RunUsage;
   elapsedMs: number;
   warnings: StageWarning[];
+  /** Сколько реплик взято из прерванного прогона, а не переведено заново. */
+  reused: number;
 }
 
 export interface TranslateOptions {
-  /** Called after each batch, e.g. to persist partial progress. */
-  onBatch?: (done: number, total: number, segments: Segment[]) => Promise<void> | void;
+  /**
+   * После каждого пакета: сколько сделано, всего, реплики и номера тех, чей
+   * перевод сделан **этим** прогоном или взят из прерванного. Именно их можно
+   * записывать как готовые: реплики с переводом от прошлых настроек в этот
+   * список не попадают, иначе перезапуск объявил бы годным чужое.
+   */
+  onBatch?: (done: number, total: number, segments: Segment[], settled: number[]) => Promise<void> | void;
+  /**
+   * Номера реплик, чей перевод уже сделан этими же настройками и годен.
+   *
+   * Пакет, целиком состоящий из таких реплик, не переводится заново. Без этого
+   * оборванный прогон начинал всё сначала: на восьмом эпизоде стадию прервали на
+   * 47-м пакете из 65, и перезапуск оплатил бы 134 уже переведённые реплики
+   * вторично. Годность решает вызывающий: он знает, менялись ли настройки, от
+   * которых перевод зависит.
+   */
+  reusable?: ReadonlySet<number>;
 }
 
 async function loadPromptTemplate(name: string): Promise<string> {
@@ -685,6 +702,7 @@ export async function translateSegments(
       usage,
       elapsedMs: 0,
       warnings: ['Нет реплик для перевода'],
+      reused: 0,
     };
   }
 
@@ -695,8 +713,17 @@ export async function translateSegments(
   const batches = planBatches(segments, config.translate.batch_size);
   const glossary: Record<string, string> = {};
 
+  let reused = 0;
+  const settled = new Set<number>(options.reusable ?? []);
   for (const [index, batch] of batches.entries()) {
     cancellation.throwIfCancelled();
+    // Пакет, где всё уже переведено при тех же настройках, пропускается целиком:
+    // дробить его смысла нет, контекст соседям он и так даёт.
+    if (batch.every((segment) => options.reusable?.has(segment.id) && segment.text_ru !== null)) {
+      reused += batch.length;
+      await options.onBatch?.(index + 1, batches.length, segments, [...settled]);
+      continue;
+    }
     const firstId = batch[0]!.id;
     const contextSegments = segments
       .filter((segment) => segment.id < firstId && segment.text_ru !== null)
@@ -741,7 +768,8 @@ export async function translateSegments(
         ),
       );
       for (const segment of batch) markUntranslated(segment, warnings);
-      await options.onBatch?.(index + 1, batches.length, segments);
+      // Непереведённый пакет готовым не считается: перезапуск возьмётся за него.
+      await options.onBatch?.(index + 1, batches.length, segments, [...settled]);
       continue;
     }
 
@@ -751,12 +779,13 @@ export async function translateSegments(
       const translated = payload.items.get(segment.id);
       if (translated) {
         segment.text_ru = translated;
+        settled.add(segment.id);
       } else {
         markUntranslated(segment, warnings);
       }
     }
 
-    await options.onBatch?.(index + 1, batches.length, segments);
+    await options.onBatch?.(index + 1, batches.length, segments, [...settled]);
   }
 
   // Ни один пакет не поддался — дальше идти незачем: озвучивать нечего.
@@ -792,6 +821,7 @@ export async function translateSegments(
     usage,
     elapsedMs: Date.now() - started,
     warnings,
+    reused,
   };
 }
 
@@ -1018,7 +1048,28 @@ export async function reviewTranslation(
   return outcome.segments;
 }
 
-export async function runS3(workspace: Workspace, baseConfig: DubConfig, segments: Segment[]): Promise<S3Result> {
+/**
+ * Что уже переведено и при каких настройках.
+ *
+ * Перевод — единственная дорогая стадия, и обрыв на середине стоил всей суммы
+ * заново: реплики она пишет после каждого пакета, но при перезапуске начинала
+ * с первого. Отпечаток стадии здесь затем, чтобы починка не превратилась в
+ * другую беду: сменили модель или правило длины — отпечаток другой, и перевод
+ * честно делается заново.
+ */
+interface TranslateProgress {
+  fingerprint: string;
+  ids: number[];
+}
+
+const PROGRESS_FILE = 'translate-progress.json';
+
+export async function runS3(
+  workspace: Workspace,
+  baseConfig: DubConfig,
+  segments: Segment[],
+  fingerprint?: string,
+): Promise<S3Result> {
   const selection = await selectChatClient(baseConfig);
   const client = selection.client;
   log.step(`перевод через ${client.name}, модель ${client.model}`);
@@ -1042,10 +1093,17 @@ export async function runS3(workspace: Workspace, baseConfig: DubConfig, segment
     },
   };
 
+  const progressPath = workspace.file(PROGRESS_FILE);
+  const saved = fingerprint ? await workspace.readJson<TranslateProgress>(progressPath) : null;
+  const reusable = new Set(saved && saved.fingerprint === fingerprint ? saved.ids : []);
+  if (reusable.size > 0) log.step(`прерванный прогон: готово ${reusable.size} реплик, продолжаю с них`);
+
   const run = await translateSegments(client, config, segments, {
+    reusable,
     // Persist after every batch so a crash never loses completed work (SPEC §7).
-    onBatch: async (done, total, partial) => {
+    onBatch: async (done, total, partial, settled) => {
       await workspace.writeSegments(partial);
+      if (fingerprint) await workspace.writeJson(progressPath, { fingerprint, ids: settled } satisfies TranslateProgress);
       log.step(`пакет ${counter(done, total)} переведён`);
       log.progress(`переведено пакетов ${counter(done, total)}`, null, { done, total }, { key: 'work.translate', params: { done, total } });
     },
@@ -1083,6 +1141,7 @@ export async function runS3(workspace: Workspace, baseConfig: DubConfig, segment
   }
 
   const { stats } = run;
+  if (run.reused > 0) log.step(`взято из прерванного прогона: ${run.reused} реплик`);
   log.step(
     `в допуске длины ±${Math.round(config.translate.length_tolerance * 100)}%: ` +
       `${stats.withinTolerance}/${stats.total} (${(stats.share * 100).toFixed(1)}%)`,
@@ -1131,6 +1190,8 @@ export async function runS3(workspace: Workspace, baseConfig: DubConfig, segment
 
   await workspace.writeSegments(run.segments);
   await workspace.writeJson(workspace.file('glossary.json'), run.glossary);
+  // Стадия дошла до конца — продолжать больше нечего.
+  await rm(progressPath, { force: true });
 
   /*
    * Пол говорящих по тексту — здесь, потому что раньше текста не было.

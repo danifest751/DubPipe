@@ -318,7 +318,7 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRep
         // Re-read from disk: segments.json may have been edited by hand between
         // stages, which is a supported workflow (SPEC §6).
         const current = (await workspace.readSegments()) ?? segments;
-        const result = await runS3(workspace, config, current);
+        const result = await runS3(workspace, config, current, fingerprint);
         segments = result.segments;
         provider = result.provider;
         stageWarnings.push(...result.warnings);
