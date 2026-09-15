@@ -2,6 +2,7 @@
 import { mkdir, readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { DownloadError } from '../core/errors.js';
+import { isCancelled } from '../core/cancel.js';
 import { log } from '../core/logger.js';
 import { progress } from '../core/progress.js';
 import { run } from './exec.js';
@@ -96,6 +97,13 @@ export interface DownloadOptions {
   videoId?: string;
   /** Метка для шины прогресса, обычно название ролика. */
   label?: string;
+  /**
+   * Остановка загрузки.
+   *
+   * Свой сигнал, а не общий прогонный: конвейер и загрузка живут независимо —
+   * остановка дубляжа не должна обрывать скачивание, поставленное заранее.
+   */
+  signal?: AbortSignal;
 }
 
 /** Состояние разбора между строками: дорожки идут по очереди, байты копятся. */
@@ -364,22 +372,40 @@ async function listFiles(dir: string): Promise<Map<string, number>> {
 }
 
 /**
- * Уборка после отмены.
+ * Уборка после неудачной загрузки.
  *
- * Windows-замер это и показал: после убийства процесса остаются не только
- * `*.part`, но и промежуточные дорожки `video.f396.mp4` / `audio.f251.webm`, а
- * `*.part` ещё и держится процессом — повтор с докачкой падает на переименовании
- * с `WinError 32`. Поэтому отмена убирает всё, что появилось за время загрузки,
- * и следующий запуск начинает с чистого листа.
+ * Windows-замер показал, что после убийства процесса остаётся не только `*.part`,
+ * но и промежуточные дорожки (`video.f396.mp4`, `audio.f251.webm`), а `*.part`
+ * ещё и держится процессом — повтор с докачкой падает на переименовании с
+ * `WinError 32`.
+ *
+ * Удаляется всё, что появилось за время загрузки, включая файл с конечным именем.
+ * Это не перестраховка: если отмена пришлась на сведение дорожек, yt-dlp успевает
+ * создать итоговый файл и не успевает его дозаписать, а имя у него уже настоящее —
+ * и следующий запуск находит его по id и считает загрузку готовой. Порченый файл
+ * в папке хуже, чем повторные тридцать мегабайт.
+ *
+ * Удаление повторяется: Windows отпускает дескрипторы не мгновенно.
  */
 export async function removePartialArtifacts(dir: string, before: Map<string, number>): Promise<void> {
   const after = await listFiles(dir);
-  for (const [name, size] of after) {
-    const appeared = !before.has(name) || before.get(name) !== size;
-    if (!appeared) continue;
-    if (!looksPartial(name)) continue;
-    await rm(path.join(dir, name), { force: true }).catch(() => undefined);
+  const appeared = [...after.entries()].filter(
+    ([name, size]) => !before.has(name) || before.get(name) !== size,
+  );
+  if (appeared.length === 0) return;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let left = 0;
+    for (const [name] of appeared) {
+      const file = path.join(dir, name);
+      if (!existsSync(file)) continue;
+      await rm(file, { force: true }).catch(() => undefined);
+      if (existsSync(file)) left++;
+    }
+    if (left === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 300));
   }
+  log.debug(`не всё удалось удалить после отмены: ${appeared.map(([name]) => name).join(', ')}`);
 }
 
 /** Итоговые файлы: появившиеся за время загрузки плюс уже лежавший ролик. */
@@ -486,6 +512,7 @@ export async function downloadYt(
   try {
     await run(ytDlp, buildYtArgs(ffmpegDir, url, options, template), {
       timeoutMs: options.timeoutMs ?? 6 * 3_600_000,
+      ...(options.signal ? { signal: options.signal } : {}),
       onStdout: (chunk) => {
         for (const raw of chunk.split(/\r?\n/)) {
           const line = raw.trim();
@@ -527,6 +554,13 @@ export async function downloadYt(
   } catch (error) {
     await removePartialArtifacts(targetDir, before);
     progress.emit({ id: progressId, kind: 'download', label, status: 'error', percent: null });
+    /*
+     * Остановка — не ошибка загрузчика: `run` убивает процесс и отклоняет
+     * обещание тем же `CancelledError`, что и конвейер. Переводить его в
+     * «yt-dlp не смог скачать» нельзя — интерфейс по этому признаку отличает
+     * «отменено пользователем» от «сломалось», и подсказки тут не помогут.
+     */
+    if (isCancelled(error)) throw error;
     if (error instanceof Error && !(error instanceof DownloadError)) {
       throw classifyYtError((error as { stderr?: string }).stderr ?? error.message);
     }

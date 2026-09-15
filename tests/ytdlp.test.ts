@@ -288,19 +288,22 @@ describe('FR-1: что осталось в папке', () => {
     expect(await collectDownloadResults(dir, before, 'abc')).toEqual([]);
   });
 
-  it('убирает огрызки после отмены и не трогает чужое', async () => {
+  it('убирает всё появившееся после отмены и не трогает чужое', async () => {
     const dir = await makeDir();
     await writeFile(path.join(dir, 'чужой фильм.mp4'), 'other');
     const before = await snapshotDir(dir);
 
     await writeFile(path.join(dir, 'видео.f396.mp4.part'), 'part');
     await writeFile(path.join(dir, 'видео.f251.webm'), 'track');
-    await writeFile(path.join(dir, 'видео [abc].mp4'), 'done');
+    // Файл с конечным именем тоже уходит: отмена могла прийтись на сведение
+    // дорожек, и тогда он уже создан, но ещё не дописан — а имя у него настоящее,
+    // и следующий запуск счёл бы загрузку готовой.
+    await writeFile(path.join(dir, 'видео [abc].mp4'), 'half-written');
 
     await removePartialArtifacts(dir, before);
 
     const left = [...(await snapshotDir(dir)).keys()].sort();
-    expect(left).toEqual(['видео [abc].mp4', 'чужой фильм.mp4']);
+    expect(left).toEqual(['чужой фильм.mp4']);
   });
 });
 
