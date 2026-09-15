@@ -1097,9 +1097,15 @@ function speakerCell(segment) {
   const voices = (state.voices ?? [])
     .map((item) => `<option value="${escapeAttr(item.name)}" ${item.name === voice ? 'selected' : ''}>${escapeHtml(item.speaker ?? item.name)}</option>`)
     .join('');
+  // S2 пометила реплику, чей собственный тон спорит с говорящим: диаризация
+  // могла отдать короткую фразу соседу по сцене. Подсказка стоит у того самого
+  // поля, которым это исправляют, а не в общем столбце флагов.
+  const doubt = (segment.flags ?? []).includes('speaker_doubt');
   return (
     `<div class="speaker-row">${genderMark(segment.speaker)}` +
-    `<select data-speaker-pick="${index}">${options}<option value="__new">${t('review.newSpeaker')}</option></select></div>` +
+    `<select class="${doubt ? 'doubt' : ''}" data-speaker-pick="${index}"` +
+    `${doubt ? ` title="${escapeAttr(t('segments.speakerDoubt'))}"` : ''}>` +
+    `${options}<option value="__new">${t('review.newSpeaker')}</option></select></div>` +
     `<select class="voice-pick" data-voice-pick="${escapeAttr(segment.speaker)}" title="${escapeAttr(t('segments.voicePick'))}">${voices}</select>`
   );
 }

@@ -21,7 +21,13 @@ export type SegmentFlag =
   | 'profanity'
   | 'truncated'
   | 'no_speech'
-  | 'force_split';
+  | 'force_split'
+  /**
+   * Тон самой реплики спорит с полом её говорящего: скорее всего, диаризация
+   * отдала короткую фразу соседу по сцене. Машина здесь не вправе решать за
+   * человека — она лишь показывает, какую строку стоит переслушать.
+   */
+  | 'speaker_doubt';
 
 export interface WordTiming {
   word: string;

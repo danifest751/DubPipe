@@ -13,7 +13,7 @@ import {
   probeDiarization,
   speakerNames,
 } from '../providers/diarization/pyannote.js';
-import { profileSpeakers, type SpeechInterval } from '../providers/diarization/gender.js';
+import { disputedSpans, profileSpeech, type SpeechInterval } from '../providers/diarization/gender.js';
 import { message } from '../core/i18n.js';
 import { detectSpeech, snapToSpeech, type SpeechRegion } from '../providers/vad/silero.js';
 import { toSrt } from '../util/srt.js';
@@ -144,13 +144,34 @@ export async function runS2(workspace: Workspace, config: DubConfig, audioPath: 
     try {
       const intervals = speechBySpeaker ?? segments.map((segment) => ({ start: segment.start, end: segment.end, speaker: segment.speaker }));
       const analysis = workspace.file('audio16k.wav');
-      const profiles = await profileSpeakers(existsSync(analysis) ? analysis : audioPath, intervals);
+      const { speakers: profiles, samples, secondsPerFrame } = await profileSpeech(existsSync(analysis) ? analysis : audioPath, intervals);
       await workspace.writeSpeakers(Object.fromEntries(profiles));
       const summary = [...profiles]
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([speaker, profile]) => `${speaker} ${profile.gender}${profile.f0 ? ` (${profile.f0} Гц)` : ''}`)
         .join(', ');
       log.step(`пол голосов: ${summary}`);
+
+      // Те же кадры отвечают и на второй вопрос: не спорит ли отдельная реплика
+      // со своим говорящим. Второго прохода по звуку это не стоит.
+      const disputed = disputedSpans(segments, profiles, samples, secondsPerFrame);
+      if (disputed.size > 0) {
+        const named: string[] = [];
+        for (const segment of segments) {
+          const line = disputed.get(segment.id);
+          if (!line) continue;
+          if (!segment.flags.includes('speaker_doubt')) segment.flags.push('speaker_doubt');
+          named.push(`${segment.id} (${line.f0} Гц при ${profiles.get(segment.speaker)?.f0} Гц у ${segment.speaker})`);
+        }
+        const lines = named.join(', ');
+        warnings.push(
+          warn(
+            'warn.s2.speakerDoubt',
+            `Тон спорит с говорящим у реплик: ${lines}. Диаризация могла отдать их соседу по сцене — переслушайте`,
+            { lines, count: disputed.size },
+          ),
+        );
+      }
     } catch (error) {
       warnings.push(`Пол голосов не определён (${(error as Error).message}): голоса по полу назначаться не будут`);
     }

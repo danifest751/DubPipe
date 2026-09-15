@@ -204,6 +204,10 @@ const DICTIONARY = {
   'segments.voicePick': { ru: 'Голос этого персонажа', en: 'Voice for this character' },
   'segments.revoiceConfirm': { ru: 'Голоса изменены. Переозвучить затронутые реплики ({count}) и пересвести файл?', en: 'Voices changed. Re-voice the affected replicas ({count}) and re-mix the file?' },
   'segments.savedNoRun': { ru: 'Правки сохранены. Переозвучить можно позже — кнопкой «Внести правки и пересвести»', en: 'Edits saved. You can re-voice later with “Apply edits and re-mix”' },
+  'segments.speakerDoubt': {
+    ru: 'Тон этой реплики спорит с её говорящим — возможно, диаризация отдала её соседу по сцене. Переслушайте и поправьте здесь же',
+    en: 'This line’s pitch argues with its speaker — diarization may have handed it to the wrong person. Listen again and fix it here',
+  },
   'segments.character': { ru: 'Персонаж', en: 'Character' },
   'cast.title': { ru: 'Голоса и персонажи', en: 'Voices and characters' },
   'cast.lead': { ru: 'Послушайте реплику и подпишите, кто это. Имя появится во всех строках этого героя.', en: 'Listen to a line and name who it is. The name shows up in every row of that character.' },
@@ -397,6 +401,10 @@ const DICTIONARY = {
   'warn.s2.gender': {
     ru: 'Пол голосов не определён ({reason}): голоса по полу назначаться не будут',
     en: 'Speaker gender undetermined ({reason}): voices will not be handed out by gender',
+  },
+  'warn.s2.speakerDoubt': {
+    ru: 'Тон спорит с говорящим у реплик: {lines}. Диаризация могла отдать их соседу по сцене — переслушайте',
+    en: 'The pitch argues with the assigned speaker on: {lines}. Diarization may have handed these lines to the wrong person — listen again',
   },
   'warn.s3.untranslatedKept': {
     ru: 'Реплика {id} не переведена — оставлен оригинал',

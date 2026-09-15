@@ -2,11 +2,17 @@ import { describe, it, expect } from 'vitest';
 import {
   foldOctaves,
   classifyGender,
+  disputedSpans,
+  disputesSpeaker,
   highPass,
   profileFromPitches,
+  profileSpan,
   stablePitches,
+  stablePitchRuns,
   yinPitch,
   MIN_VOICED_FLOOR_SECONDS,
+  type PitchSamples,
+  type SpeakerProfile,
 } from '../src/providers/diarization/gender.js';
 const SR = 16_000;
 const tone = (hz: number, seconds = 0.064, harmonics = 3): Float32Array => {
@@ -117,5 +123,69 @@ describe('FR-5: сколько материала нужно для вердик
   });
   it('несколько случайных кадров не считаются замером вовсе', () => {
     expect(classifyGender(93, 0.4, 88)).toBe('—');
+  });
+});
+
+describe('спорные реплики: тон против говорящего', () => {
+  const SECONDS_PER_FRAME = 0.02;
+  /** Кадры одного говорящего: ровный тон на отрезке времени. */
+  const frames = (from: number, to: number, hz: number): PitchSamples => {
+    const times: number[] = [];
+    const pitches: number[] = [];
+    for (let time = from; time < to; time += SECONDS_PER_FRAME) {
+      times.push(Number(time.toFixed(3)));
+      pitches.push(hz);
+    }
+    return { times, pitches };
+  };
+  const merge = (...parts: PitchSamples[]): PitchSamples => ({
+    times: parts.flatMap((part) => part.times),
+    pitches: parts.flatMap((part) => part.pitches),
+  });
+  const male: SpeakerProfile = { gender: 'м', f0: 110, voicedSeconds: 8, p25: 104, p75: 120 };
+  const female: SpeakerProfile = { gender: 'ж', f0: 200, voicedSeconds: 8, p25: 190, p75: 230 };
+
+  it('реплика меряется своими кадрами, а не всей речью говорящего', () => {
+    const samples = merge(frames(0, 4, 110), frames(4, 6, 200));
+    expect(profileSpan({ id: 1, start: 0, end: 4, speaker: 'speaker_0' }, samples, SECONDS_PER_FRAME).f0).toBe(110);
+    expect(profileSpan({ id: 2, start: 4, end: 6, speaker: 'speaker_0' }, samples, SECONDS_PER_FRAME).f0).toBe(200);
+  });
+
+  it('женский тон у мужского говорящего — спор', () => {
+    const line = profileFromPitches(Array(50).fill(200), SECONDS_PER_FRAME);
+    expect(disputesSpeaker(line, male)).toBe(true);
+    expect(disputesSpeaker(line, female)).toBe(false);
+  });
+
+  it('пары кадров на спор не хватает: это ещё не замер', () => {
+    // Двадцать кадров — 0.4 с, ниже абсолютного низа: столько даёт и случайный шум.
+    expect(disputesSpeaker(profileFromPitches(Array(20).fill(200), SECONDS_PER_FRAME), male)).toBe(false);
+  });
+
+  it('говорящий без определённого пола ни с кем не спорит', () => {
+    const unknown: SpeakerProfile = { gender: '—', f0: 165, voicedSeconds: 8, p25: 160, p75: 170 };
+    expect(disputesSpeaker(profileFromPitches(Array(50).fill(200), SECONDS_PER_FRAME), unknown)).toBe(false);
+  });
+
+  it('ошибка диаризации находится: короткая фраза отдана соседу по сцене', () => {
+    // speaker_0 — мужчина, и одна короткая фраза в его ходах звучит на 200 Гц.
+    const samples = new Map([['speaker_0', merge(frames(0, 4, 110), frames(4, 5, 200), frames(5, 9, 110))]]);
+    const speakers = new Map([['speaker_0', male]]);
+    const spans = [
+      { id: 0, start: 0, end: 4, speaker: 'speaker_0' },
+      { id: 1, start: 4, end: 5, speaker: 'speaker_0' },
+      { id: 2, start: 5, end: 9, speaker: 'speaker_0' },
+    ];
+    const disputed = disputedSpans(spans, speakers, samples, SECONDS_PER_FRAME);
+    expect([...disputed.keys()]).toEqual([1]);
+    expect(disputed.get(1)?.f0).toBe(200);
+  });
+
+  it('кадры хранят номер, иначе замер не привязать ко времени', () => {
+    expect(stablePitchRuns([null, 110, 112, 111, null])).toEqual([
+      { index: 1, hz: 110 },
+      { index: 2, hz: 112 },
+      { index: 3, hz: 111 },
+    ]);
   });
 });

@@ -30,6 +30,19 @@ export interface SpeechInterval {
   speaker: string;
 }
 
+/** Замер тона на одном кадре анализа: номер кадра внутри интервала и сама высота. */
+export interface PitchFrame {
+  index: number;
+  hz: number;
+}
+
+/** Все замеры одного говорящего с привязкой ко времени записи, кадр к кадру. */
+export interface PitchSamples {
+  /** Середина кадра в секундах от начала файла. */
+  times: number[];
+  pitches: number[];
+}
+
 export const MALE_MAX_HZ = 155;
 export const FEMALE_MIN_HZ = 175;
 /**
@@ -84,24 +97,29 @@ export function highPass(frame: Float32Array, sampleRate: number, cutoffHz = 80)
  * с отклонением между соседями не больше MAX_JUMP. Одиночные «попадания» на шуме
  * и октавные срывы на один кадр отбрасываются.
  */
-export function stablePitches(sequence: Array<number | null>): number[] {
-  const kept: number[] = [];
-  let run: number[] = [];
+export function stablePitchRuns(sequence: Array<number | null>): PitchFrame[] {
+  const kept: PitchFrame[] = [];
+  let run: PitchFrame[] = [];
   const flush = () => {
     if (run.length >= MIN_RUN) kept.push(...run);
     run = [];
   };
-  for (const pitch of sequence) {
+  for (const [index, pitch] of sequence.entries()) {
     const last = run[run.length - 1];
-    if (pitch === null || (last !== undefined && Math.abs(pitch - last) / last > MAX_JUMP)) {
+    if (pitch === null || (last !== undefined && Math.abs(pitch - last.hz) / last.hz > MAX_JUMP)) {
       flush();
-      if (pitch !== null) run = [pitch];
+      if (pitch !== null) run = [{ index, hz: pitch }];
       continue;
     }
-    run.push(pitch);
+    run.push({ index, hz: pitch });
   }
   flush();
   return kept;
+}
+
+/** Номер кадра нужен только тому, кто спрашивает про отдельную реплику. */
+export function stablePitches(sequence: Array<number | null>): number[] {
+  return stablePitchRuns(sequence).map((frame) => frame.hz);
 }
 
 /** Основной тон кадра по YIN; null — кадр незвонкий. */
@@ -188,10 +206,17 @@ export const CLEAR_FEMALE_HZ = 260;
 /** Абсолютный низ: меньше — это уже не замер, а несколько случайных кадров. */
 export const MIN_VOICED_FLOOR_SECONDS = 0.6;
 
-export function classifyGender(f0: number | null, voicedSeconds: number, p25: number | null = f0): VoiceGender {
+export function classifyGender(
+  f0: number | null,
+  voicedSeconds: number,
+  p25: number | null = f0,
+  // Сколько нужно материала, чтобы отвечать и про голоса у границы. Послабление
+  // берут только там, где цена ошибки — вопрос человеку, а не выбор голоса.
+  confidentSeconds: number = MIN_VOICED_SECONDS,
+): VoiceGender {
   if (f0 === null || p25 === null || voicedSeconds < MIN_VOICED_FLOOR_SECONDS) return '—';
   // Материала меньше нормы — отвечаем, только если ответ не у границы.
-  if (voicedSeconds < MIN_VOICED_SECONDS && f0 >= CLEAR_MALE_HZ && f0 <= CLEAR_FEMALE_HZ) return '—';
+  if (voicedSeconds < confidentSeconds && f0 >= CLEAR_MALE_HZ && f0 <= CLEAR_FEMALE_HZ) return '—';
   if (p25 < MALE_QUARTILE_MAX_HZ && f0 < FEMALE_MIN_HZ + 100) return 'м';
   if (p25 >= FEMALE_QUARTILE_MIN_HZ && f0 > FEMALE_MIN_HZ) return 'ж';
   return '—';
@@ -279,11 +304,88 @@ export function profileFromPitches(pitches: number[], secondsPerFrame: number): 
 }
 
 /**
+ * Сколько звонкой речи нужно, чтобы усомниться в говорящем.
+ *
+ * Меньше, чем требуется для выбора голоса (MIN_VOICED_SECONDS): там ошибка
+ * означает мужской голос у героини на весь фильм, здесь — строчку «проверьте
+ * реплику 35». Цена разная, значит и порог разный. Ниже абсолютного низа не
+ * опускаемся: полсекунды — это уже не замер.
+ */
+export const DISPUTE_MIN_VOICED_SECONDS = MIN_VOICED_FLOOR_SECONDS;
+
+export interface SegmentSpan {
+  id: number;
+  start: number;
+  end: number;
+  speaker: string;
+}
+
+/**
+ * Профиль одной реплики — по её собственным кадрам, взятым из общего замера.
+ *
+ * Октавы сворачиваются по самой реплике, а не по говорящему: свернуть их к его
+ * сгустку означало бы стереть ровно то, что ищем. Женский голос на 197 Гц стоит
+ * от мужского центра в 110 Гц почти на ровную октаву, и сворачивание опустило бы
+ * его к 98 Гц — спор исчез бы вместе с поводом для него.
+ */
+export function profileSpan(span: SegmentSpan, samples: PitchSamples | undefined, secondsPerFrame: number): SpeakerProfile {
+  const own: number[] = [];
+  for (let i = 0; i < (samples?.times.length ?? 0); i++) {
+    const time = samples!.times[i]!;
+    if (time >= span.start && time <= span.end) own.push(samples!.pitches[i]!);
+  }
+  return profileFromPitches(own, secondsPerFrame);
+}
+
+/** Спорит ли реплика со своим говорящим: оба пола определены и они разные. */
+export function disputesSpeaker(line: SpeakerProfile, speaker: SpeakerProfile): boolean {
+  if (speaker.gender === '—') return false;
+  const own = classifyGender(line.f0, line.voicedSeconds, line.p25 ?? line.f0, DISPUTE_MIN_VOICED_SECONDS);
+  return own !== '—' && own !== speaker.gender;
+}
+
+/**
+ * Реплики, чей собственный тон спорит с приписанным им говорящим.
+ *
+ * Диаризация ошибается на коротких фразах: реплика достаётся соседу по сцене.
+ * Машинно исправить это нельзя — правильный ответ знает только слушающий, — но
+ * показать спорные строки человеку дёшево, а найти их иначе он может лишь
+ * прослушав весь фильм.
+ */
+export function disputedSpans(
+  spans: SegmentSpan[],
+  speakers: Map<string, SpeakerProfile>,
+  samples: Map<string, PitchSamples>,
+  secondsPerFrame: number,
+): Map<number, SpeakerProfile> {
+  const disputed = new Map<number, SpeakerProfile>();
+  for (const span of spans) {
+    const speaker = speakers.get(span.speaker);
+    if (!speaker) continue;
+    const line = profileSpan(span, samples.get(span.speaker), secondsPerFrame);
+    if (disputesSpeaker(line, speaker)) disputed.set(span.id, line);
+  }
+  return disputed;
+}
+
+/** Замеры всей записи: профили говорящих и те же кадры с временем каждого. */
+export interface SpeechProfiles {
+  speakers: Map<string, SpeakerProfile>;
+  samples: Map<string, PitchSamples>;
+  secondsPerFrame: number;
+}
+
+/**
  * Профили спикеров по интервалам их речи в WAV (16 бит, любой канал берётся
  * первым). Файл читается кусками только внутри интервалов — целиком в память
  * двухчасовой фильм не влезает.
  */
 export async function profileSpeakers(audioPath: string, intervals: SpeechInterval[]): Promise<Map<string, SpeakerProfile>> {
+  return (await profileSpeech(audioPath, intervals)).speakers;
+}
+
+/** То же самое, но с сохранением кадров: по ним спрашивают про отдельную реплику. */
+export async function profileSpeech(audioPath: string, intervals: SpeechInterval[]): Promise<SpeechProfiles> {
   // Заголовок читает общая утилита: раньше здесь жил второй разбор RIFF,
   // отличавшийся от неё поведением на файлах с крупными метаданными.
   const layout = await readWavFormat(audioPath);
@@ -294,7 +396,7 @@ export async function profileSpeakers(audioPath: string, intervals: SpeechInterv
   try {
     const bytesPerFrame = 2 * layout.channels;
     const totalSamples = Math.floor(layout.dataLength / bytesPerFrame);
-    const pitches = new Map<string, number[]>();
+    const bySpeaker = new Map<string, PitchSamples>();
 
     for (const interval of intervals) {
       const startSample = Math.max(0, Math.floor(interval.start * layout.sampleRate));
@@ -311,16 +413,21 @@ export async function profileSpeakers(audioPath: string, intervals: SpeechInterv
       for (let offset = 0; offset + FRAME <= filtered.length; offset += HOP) {
         sequence.push(yinPitch(filtered.subarray(offset, offset + FRAME), layout.sampleRate));
       }
-      const list = pitches.get(interval.speaker) ?? [];
-      list.push(...stablePitches(sequence));
-      pitches.set(interval.speaker, list);
+      const store = bySpeaker.get(interval.speaker) ?? { times: [], pitches: [] };
+      for (const frame of stablePitchRuns(sequence)) {
+        // Время середины кадра: по нему замер попадает в свою реплику.
+        store.times.push((startSample + frame.index * HOP + FRAME / 2) / layout.sampleRate);
+        store.pitches.push(frame.hz);
+      }
+      bySpeaker.set(interval.speaker, store);
     }
 
+    const secondsPerFrame = HOP / layout.sampleRate;
     const profiles = new Map<string, SpeakerProfile>();
     for (const speaker of new Set(intervals.map((interval) => interval.speaker))) {
-      profiles.set(speaker, profileFromPitches(pitches.get(speaker) ?? [], HOP / layout.sampleRate));
+      profiles.set(speaker, profileFromPitches(bySpeaker.get(speaker)?.pitches ?? [], secondsPerFrame));
     }
-    return profiles;
+    return { speakers: profiles, samples: bySpeaker, secondsPerFrame };
   } finally {
     await handle.close();
   }
