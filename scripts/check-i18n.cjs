@@ -77,6 +77,38 @@ async function main() {
   await run(`(() => { const b = [...document.querySelectorAll('#nav button')].find((n) => n.textContent.trim() === 'Settings'); if (b) b.click(); })()`);
   await sleep(400);
 
+  /*
+   * Кириллица внутри кавычек-ёлочек — это пример русского текста в английской
+   * подписи («Лиза.» превращается в «Лиза, Лиза»), а не забытый перевод.
+   * Такие вставки из проверки убираются: иначе честная подпись выглядит
+   * ошибкой, и проверку начинают игнорировать.
+   */
+  await run(`(() => {
+    window.__dubCyr = (root) => {
+    const out = [];
+    const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      const text = n.textContent.trim();
+      if (!text) continue;
+      let bare = '';
+      let quoted = false;
+      for (const ch of text) {
+        if (ch === String.fromCharCode(171)) { quoted = true; continue; }
+        if (ch === String.fromCharCode(187)) { quoted = false; continue; }
+        if (!quoted) bare += ch;
+      }
+      let hasCyrillic = false;
+      for (const ch of bare) { const c = ch.charCodeAt(0); if (c >= 0x400 && c <= 0x4ff) { hasCyrillic = true; break; } }
+      if (!hasCyrillic) continue;
+      const el = n.parentElement;
+      if (!el || el.offsetParent === null) continue;
+      out.push(text.slice(0, 80));
+    }
+    return out;
+    };
+    return true;
+  })()`);
+
   const cyrillic = [];
   const groups = await run(`[...document.querySelectorAll('#settingsNav button[data-group]')].map((b) => b.dataset.group)`);
   for (const group of [...new Set(groups)].filter((g) => g !== 'yaml')) {
@@ -85,25 +117,44 @@ async function main() {
         `.find((n) => n.dataset.group === ${JSON.stringify(group)}); if (b) b.click(); return Boolean(b); })()`,
     );
     await sleep(250);
-    const found = await run(`(() => {
-      const out = [];
-      const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-      for (let n = walk.nextNode(); n; n = walk.nextNode()) {
-        const text = n.textContent.trim();
-        if (!text) continue;
-        let hasCyrillic = false;
-        for (const ch of text) { const c = ch.charCodeAt(0); if (c >= 0x400 && c <= 0x4ff) { hasCyrillic = true; break; } }
-        if (!hasCyrillic) continue;
-        const el = n.parentElement;
-        if (!el || el.offsetParent === null) continue;
-        out.push(text.slice(0, 80));
-      }
-      return out;
-    })()`);
+    const found = await run(`window.__dubCyr(document.body)`);
     for (const text of found) if (!cyrillic.includes(text)) cyrillic.push(text);
   }
 
-  console.log(JSON.stringify({ ru, en, afterReload, leftovers, cyrillic }, null, 1));
+  /*
+   * Тот же обход, но по остальным экранам, а не только по настройкам.
+   *
+   * Проверка настроек ловила зашитый русский лишь там, и «Окружение» со
+   * «Сравнением моделей» оставались русскими на английском интерфейсе, пока
+   * здесь печаталось «ПРОВЕРКА ПРОЙДЕНА»: ключи в словаре были, а разметка
+   * звала строки напрямую. Обходим видимые корни каждого экрана.
+   *
+   * Исключения не случайны: в группе YAML настроек показан config.yaml
+   * пользователя с его комментариями, а таблицы реплик и голосов несут данные
+   * прогона — имена персонажей и примечания голосов приходят с сервера как есть.
+   */
+  const screens = [
+    { open: '#subtabs button[data-sub="compare"]', root: 'div[data-subview="compare"]' },
+    { open: '#nav button[data-view="environment"]', root: 'section[data-view="environment"]' },
+  ];
+  const broken = [];
+  for (const screen of screens) {
+    await run(
+      `(() => { const b = document.querySelector(${JSON.stringify(screen.open)}); if (b) b.click(); return Boolean(b); })()`,
+    );
+    await sleep(300);
+    const found = await run(`(() => {
+      const root = document.querySelector(${JSON.stringify(screen.root)});
+      if (!root) return ['MISSING ' + ${JSON.stringify(screen.root)}];
+      return window.__dubCyr(root);
+    })()`);
+    for (const text of found) {
+      if (text.startsWith('MISSING ')) broken.push(text);
+      else if (!cyrillic.includes(text)) cyrillic.push(text);
+    }
+  }
+
+  console.log(JSON.stringify({ ru, en, afterReload, leftovers, cyrillic, broken }, null, 1));
   const ok =
     ru.lang === 'ru' &&
     en.lang === 'en' &&
@@ -114,7 +165,8 @@ async function main() {
     afterReload.switcher === 'en' &&
     afterReload.nav.includes('Videos') &&
     leftovers.length === 0 &&
-    cyrillic.length === 0;
+    cyrillic.length === 0 &&
+    broken.length === 0;
   console.log(ok ? 'ПРОВЕРКА ПРОЙДЕНА' : 'ПРОВЕРКА НЕ ПРОЙДЕНА');
   await server.close?.();
   app.exit(ok ? 0 : 1);

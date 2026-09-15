@@ -210,7 +210,7 @@
 
               <div class="table-wrap" style="margin-top: 10px">
                 <table id="subsTable">
-                  <thead><tr><th>#</th><th data-i18n="subs.col.start">Начало</th><th data-i18n="subs.col.end">Конец</th><th data-i18n="subs.col.duration">Длит.</th><th data-i18n="subs.col.text">Текст</th><th data-i18n="subs.col.problems">Замечания</th><th></th></tr></thead>
+                  <thead><tr><th>#</th><th data-i18n="subs.col.start">Начало</th><th data-i18n="subs.col.end">Конец</th><th data-i18n="subs.col.duration">Длит.</th><th data-i18n="subs.col.text">Текст (не более двух строк)</th><th data-i18n="subs.col.problems">Замечания</th><th></th></tr></thead>
                   <tbody></tbody>
                 </table>
               </div>
@@ -362,11 +362,11 @@
                     </div>
                   </div>
                   <div class="opt">
-                    <div class="opt-text"><b data-i18n="settings.ttsEngine">Движок синтеза</b><span data-i18n="settings.ttsEngineNote">piper не требует ничего дополнительно. silero даёт 29 русских голосов вместо четырёх и синтезирует заметно быстрее, но ему нужен Python с torch.</span></div>
+                    <div class="opt-text"><b data-i18n="settings.ttsEngine">Движок синтеза</b><span data-i18n="settings.ttsEngineNote">piper не требует ничего дополнительно. silero даёт 34 русских голоса вместо четырёх и синтезирует заметно быстрее, но ему нужен Python с torch.</span></div>
                     <div class="opt-ctl">
                       <select data-key="tts.engine" id="ttsEngine">
                         <option value="piper" data-i18n="settings.ttsEngine.piper">piper — 4 голоса, без Python</option>
-                        <option value="silero" data-i18n="settings.ttsEngine.silero">silero — 29 голосов, нужен Python с torch</option>
+                        <option value="silero" data-i18n="settings.ttsEngine.silero">silero — 34 голоса, из них пять без акцента; нужен Python с torch</option>
                       </select>
                     </div>
                   </div>
@@ -558,7 +558,7 @@
 
             <div class="savebar" id="savebar" hidden>
               <span id="saveNote" data-i18n="settings.unsaved">Есть несохранённые изменения</span>
-              <button id="resetSettings" class="ghost" data-i18n="common.cancel">Отменить</button>
+              <button id="resetSettings" class="ghost" data-i18n="common.cancel">Отмена</button>
               <button id="saveSettings" class="primary" data-i18n="common.save">Сохранить</button>
             </div>
           </section>

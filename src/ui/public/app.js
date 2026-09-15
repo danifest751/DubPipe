@@ -1956,7 +1956,7 @@ async function loadCatalog() {
     const options = data.models.map((model) => `<option value="${escapeAttr(model.id)}"></option>`).join('');
     $('#modelList').innerHTML = options;
     $('#modelCatalog').innerHTML = data.models
-      .map((model) => `<span class="chip ${model.free ? 'free' : ''}" data-model="${escapeAttr(model.id)}">${escapeHtml(model.id)}${model.free ? ' · бесплатно' : ` · $${(model.promptPrice * 1e6).toFixed(2)}/$${(model.completionPrice * 1e6).toFixed(2)}`}</span>`)
+      .map((model) => `<span class="chip ${model.free ? 'free' : ''}" data-model="${escapeAttr(model.id)}">${escapeHtml(model.id)}${model.free ? ` · ${t('settings.free')}` : ` · $${(model.promptPrice * 1e6).toFixed(2)}/$${(model.completionPrice * 1e6).toFixed(2)}`}</span>`)
       .join('');
     $('#modelCatalog').querySelectorAll('[data-model]').forEach((chip) =>
       chip.addEventListener('click', () => {
@@ -1991,7 +1991,7 @@ function renderComparison(report) {
   const summary = `<div class="table-wrap"><table>
     <thead><tr><th>${t('compare.col.model')}</th><th>${t('compare.col.withinTolerance')}</th><th>${t('compare.col.time')}</th><th>${t('compare.col.tokens')}</th><th>${t('compare.col.cost')}</th><th></th></tr></thead>
     <tbody>${rows.map((row) => row.ok
-      ? `<tr><td>${escapeHtml(row.model)}</td><td>${row.stats.withinTolerance}/${row.stats.total} (${Math.round(row.stats.share * 100)}%)</td><td>${(row.elapsedMs / 1000).toFixed(1)} с</td><td>${row.usage.promptTokens + row.usage.completionTokens}</td><td>${row.costUsd ? '$' + row.costUsd.toFixed(5) : 'бесплатно'}</td><td><button class="small" data-apply="${escapeAttr(row.model)}">Применить</button></td></tr>`
+      ? `<tr><td>${escapeHtml(row.model)}</td><td>${row.stats.withinTolerance}/${row.stats.total} (${Math.round(row.stats.share * 100)}%)</td><td>${t('common.seconds', { value: (row.elapsedMs / 1000).toFixed(1) })}</td><td>${row.usage.promptTokens + row.usage.completionTokens}</td><td>${row.costUsd ? '$' + row.costUsd.toFixed(5) : t('settings.free')}</td><td><button class="small" data-apply="${escapeAttr(row.model)}">${t('compare.apply')}</button></td></tr>`
       : `<tr><td>${escapeHtml(row.model)}</td><td colspan="5" class="fit long">${escapeHtml(row.error ?? t('common.error'))}</td></tr>`).join('')}</tbody></table></div>`;
 
   const lines = (ok[0]?.lines ?? []).map((line, index) => `
@@ -2627,10 +2627,10 @@ async function loadEnvironment() {
         ${item.hint && item.state !== 'ok' ? `<div class="meta">${escapeHtml(item.hint)}</div>` : ''}
       </div>
       ${item.size ? `<span class="meta">${escapeHtml(item.size)}</span>` : ''}
-      <span class="pill ${item.state === 'ok' ? 'ok' : item.state === 'warn' ? 'warn' : 'bad'}">${item.state === 'ok' ? 'готово' : item.state === 'warn' ? 'можно без него' : 'нужно'}</span>
+      <span class="pill ${item.state === 'ok' ? 'ok' : item.state === 'warn' ? 'warn' : 'bad'}">${t(`env.state.${item.state}`)}</span>
     </div>`);
 
-  const tools = env.tools.filter((tool) => tool.path).map((tool) => `<div class="card row-card"><div class="grow"><div class="name">${tool.name}</div><div class="meta mono">${escapeHtml(tool.path)}</div></div><span class="pill ok">${tool.source === 'local' ? 'в служебном каталоге' : 'в системе'}</span></div>`);
+  const tools = env.tools.filter((tool) => tool.path).map((tool) => `<div class="card row-card"><div class="grow"><div class="name">${tool.name}</div><div class="meta mono">${escapeHtml(tool.path)}</div></div><span class="pill ok">${t(tool.source === 'local' ? 'env.tool.local' : 'env.tool.system')}</span></div>`);
 
   $('#envList').innerHTML = items.join('') + `<h2>${t('env.toolsTitle')}</h2>` + (tools.join('') || `<div class="notice">${t('env.noTools')}</div>`);
 }
