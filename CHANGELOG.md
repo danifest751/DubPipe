@@ -111,7 +111,9 @@ All notable changes to this project are documented here. Versions follow
   `segments.json` as the voicing.
 - Each check is switched on separately: gender, glossary, address, consistency, meaning,
   length. The review model is separate as well, so a local translation can be reviewed by a
-  cloud one.
+  cloud one - and it should be: the guards protect the timing, not the meaning. On the same
+  material sonnet produced 13 edits and all 13 were accepted; mistral-nemo:12b produced one,
+  an invention that passed the length check; qwen3:14b changed nothing.
 
 ### Local translation
 

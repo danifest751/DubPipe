@@ -360,11 +360,26 @@ quarter as much noise and lands almost every time.
 **The review reaches the subtitles too.** The Russian subtitles are built from the same
 `segments.json` as the voicing, so corrected text lands in them by itself.
 
-**Local models cannot do this yet.** Measured: `mistral-nemo:12b` and `qwen3:14b` find the
-**right** lines and name the right reason ("incorrect agreement") but return the text
-unchanged - they diagnose and cannot treat. Such no-ops are discarded and the review simply
-changes nothing. If you translate locally, it is worth having the review done by a cloud
-model: `review.model` is set separately from `translate.model`.
+**Choose a strong reviewer.** The guards protect the timing, not the meaning: an invention
+that happens to fit the slot passes straight through, and there is no cheap mechanical check
+for it - telling that an edit is about something else requires understanding the text.
+Measured on the same material:
+
+| | `claude-sonnet-4.5` | `mistral-nemo:12b` | `qwen3:14b` |
+|---|---|---|---|
+| Edits proposed | **13** | 1 | 5 |
+| Accepted | **13** | 1 | **0** |
+| No-ops (text unchanged) | 0 | 0 | 4 |
+| Time | **18 s** | 133 s | 196 s |
+
+The single edit mistral-nemo proposed was an invention: it replaced «Hey, I care about Ethan
+just as much as you do get a grip» with «Ну да, я был не в себе, но я не могу просто так
+взять и уйти» - and that passed the length check. qwen3:14b returned four no-ops and changed
+nothing at all.
+
+So it is worth having the review done by a cloud model even when the translation runs
+locally: `review.model` is set separately from `translate.model`. It is one pass per film,
+cheaper than the translation itself.
 
 The knobs live in `config.yaml`: which checks run (`checks`), the discard threshold
 (`max_changes_share`), and the pass size for very long films (`batch_lines`).
