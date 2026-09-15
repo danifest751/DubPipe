@@ -436,7 +436,13 @@ async function startJob() {
 }
 
 $('#startJob').addEventListener('click', () => startJob().catch(showError));
-$('#cancelJob').addEventListener('click', (event) =>
+$('#cancelJob').addEventListener('click', (event) => {
+  const job = state.job;
+  if (job && state.project && job.input !== state.project && !window.confirm(t('job.stopOther', { name: job.input.split(/[\/]/).pop() }))) return;
+  return onCancelJob(event);
+});
+
+const onCancelJob = (event) =>
   withBusy(event.currentTarget, async () => {
     const result = await post('/api/jobs/cancel');
     toast(
@@ -483,7 +489,14 @@ function renderJob() {
   const result = $('#jobResult');
   const status = $('#projectStatus');
 
-  $('#cancelJob').disabled = !(mine && job.status === 'running');
+  /*
+   * Остановить можно любую идущую задачу, не только задачу открытого файла.
+   *
+   * Прежде кнопка включалась лишь для «своего» проекта — и когда прогон завис,
+   * а страница потеряла связь и не поняла, чей он, остановить его стало нечем:
+   * оставалось закрывать программу. Чужую задачу перед остановкой спросим.
+   */
+  $('#cancelJob').disabled = !(job && job.status === 'running');
   $('#startJob').classList.toggle('busy', Boolean(mine && job.status === 'running'));
 
   if (!mine) {
@@ -2667,8 +2680,14 @@ function fillSegmentsDuringRun(job) {
   loadSegments().catch(() => {});
 }
 
+let events = null;
+
 function connectEvents() {
+  // Прежнее соединение закрываем: при обрывах они копились, и каждое событие
+  // приходило столько раз, сколько было переподключений.
+  events?.close();
   const source = new EventSource(`/api/events?token=${TOKEN}`);
+  events = source;
   source.addEventListener('hello', (event) => {
     const data = JSON.parse(event.data);
     state.job = data.job;

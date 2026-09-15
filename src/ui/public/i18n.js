@@ -115,6 +115,7 @@ const DICTIONARY = {
   // --- состояние задачи
   'job.running': { ru: 'выполняется', en: 'running' },
   'job.done': { ru: 'готово', en: 'done' },
+  'job.stopOther': { ru: 'Идёт обработка другого файла — «{name}». Остановить её?', en: 'Another file is being processed — “{name}”. Stop it?' },
   'job.error': { ru: 'ошибка', en: 'error' },
   'job.cancelled': { ru: 'остановлено', en: 'cancelled' },
   'job.started': { ru: 'Обработка запущена', en: 'Processing started' },
