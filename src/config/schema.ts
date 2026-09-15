@@ -114,8 +114,11 @@ export const LOCAL_DEFAULT_MODEL = 'qwen2.5:7b-instruct';
  * соседней, недопереведённый кусок. Всё это замечено на реальном материале и
  * ловится только взглядом на текст целиком.
  *
- * Выключено по умолчанию: это ещё один проход размером с сам перевод — в облаке
- * примерно удвоение стоимости, локально несколько минут.
+ * Включается профилем, а не этим значением по умолчанию: в облаке рецензия
+ * окупается (замер на 136 репликах: sonnet предложил 13 правок, приняты все 13,
+ * 18 с), а локальной модели она не даётся — `mistral-nemo:12b` за 133 с нашла
+ * одну правку, и та оказалась выдумкой. Поэтому `hybrid` её включает, `offline`
+ * оставляет выключенной, а написанное в config.yaml сильнее обоих.
  */
 const reviewSchema = z.object({
   enabled: z.boolean().default(false),
@@ -408,6 +411,10 @@ export const configSchema = z
 export type DubConfig = z.infer<typeof configSchema>;
 
 /** Provider overrides applied by a profile before user fields win (SPEC §15.1). */
-export function profileDefaults(profile: Profile): Partial<{ translate: { engine: 'kilo-gateway' | 'ollama' } }> {
-  return profile === 'offline' ? { translate: { engine: 'ollama' } } : { translate: { engine: 'kilo-gateway' } };
+export function profileDefaults(
+  profile: Profile,
+): Partial<{ translate: { engine: 'kilo-gateway' | 'ollama'; review: { enabled: boolean } } }> {
+  return profile === 'offline'
+    ? { translate: { engine: 'ollama', review: { enabled: false } } }
+    : { translate: { engine: 'kilo-gateway', review: { enabled: true } } };
 }

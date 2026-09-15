@@ -988,11 +988,16 @@ export async function runS3(workspace: Workspace, baseConfig: DubConfig, segment
         (run.usage.cost > 0 ? `, стоимость: ${formatCost(run.usage.cost)}` : ''),
     );
     // Сколько токенов ушло на знак — замер для будущих оценок стоимости.
-    await rememberTokenRate(workspace, config.translate.model, {
-      chars: segments.reduce((sum, segment) => sum + (segment.text_en?.length ?? 0), 0),
-      promptTokens: run.usage.promptTokens,
-      completionTokens: run.usage.completionTokens,
-    });
+    await rememberTokenRate(
+      workspace,
+      config.translate.model,
+      {
+        chars: segments.reduce((sum, segment) => sum + (segment.text_en?.length ?? 0), 0),
+        promptTokens: run.usage.promptTokens,
+        completionTokens: run.usage.completionTokens,
+      },
+      config.translate.review.enabled,
+    );
 
     // Потраченное копится в meta.json: прогонов на файл бывает несколько
     // (правки, смена модели), и одна строка лога исчезает вместе с прогоном.

@@ -434,3 +434,46 @@ describe('FR-U7: готовность спрашивает у выбранног
     expect(names.every((name: string) => !name.startsWith('ru_RU-'))).toBe(true);
   });
 });
+
+describe('рецензия перевода: умолчание профиля и отказ от него', () => {
+  /**
+   * Рецензия тратит деньги, и включает её теперь профиль, а не человек. Значит
+   * интерфейс обязан показывать её состояние и уметь выключить — причём так,
+   * чтобы отказ пережил перезапуск, то есть дошёл до файла настроек.
+   *
+   * Свой каталог и свой config.yaml: файлы тестов идут параллельно, и общий
+   * файл настроек давал красные прогоны раз в четыре задания CI.
+   */
+  const root = mkdtempSync(path.join(tmpdir(), 'dubpipe-review-'));
+  const configPath = path.join(root, 'config.yaml');
+  let own: UiServerHandle;
+
+  beforeAll(async () => {
+    writeFileSync(configPath, `profile: hybrid\ncache:\n  dir: ${JSON.stringify(path.join(root, '.dubpipe'))}\n`, 'utf8');
+    own = await startUiServer({ port: 0, configPath });
+  }, 60_000);
+
+  afterAll(async () => {
+    await own?.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const call = (route: string, init?: RequestInit) =>
+    fetch(`http://127.0.0.1:${own.port}${route}?token=${own.token}`, init);
+  const reviewEnabled = async (): Promise<boolean> => (await asBody(await call('/api/config'))).parsed.translate.review.enabled;
+
+  it('в гибридном профиле интерфейс показывает рецензию включённой', async () => {
+    expect(await reviewEnabled()).toBe(true);
+  });
+
+  it('отказ доходит до файла и переживает перезапуск', async () => {
+    const response = await call('/api/config/values', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ values: { 'translate.review.enabled': false } }),
+    });
+    expect(response.status).toBe(200);
+    expect(readFileSync(configPath, 'utf8')).toContain('enabled: false');
+    expect(await reviewEnabled()).toBe(false);
+  });
+});

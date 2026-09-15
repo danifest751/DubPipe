@@ -42,10 +42,22 @@ function usable(rate: Partial<TokenRate> | undefined | null): rate is TokenRate 
   );
 }
 
+/**
+ * Ключ замера: модель и то, шла ли с ней рецензия.
+ *
+ * Рецензия — второй проход по всему переводу, и её токены копятся в том же
+ * счётчике. Храни мы отношение на одну модель, включённая рецензия испортила бы
+ * оценку для выключенной и наоборот: оценка обещала бы одну цену, а прогон брал
+ * вдвое. Замеры с рецензией и без — разные величины, и лежат они врозь.
+ */
+function rateKey(model: string, withReview: boolean): string {
+  return withReview ? `${model} +review` : model;
+}
+
 /** Запомненное отношение для этой модели; `null` — ещё не мерили. */
-export async function tokenRateFor(workspace: Workspace, model: string): Promise<TokenRate | null> {
+export async function tokenRateFor(workspace: Workspace, model: string, withReview = false): Promise<TokenRate | null> {
   const saved = await workspace.readJson<Record<string, Partial<TokenRate>>>(path.join(workspace.root, FILE));
-  const rate = saved?.[model];
+  const rate = saved?.[rateKey(model, withReview)];
   return usable(rate) ? rate : null;
 }
 
@@ -58,11 +70,12 @@ export async function rememberTokenRate(
   workspace: Workspace,
   model: string,
   run: { chars: number; promptTokens: number; completionTokens: number },
+  withReview = false,
 ): Promise<void> {
   if (run.chars < MIN_CHARS || run.promptTokens <= 0) return;
   const file = path.join(workspace.root, FILE);
   const saved = (await workspace.readJson<Record<string, TokenRate>>(file)) ?? {};
-  saved[model] = {
+  saved[rateKey(model, withReview)] = {
     prompt_per_char: Number((run.promptTokens / run.chars).toFixed(4)),
     completion_per_char: Number((run.completionTokens / run.chars).toFixed(4)),
     measured_at: new Date().toISOString(),

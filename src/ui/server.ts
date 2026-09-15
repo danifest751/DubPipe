@@ -1075,7 +1075,7 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       const chars = (segments ?? []).reduce((sum, segment) => sum + (segment.text_en?.length ?? 0), 0);
       let estimate: number | null = null;
       if (chars > 0 && config.translate.engine === 'kilo-gateway') {
-        const rate = await tokenRateFor(workspace, config.translate.model);
+        const rate = await tokenRateFor(workspace, config.translate.model, config.translate.review.enabled);
         const catalog = rate ? await loadCatalog(config).catch(() => []) : [];
         const model = catalog.find((entry) => entry.id === config.translate.model);
         if (rate && model) {

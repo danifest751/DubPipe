@@ -64,3 +64,25 @@ describe('замер расхода токенов на перевод', () => {
     expect(usd).toBeLessThan(0.3);
   });
 });
+
+describe('замер с рецензией и без — разные величины', () => {
+  it('прогон с рецензией не отвечает за прогон без неё', async () => {
+    // Рецензия — второй проход по всему тексту, и её токены идут в тот же счёт.
+    // Один ключ на модель означал бы: включил рецензию — и оценка обещает
+    // прежнюю цену, выключил — обещает удвоенную.
+    const workspace = await freshWorkspace();
+    await rememberTokenRate(workspace, MODEL, { chars: 1766, promptTokens: 42_000, completionTokens: 4000 }, true);
+    expect(await tokenRateFor(workspace, MODEL, false)).toBeNull();
+    expect((await tokenRateFor(workspace, MODEL, true))?.prompt_per_char).toBeCloseTo(42_000 / 1766, 3);
+  });
+
+  it('оба замера живут рядом и не затирают друг друга', async () => {
+    const workspace = await freshWorkspace();
+    await rememberTokenRate(workspace, MODEL, { chars: 1766, promptTokens: 21_200, completionTokens: 2000 }, false);
+    await rememberTokenRate(workspace, MODEL, { chars: 1766, promptTokens: 42_000, completionTokens: 4000 }, true);
+    const plain = await tokenRateFor(workspace, MODEL, false);
+    const reviewed = await tokenRateFor(workspace, MODEL, true);
+    expect(plain?.prompt_per_char).toBeCloseTo(21_200 / 1766, 3);
+    expect(reviewed!.prompt_per_char).toBeGreaterThan(plain!.prompt_per_char);
+  });
+});

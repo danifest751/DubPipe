@@ -140,4 +140,24 @@ describe('§15: профиль подставляет и движок перев
     const config = parseConfig({ profile: 'offline', translate: { fallback_model: 'gemma3:12b' } }, 'тест');
     expect(config.translate.model).toBe('gemma3:12b');
   });
+
+  it('рецензия идёт в облаке и молчит локально', () => {
+    // Замер на 136 репликах: облачный рецензент — 13 правок из 13 приняты за 18 с;
+    // локальный — одна за 133 с, и та выдумка. Умолчание следует за замером.
+    expect(parseConfig({ profile: 'hybrid' }, 'тест').translate.review.enabled).toBe(true);
+    expect(parseConfig({ profile: 'offline' }, 'тест').translate.review.enabled).toBe(false);
+  });
+
+  it('написанное в настройках сильнее профиля в обе стороны', () => {
+    expect(parseConfig({ profile: 'hybrid', translate: { review: { enabled: false } } }, 'тест').translate.review.enabled).toBe(false);
+    expect(parseConfig({ profile: 'offline', translate: { review: { enabled: true } } }, 'тест').translate.review.enabled).toBe(true);
+  });
+
+  it('профиль не сбивает остальные настройки рецензии', () => {
+    // Подстановка собирает свой объект review — забыв перенести соседние поля,
+    // она молча вернула бы batch_lines к умолчанию.
+    const config = parseConfig({ profile: 'hybrid', translate: { review: { batch_lines: 120 } } }, 'тест');
+    expect(config.translate.review.batch_lines).toBe(120);
+    expect(config.translate.review.enabled).toBe(true);
+  });
 });

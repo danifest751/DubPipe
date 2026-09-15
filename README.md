@@ -324,8 +324,14 @@ in S2), the character names and the glossary.
 ```yaml
 translate:
   review:
-    enabled: true
+    enabled: true   # the hybrid profile turns it on by itself; set false to refuse it
 ```
+
+**The profile decides.** With `hybrid` the review runs by default, because a cloud reviewer
+earns the pass: on a deliberately damaged episode `claude-sonnet-4.5` proposed 13 edits and
+all 13 survived the guards, in 18 seconds. With `offline` it stays off — the same run gave
+`mistral-nemo:12b` 133 seconds to find one edit, and that one was an invention. Whatever is
+written in `config.yaml` wins over both.
 
 Edits are not taken on faith. Each one goes through the same fit ruler the translation and
 the length pass use: an edit that fits its slot worse than the old text is rejected, because

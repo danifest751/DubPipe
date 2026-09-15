@@ -48,6 +48,19 @@ function applyProfile(raw: Record<string, unknown>): Record<string, unknown> {
   if (translate['engine'] === 'ollama' && translate['model'] === undefined) {
     translate['model'] = translate['fallback_model'] ?? LOCAL_DEFAULT_MODEL;
   }
+  /*
+   * Финальная рецензия перевода — по профилю, а не одним значением на всех.
+   *
+   * Она стоит второго прохода по всему тексту, и вопрос «окупается ли» решается
+   * тем, кто рецензирует. Облачная модель нашла на испорченном эпизоде 13 ошибок
+   * и все 13 были приняты — за 18 с и за долю стоимости самого перевода.
+   * Локальная за 133 с нашла одну, и та оказалась сочинением на свободную тему.
+   * Поэтому hybrid включает рецензию, offline — нет. Явно написанное в настройках
+   * сильнее: подставляем только то, чего в документе нет.
+   */
+  const review = { ...((translate['review'] as Record<string, unknown> | undefined) ?? {}) };
+  if (review['enabled'] === undefined) review['enabled'] = profile !== 'offline';
+  translate['review'] = review;
   return { ...raw, profile, translate };
 }
 
