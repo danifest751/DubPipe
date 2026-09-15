@@ -473,6 +473,11 @@ What happens, step by step:
   cache: it is still wanted after the run — to watch, to re-run stages, to hand to another
   tool. The name is `Title [id].ext`: the id keeps same-named videos apart, and a repeat run
   recognises what is already there and does not download it twice.
+- **Tags and a cover are written into the file** (`download.embed_metadata`,
+  `embed_thumbnail`): title, channel, date and the source link, plus the picture, so a player
+  shows a named file rather than a nameless one. Chapters for long lectures are a separate
+  `embed_chapters`. The dub is signed as well: its `title` gets a “(RU)” mark and its
+  `comment` carries the source link.
 - **Playlists** under `download.playlist: ask` are treated as a single video, but the number
   of others is reported. `all` fetches the whole list, `--playlist-items 1-3,7` fetches a
   selection. Only the first file is dubbed: the pipeline takes one input.

@@ -86,6 +86,12 @@ export interface DownloadOptions {
   cookiesFromBrowser?: string | null;
   cookiesFile?: string | null;
   writeThumbnail?: boolean;
+  /** Вложить название, канал, дату и ссылку на источник в сам файл. */
+  embedMetadata?: boolean;
+  /** Вложить обложку: в mp4 для этого нужен jpg, конвертацию делает yt-dlp. */
+  embedThumbnail?: boolean;
+  /** Вложить главы: нужны длинным лекциям, коротким роликам их не бывает. */
+  embedChapters?: boolean;
   writeSubtitles?: boolean;
   subtitleLanguages?: string[];
   concurrentFragments?: number;
@@ -465,7 +471,15 @@ export function buildYtArgs(
   }
   if (options.cookiesFromBrowser) args.push('--cookies-from-browser', options.cookiesFromBrowser);
   if (options.cookiesFile) args.push('--cookies', options.cookiesFile);
-  if (options.writeThumbnail) args.push('--write-thumbnail', '--convert-thumbnails', 'jpg');
+  if (options.embedMetadata) args.push('--embed-metadata');
+  if (options.embedChapters) args.push('--embed-chapters');
+  if (options.writeThumbnail || options.embedThumbnail) {
+    // Конвертация нужна в обоих случаях: mp4 не принимает webp-обложку, а
+    // рядом с видео картинка ожидается привычная.
+    args.push('--convert-thumbnails', 'jpg');
+  }
+  if (options.writeThumbnail) args.push('--write-thumbnail');
+  if (options.embedThumbnail) args.push('--embed-thumbnail');
   if (options.writeSubtitles) {
     args.push(
       '--write-subs',

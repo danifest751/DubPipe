@@ -14,6 +14,9 @@ import { mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { progress, type ProgressEvent } from '../src/core/progress.js';
+import { describeMedia } from '../src/util/ffmpeg.js';
+import { run } from '../src/util/exec.js';
+import { requireTool } from '../src/util/tools.js';
 import { downloadYt, resolveYt, type DownloadQuality } from '../src/util/ytdlp.js';
 
 const URL = process.argv[2] ?? 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
@@ -114,6 +117,40 @@ try {
   const total = (await readdir(dir)).length;
   check('файл тот же', again[0] === files[0], path.basename(again[0] ?? '—'));
   check('второй копии не появилось', total === 1, `файлов: ${total}`);
+
+  // --- 5. Данные и обложка внутри файла -------------------------------------
+  console.log('\n5. Данные и обложка внутри файла');
+  const embedded = await downloadYt(URL, dir, toolsDir, {
+    quality: 'audio',
+    container: 'mp4',
+    filenameTemplate: '%(title)s [%(id)s].%(ext)s',
+    label: info.title,
+    videoId: info.id,
+    embedMetadata: true,
+    embedThumbnail: true,
+  });
+  const target = embedded[0]!;
+  const ffprobe = await requireTool('ffprobe', toolsDir);
+  const { stdout } = await run(ffprobe, ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', target], {
+    timeoutMs: 120_000,
+    captureStdout: true,
+  });
+  const probe = JSON.parse(stdout) as {
+    format?: { tags?: Record<string, string> };
+    streams?: Array<{ codec_type?: string; disposition?: { attached_pic?: number } }>;
+  };
+  const tags = probe.format?.tags ?? {};
+  const cover = (probe.streams ?? []).some((stream) => stream.disposition?.attached_pic === 1);
+  check('файл подписан', Boolean(tags['title']), tags['title'] ?? 'нет title');
+  check('в тегах есть канал', Boolean(tags['artist']), tags['artist'] ?? 'нет artist');
+  check('в тегах есть ссылка на источник', Boolean(tags['purl'] ?? tags['comment']), tags['purl'] ?? tags['comment'] ?? 'нет');
+  check('обложка вложена', cover);
+
+  // Главное: обложка — это видеопоток, и без проверки пометки `attached_pic`
+  // звуковой файл считался бы видео, а S7 собрал бы mp4 с картинкой.
+  const described = describeMedia(probe);
+  check('звуковой файл с обложкой не считается видео', !described.hasVideo);
+  check('длительность прочитана', described.durationSeconds > 0, `${described.durationSeconds.toFixed(1)} с`);
 } finally {
   await rm(dir, { recursive: true, force: true });
 }

@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+﻿import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { DubConfig } from '../config/schema.js';
 import { StageError } from '../core/errors.js';
@@ -71,7 +71,7 @@ async function downloadFromUrl(
   workspace: Workspace,
   config: DubConfig,
   downloadDir: string,
-): Promise<{ file: string; warnings: StageWarning[] }> {
+): Promise<{ file: string; title: string; warnings: StageWarning[] }> {
   const warnings: StageWarning[] = [];
   const quality = config.download.quality;
   const info = await resolveYt(input, workspace.toolsDir, quality);
@@ -110,6 +110,9 @@ async function downloadFromUrl(
     cookiesFromBrowser: config.download.cookies_from_browser,
     cookiesFile: config.download.cookies_file,
     writeThumbnail: config.download.write_thumbnail,
+    embedMetadata: config.download.embed_metadata,
+    embedThumbnail: config.download.embed_thumbnail,
+    embedChapters: config.download.embed_chapters,
     writeSubtitles: config.download.write_subtitles,
     subtitleLanguages: config.download.subtitle_languages,
     concurrentFragments: config.download.concurrent_fragments,
@@ -127,7 +130,7 @@ async function downloadFromUrl(
     );
   }
 
-  return { file: files[0]!, warnings };
+  return { file: files[0]!, title: info.title, warnings };
 }
 
 export interface S1Options {
@@ -144,12 +147,17 @@ export async function runS1(
   const warnings: StageWarning[] = [];
 
   let sourcePath: string;
+  // Название оригинала: у ссылки оно приходит из разбора, у локального файла его
+  // заменяет имя. Уходит в теги дубляжа, чтобы в плеере он отличался от оригинала.
+  let sourceTitle: string;
   if (isUrl(input)) {
     const downloaded = await downloadFromUrl(input, workspace, config, options.downloadDir ?? workspace.dir);
     warnings.push(...downloaded.warnings);
     sourcePath = downloaded.file;
+    sourceTitle = downloaded.title;
   } else {
     sourcePath = path.resolve(input);
+    sourceTitle = path.basename(sourcePath, path.extname(sourcePath));
   }
   if (!existsSync(sourcePath)) {
     throw new StageError('s1', `Входной файл не найден: ${sourcePath}`, {
@@ -213,6 +221,7 @@ export async function runS1(
     // Абсолютный путь: для ссылки это скачанное в рабочую папку, для файла —
     // разрешённый вход. По нему S7 находит источник, не гадая про `input`.
     source_path: path.resolve(sourcePath),
+    source_title: sourceTitle,
   };
   await workspace.writeMeta(meta);
 

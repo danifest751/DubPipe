@@ -227,14 +227,43 @@ describe('FR-1: набор аргументов yt-dlp', () => {
     expect(args[args.indexOf('-f') + 1]).toBe('ba[ext=m4a]/ba/b');
   });
 
+  it('вписывает данные и обложку в сам файл', () => {
+    const args = buildYtArgs(
+      '/ffmpeg',
+      'https://youtu.be/x',
+      { ...options, embedMetadata: true, embedThumbnail: true, embedChapters: true },
+      template,
+    );
+    expect(args).toContain('--embed-metadata');
+    expect(args).toContain('--embed-thumbnail');
+    expect(args).toContain('--embed-chapters');
+    // mp4 не принимает webp-обложку: без конвертации вложение молча не выйдет.
+    expect(args[args.indexOf('--convert-thumbnails') + 1]).toBe('jpg');
+  });
+
+  it('конвертирует превью и для вложения, и для файла рядом', () => {
+    const embed = buildYtArgs('/ffmpeg', 'https://youtu.be/x', { ...options, embedThumbnail: true }, template);
+    const sidecar = buildYtArgs('/ffmpeg', 'https://youtu.be/x', { ...options, writeThumbnail: true }, template);
+    for (const args of [embed, sidecar]) {
+      expect(args[args.indexOf('--convert-thumbnails') + 1]).toBe('jpg');
+    }
+    expect(sidecar).toContain('--write-thumbnail');
+    expect(sidecar).not.toContain('--embed-thumbnail');
+  });
+
+  it('без просьбы ничего не вкладывает', () => {
+    const args = buildYtArgs('/ffmpeg', 'https://youtu.be/x', { ...options, embedMetadata: false }, template);
+    expect(args).not.toContain('--embed-metadata');
+    expect(args).not.toContain('--embed-chapters');
+  });
+
   it('элементы плейлиста отменяют одиночный режим', () => {
     const args = buildYtArgs('/ffmpeg', 'https://youtu.be/x', { ...options, playlistItems: '1-3' }, template);
     expect(args).not.toContain('--no-playlist');
     expect(args[args.indexOf('-I') + 1]).toBe('1-3');
   });
 
-  it('передаёт куки, субтитры, превью и число потоков', () => {
-    const args = buildYtArgs(
+  it('передаёт куки, субтитры, превью и число потоков', () => {    const args = buildYtArgs(
       '/ffmpeg',
       'https://youtu.be/x',
       {

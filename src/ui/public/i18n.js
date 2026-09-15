@@ -369,6 +369,21 @@ const DICTIONARY = {
   },
   'settings.dlThumbnail': { ru: 'Сохранять превью', en: 'Save the thumbnail' },
   'settings.dlThumbnailNote': { ru: 'Картинка ролика рядом с видеофайлом.', en: 'The video picture next to the file.' },
+  'settings.dlEmbed': { ru: 'Вписывать данные в файл', en: 'Write tags into the file' },
+  'settings.dlEmbedNote': {
+    ru: 'Название, канал, дата и ссылка на источник внутри файла. Без этого плеер покажет его безымянным. Стоит одного прохода перепаковки без перекодирования.',
+    en: 'Title, channel, date and the source link inside the file. Without them a player shows it unnamed. Costs one repack pass without re-encoding.',
+  },
+  'settings.dlEmbedThumb': { ru: 'Вкладывать обложку', en: 'Embed the thumbnail' },
+  'settings.dlEmbedThumbNote': {
+    ru: 'Картинка ролика внутри файла: видна в проводнике и плеере. Тот же проход, что и у данных.',
+    en: 'The video picture inside the file: visible in the file manager and the player. The same pass as the tags.',
+  },
+  'settings.dlEmbedChapters': { ru: 'Вкладывать главы', en: 'Embed chapters' },
+  'settings.dlEmbedChaptersNote': {
+    ru: 'Пометки глав из описания ролика. Нужны длинным лекциям и подкастам, у коротких роликов их нет.',
+    en: 'Chapter markers from the video description. Useful for long lectures and podcasts; short clips have none.',
+  },
   'settings.dlSubtitles': { ru: 'Скачивать субтитры YouTube', en: 'Download YouTube subtitles' },
   'settings.dlSubtitlesNote': {
     ru: 'Оригинальные субтитры рядом с видео. Языки — в config.yaml, поле subtitle_languages. Для дубляжа они не используются: речь распознаёт Whisper.',

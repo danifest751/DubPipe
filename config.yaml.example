@@ -173,6 +173,11 @@ download:
   playlist: ask              # ask — первое видео и предупреждение о плейлисте,
                              # first — молча первое, all — скачать весь список
   write_thumbnail: false     # сохранять превью рядом с видео
+  embed_metadata: true       # название, канал, дата и ссылка внутрь файла:
+                             # файл остаётся у вас, и в плеере он должен быть
+                             # подписан, а не безымянным
+  embed_thumbnail: true      # обложка внутрь файла (тот же проход перепаковки)
+  embed_chapters: false      # главы внутрь файла: нужны длинным лекциям
   write_subtitles: false     # тянуть субтитры YouTube (en по умолчанию)
   subtitle_languages: [en]
   concurrent_fragments: 4    # сколько фрагментов тянуть сразу внутри загрузки
