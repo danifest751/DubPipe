@@ -377,7 +377,13 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRep
 
     const durationMs = Date.now() - started;
     outcomes.push({ stage, cached: false, provider, warnings: stageWarnings, durationMs });
-    warnings.push(...stageWarnings.map((w) => `[${stage}] ${w}`));
+    warnings.push(
+      ...stageWarnings.map((warning) =>
+        typeof warning === 'string'
+          ? `[${stage}] ${warning}`
+          : { ...warning, stage, ru: `[${stage}] ${warning.ru}` },
+      ),
+    );
     log.step(`готово за ${formatDuration(durationMs)} (${counter(index + 1, active.length)})`);
   }
 

@@ -312,6 +312,52 @@ episode of 136 lines is on the order of 20,000 prompt tokens and 4,000 generated
 **minutes, not seconds**; the same work in the cloud takes about a minute and costs cents.
 Local translation is worth it for offline use and privacy, not for savings.
 
+### The final translation review
+
+Translation runs in batches of ten lines and sees three neighbours — enough for a phrase,
+not for a film. A whole class of errors is invisible in that frame: a character's name
+spelled three ways, masculine verbs for a female character, informal address in one scene
+and formal in the next, a fragment left untranslated. The review is one more pass that sees
+**the whole translation at once**, along with each speaker's gender (measured from the voice
+in S2), the character names and the glossary.
+
+```yaml
+translate:
+  review:
+    enabled: true
+```
+
+Edits are not taken on faith. Each one goes through the same fit ruler the translation and
+the length pass use: an edit that fits its slot worse than the old text is rejected, because
+trading accuracy for drift is a bad deal. And a review that rewrites more than half the lines
+is discarded whole - that is a retranslation, not an edit.
+
+Measured on a real episode (136 lines, `anthropic/claude-sonnet-4.5`, 29 seconds):
+
+| | |
+|---|---|
+| Edits proposed | 46 |
+| **Accepted** | **16** |
+| Rejected for fit | 27 |
+| Rejected as unchanged | 3 |
+
+So the guard does real work: more than half the proposals would have broken the timing. Among
+those accepted: «Я бы **хотел** их узнать» → «хотела» for a female character, and «**Эвей**,
+мне нужно проверить тебя полностью» → «Ева, мне нужна полная диагностика», fixing the name
+and the length at once.
+
+**The review reaches the subtitles too.** The Russian subtitles are built from the same
+`segments.json` as the voicing, so corrected text lands in them by itself.
+
+**Local models cannot do this yet.** Measured: `mistral-nemo:12b` and `qwen3:14b` find the
+**right** lines and name the right reason ("incorrect agreement") but return the text
+unchanged - they diagnose and cannot treat. Such no-ops are discarded and the review simply
+changes nothing. If you translate locally, it is worth having the review done by a cloud
+model: `review.model` is set separately from `translate.model`.
+
+The knobs live in `config.yaml`: which checks run (`checks`), the discard threshold
+(`max_changes_share`), and the pass size for very long films (`batch_lines`).
+
 ### The gateway key
 
 ```bash

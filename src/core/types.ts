@@ -104,6 +104,13 @@ export interface WarningPhrase {
   key: string;
   ru: string;
   params?: Record<string, string | number>;
+  /**
+   * Какая стадия предупредила. Проставляет конвейер, а не сама стадия: ей
+   * незачем знать своё имя. Раньше приставка `[s3]` приклеивалась прямо к
+   * тексту, и после перевода предупреждений на ключи это давало в консоли
+   * «[s3] [object Object]».
+   */
+  stage?: string;
 }
 
 export type StageWarning = string | WarningPhrase;

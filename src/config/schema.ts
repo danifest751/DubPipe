@@ -105,6 +105,64 @@ const asrSchema = z.object({
  */
 export const LOCAL_DEFAULT_MODEL = 'qwen2.5:7b-instruct';
 
+/**
+ * Финальная рецензия перевода: один проход по всему фильму разом.
+ *
+ * Основной перевод идёт пакетами по десять реплик и видит только трёх соседей.
+ * Целый класс ошибок в такой рамке не виден вовсе: имя героини в трёх
+ * написаниях, мужской род у женского персонажа, «ты» в одной сцене и «вы» в
+ * соседней, недопереведённый кусок. Всё это замечено на реальном материале и
+ * ловится только взглядом на текст целиком.
+ *
+ * Выключено по умолчанию: это ещё один проход размером с сам перевод — в облаке
+ * примерно удвоение стоимости, локально несколько минут.
+ */
+const reviewSchema = z.object({
+  enabled: z.boolean().default(false),
+  /** Модель рецензии; `null` — та же, что и переводила. */
+  model: z.string().nullable().default(null),
+  /**
+   * Сколько реплик отдавать за один заход.
+   *
+   * Смысл прохода — в широком контексте, поэтому чем больше, тем лучше: эпизод
+   * на 136 реплик — это около четырёх тысяч токенов, влезает целиком куда
+   * угодно. Дробление нужно только очень длинным фильмам.
+   */
+  batch_lines: z.number().int().min(20).max(5000).default(400),
+  /** Сколько реплик показывать внахлёст на стыке заходов, чтобы не терять связь. */
+  overlap_lines: z.number().int().min(0).max(100).default(10),
+  checks: z
+    .object({
+      /** Род глаголов и прилагательных по полу говорящего, замеренному на S2. */
+      gender: z.boolean().default(true),
+      /** Имена и термины по собранному глоссарию, включая падежи. */
+      glossary: z.boolean().default(true),
+      /** «Ты» и «вы» — одинаково у одной пары героев на весь фильм. */
+      address: z.boolean().default(true),
+      /** Единообразие терминов, тона и манеры речи персонажа. */
+      consistency: z.boolean().default(true),
+      /** Смысловые ошибки и недопереведённые куски против оригинала. */
+      meaning: z.boolean().default(true),
+      /** Переписать то, что не влезает в отведённое время. */
+      length: z.boolean().default(true),
+    })
+    .default({}),
+  /**
+   * Предохранитель: доля изменённых реплик, выше которой рецензия отбрасывается
+   * целиком. Модель, переписавшая полфильма, не отредактировала его, а перевела
+   * заново — а этого её не просили.
+   */
+  max_changes_share: z.number().min(0).max(1).default(0.5),
+  /**
+   * Принимать ли правку, которая укладывается в слот хуже прежней.
+   *
+   * По умолчанию нет: обменять точность на рассинхрон — плохая сделка, и
+   * стадия укладки такую правку всё равно будет резать.
+   */
+  allow_worse_fit: z.boolean().default(false),
+  temperature: z.number().min(0).max(2).default(0.2),
+});
+
 const translateSchema = z.object({
   engine: z.enum(['kilo-gateway', 'ollama']).default('kilo-gateway'),
   model: z.string().min(1).default('anthropic/claude-sonnet-4.5'),
@@ -145,6 +203,7 @@ const translateSchema = z.object({
   /** One corrective pass over replicas that missed the length target (SPEC FR-3). */
   fit_length_pass: z.boolean().default(true),
   context_segments: z.number().int().min(0).max(10).default(3),
+  review: reviewSchema.default({}),
 });
 
 const ttsSchema = z.object({

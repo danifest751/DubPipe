@@ -12,6 +12,14 @@ import { selectChatClient, type ChatClient, type ChatUsage } from '../providers/
 import { formatCost } from '../providers/llm/catalog.js';
 import { effectiveSpeechShape } from '../core/calibration.js';
 import { rememberTokenRate } from '../core/translation-cost.js';
+import {
+  applyReview,
+  buildReviewLines,
+  checksSection,
+  parseReviewResponse,
+  reviewChunks,
+  type ReviewChange,
+} from './review.js';
 
 /**
  * S3 — batched EN→RU translation with length control (SPEC FR-3, §3.4).
@@ -746,6 +754,132 @@ export interface S3Result {
   usage: RunUsage;
 }
 
+/** Схема ответа рецензии — рядом с её разбором, как и у перевода. */
+const REVIEW_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  properties: {
+    changes: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'integer' },
+          text_ru: { type: 'string' },
+          reason: { type: 'string' },
+        },
+        required: ['id', 'text_ru'],
+      },
+    },
+  },
+  required: ['changes'],
+};
+
+/**
+ * Финальная рецензия: один взгляд на весь перевод разом.
+ *
+ * Переводчик видит десять реплик и трёх соседей, и этого хватает для фразы, но
+ * не для фильма. Имя героини в трёх написаниях, мужской род у женского
+ * персонажа, «ты» в одной сцене и «вы» в соседней — всё это замечено на реальном
+ * материале и внутри пакета невидимо.
+ *
+ * Правки принимаются не на веру: каждая проходит ту же мерку укладки, которой
+ * пользуются перевод и подгонка, а рецензия, переписавшая полфильма, отвергается
+ * целиком — см. applyReview.
+ */
+async function reviewTranslation(
+  client: ChatClient,
+  config: DubConfig,
+  segments: Segment[],
+  workspace: Workspace,
+  glossary: Record<string, string>,
+  usage: RunUsage,
+  warnings: StageWarning[],
+): Promise<Segment[]> {
+  const review = config.translate.review;
+  const overrides = await workspace.readOverrides();
+  const speakers = await workspace.readSpeakers();
+  const applyOptions = {
+    room: roomFor(config, segments),
+    charsPerSecond: config.translate.chars_per_second,
+    overheadSeconds: config.translate.speech_overhead_seconds,
+    tolerance: config.translate.length_tolerance,
+    toleranceFloorSeconds: config.translate.length_tolerance_floor_ms / 1000,
+    allowWorseFit: review.allow_worse_fit,
+    maxChangesShare: review.max_changes_share,
+  };
+
+  const lines = buildReviewLines(segments, { ...applyOptions, speakers, names: overrides.names });
+  if (lines.length === 0) return segments;
+
+  const template = await loadPromptTemplate('review.md');
+  const systemPrompt = template
+    .replace('{checks}', checksSection(review.checks))
+    .replace('{profanity_rule}', profanityRule(config.translate.profanity));
+
+  const chunks = reviewChunks(lines, review.batch_lines, review.overlap_lines);
+  const collected: ReviewChange[] = [];
+  const known = new Set(lines.map((line) => line.id));
+
+  log.progress(`рецензия перевода: реплик ${lines.length}`, null, null, {
+    key: 'work.review',
+    params: { count: lines.length },
+  });
+
+  for (const [index, chunk] of chunks.entries()) {
+    cancellation.throwIfCancelled();
+    const request = JSON.stringify({ glossary, lines: chunk });
+    try {
+      const reply = await client.complete(
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: request },
+        ],
+        { json: true, schema: REVIEW_SCHEMA, temperature: review.temperature },
+      );
+      addUsage(usage, reply.usage);
+      for (const change of parseReviewResponse(reply.text, known)) {
+        // На нахлёсте реплика встречается дважды; берём первое суждение.
+        if (!collected.some((entry) => entry.id === change.id)) collected.push(change);
+      }
+    } catch (error) {
+      const reason = (error as Error).message;
+      log.warn(`рецензия: заход ${index + 1}/${chunks.length} не удался (${reason})`);
+      warnings.push(
+        warn('warn.s3.reviewChunk', `Рецензия: заход ${index + 1}/${chunks.length} не удался (${reason})`, {
+          index: index + 1,
+          total: chunks.length,
+          reason,
+        }),
+      );
+    }
+    if (chunks.length > 1) log.step(`рецензия: заход ${counter(index + 1, chunks.length)}`);
+  }
+
+  const outcome = applyReview(segments, collected, applyOptions);
+  if (outcome.discarded) {
+    log.warn('рецензия отброшена целиком: переписано слишком много реплик');
+    warnings.push(
+      warn(
+        'warn.s3.reviewDiscarded',
+        `Рецензия отброшена: модель переписала ${collected.length} реплик из ${lines.length} — ` +
+          'это уже не правка, а новый перевод',
+        { changed: collected.length, total: lines.length },
+      ),
+    );
+    return segments;
+  }
+
+  const worse = outcome.rejected.filter((entry) => entry.why === 'worse_fit').length;
+  log.step(
+    `рецензия: принято правок ${outcome.applied.length}` +
+      (worse > 0 ? `, отклонено по укладке ${worse}` : ''),
+  );
+  for (const change of outcome.applied.slice(0, 20)) {
+    log.debug(`рецензия [${change.id}]: ${change.reason ?? 'без пояснения'} → ${change.text_ru}`);
+  }
+  return outcome.segments;
+}
+
 export async function runS3(workspace: Workspace, baseConfig: DubConfig, segments: Segment[]): Promise<S3Result> {
   const selection = await selectChatClient(baseConfig);
   const client = selection.client;
@@ -778,6 +912,28 @@ export async function runS3(workspace: Workspace, baseConfig: DubConfig, segment
       log.progress(`переведено пакетов ${counter(done, total)}`, null, { done, total }, { key: 'work.translate', params: { done, total } });
     },
   });
+
+  /*
+   * Рецензия идёт последней: ей нужен готовый перевод целиком, включая всё,
+   * что переписала подгонка длины. Модель — та же, если в настройках не
+   * указана другая: спорить о переводе с самим собой полезнее, чем с чужим.
+   */
+  if (config.translate.review.enabled) {
+    const reviewer = config.translate.review.model
+      ? (await selectChatClient(baseConfig, config.translate.review.model)).client
+      : client;
+    if (reviewer !== client) log.step(`рецензия через ${reviewer.name}, модель ${reviewer.model}`);
+    run.segments = await reviewTranslation(reviewer, config, run.segments, workspace, run.glossary, run.usage, run.warnings);
+    await workspace.writeSegments(run.segments);
+    run.stats = lengthStats(
+      run.segments,
+      config.translate.chars_per_second,
+      config.translate.length_tolerance,
+      config.translate.length_tolerance_floor_ms / 1000,
+      config.translate.speech_overhead_seconds,
+      roomFor(config, run.segments),
+    );
+  }
 
   const { stats } = run;
   log.step(

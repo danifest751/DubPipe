@@ -1487,7 +1487,12 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
           current.warnings = report.warnings.map((warning) =>
             typeof warning === 'string'
               ? { text: warning }
-              : { text: warning.ru, key: warning.key, ...(warning.params ? { params: warning.params } : {}) },
+              : {
+                  text: warning.ru,
+                  key: warning.key,
+                  ...(warning.params ? { params: warning.params } : {}),
+                  ...(warning.stage ? { stage: warning.stage } : {}),
+                },
           );
           current.output = report.output;
           current.subtitles = report.subtitles;

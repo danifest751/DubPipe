@@ -99,6 +99,7 @@ const DICTIONARY = {
   'work.diarize': { ru: 'диаризация {percent}%', en: 'diarization {percent}%' },
   'work.gender': { ru: 'оценка пола голосов', en: 'estimating voice gender' },
   'work.translate': { ru: 'переведено пакетов {done}/{total}', en: 'translated {done}/{total} batches' },
+  'work.review': { ru: 'рецензия перевода: реплик {count}', en: 'translation review: {count} lines' },
   'work.fitLength': { ru: 'подгонка длины: реплик вне допуска {count}', en: 'fitting length: {count} replicas outside the tolerance' },
   'work.separate': { ru: 'отделение голоса {percent}%', en: 'separating the voice {percent}%' },
   'work.tts': { ru: 'синтезировано реплик {done}/{total}', en: 'synthesized {done}/{total} replicas' },
@@ -246,6 +247,11 @@ const DICTIONARY = {
   'settings.key.save': { ru: 'Сохранить ключ', en: 'Save key' },
   'common.check': { ru: 'Проверить', en: 'Check' },
   'common.delete': { ru: 'Удалить', en: 'Delete' },
+  'settings.review': { ru: 'Финальная рецензия перевода', en: 'Final translation review' },
+  'settings.reviewNote': {
+    ru: 'Ещё один проход по всему переводу целиком: имена, род персонажей, «ты» и «вы», смысловые ошибки и реплики, не влезающие в своё время. Видит то, чего не видно внутри пакета из десяти реплик. Удваивает время и стоимость перевода.',
+    en: 'One more pass over the whole translation at once: names, character gender, formal and informal address, meaning errors and lines that do not fit their time. It sees what a batch of ten lines cannot. Doubles the time and the cost of translation.',
+  },
   'settings.model': { ru: 'Модель', en: 'Model' },
   'settings.model.placeholder': { ru: 'начните вводить: claude, gpt, free…', en: 'start typing: claude, gpt, free…' },
   'settings.model.test': { ru: 'Проверить модель', en: 'Test model' },
@@ -407,6 +413,14 @@ const DICTIONARY = {
   'warn.s3.batchesFailed': {
     ru: 'Не переведено пакетов: {failed} из {total}. Повторный запуск со стадии s3 переведёт их заново — стадии до неё возьмутся из кэша',
     en: '{failed} of {total} batches were not translated. Running again from stage s3 retranslates them; the stages before it come from the cache',
+  },
+  'warn.s3.reviewChunk': {
+    ru: 'Рецензия: заход {index}/{total} не удался ({reason})',
+    en: 'Review: pass {index}/{total} failed ({reason})',
+  },
+  'warn.s3.reviewDiscarded': {
+    ru: 'Рецензия отброшена: модель переписала {changed} реплик из {total} — это уже не правка, а новый перевод',
+    en: 'Review discarded: the model rewrote {changed} of {total} lines — that is a retranslation, not an edit',
   },
   'warn.s3.fit': {
     ru: 'Только {share}% реплик укладываются в слот (ТЗ FR-3 требует ≥90%). Длинных: {long}, коротких: {short}. Стадия S6 доведёт их темпом и сокращением',

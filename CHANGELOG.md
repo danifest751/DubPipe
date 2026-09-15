@@ -87,6 +87,25 @@ All notable changes to this project are documented here. Versions follow
 - A run can resume mid-pipeline when some replicas failed to translate: each stage is
   judged by the replicas it was supposed to touch, not by all of them.
 
+### Translation
+
+- A final review pass: one look at the whole translation at once, with each speaker's gender,
+  the character names and the glossary. Translation runs in batches of ten lines and never
+  sees the film, so a name spelled three ways, masculine verbs for a female character and
+  formal address mixed with informal are invisible inside a batch. Off by default: it is
+  another pass the size of the translation itself.
+- Its edits go through the same fit ruler the translation and the length pass use: an edit
+  that fits worse is rejected. On a real episode the guard rejected 27 of 46 proposals -
+  without it, "improving the style" would have broken the timing on every second line.
+- A review that rewrites more than half the lines is discarded whole: that is a
+  retranslation, not an edit. The threshold is configurable and does not apply to short
+  pieces, where a share means nothing.
+- Corrected text reaches the Russian subtitles too: they are built from the same
+  `segments.json` as the voicing.
+- Each check is switched on separately: gender, glossary, address, consistency, meaning,
+  length. The review model is separate as well, so a local translation can be reviewed by a
+  cloud one.
+
 ### Local translation
 
 - The `offline` profile finally works out of the box. It switched the engine to Ollama but

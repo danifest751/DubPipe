@@ -551,7 +551,15 @@ function renderJob() {
   if (job.output) notices.push({ tone: 'ok', text: t('job.result', { path: job.output }) });
   for (const warning of job.warnings ?? []) {
     // Ключ словаря, если страница его знает, иначе готовый русский текст.
-    const text = typeof warning === 'string' ? warning : warning.key && hasPhrase(warning.key) ? t(warning.key, warning.params ?? {}) : warning.text;
+    let text;
+    if (typeof warning === 'string') {
+      text = warning;
+    } else if (warning.key && hasPhrase(warning.key)) {
+      // Приставка стадии приходит отдельно: в переводе её нет, и быть не должно.
+      text = (warning.stage ? `[${warning.stage}] ` : '') + t(warning.key, warning.params ?? {});
+    } else {
+      text = warning.text;
+    }
     notices.push({ tone: 'warn', text });
   }
 
