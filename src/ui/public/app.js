@@ -1387,7 +1387,7 @@ function reviewMarks() {
   for (const [id, key] of Object.entries(MIX_KEYS)) {
     const before = review.baseline.overrides.mix[key] ?? review.data.mix[key];
     const after = review.overrides.mix[key] ?? review.data.mix[key];
-    if (before !== after) marks.push({ kind: 'mix', text: `${$(`#${id}`).closest('label').querySelector('span').firstChild.textContent.trim()}: ${before} → ${after} дБ` });
+    if (before !== after) marks.push({ kind: 'mix', text: `${$(`#${id}`).closest('label').querySelector('span').firstChild.textContent.trim()}: ${before} → ${after} ${t('units.db')}` });
   }
   return marks;
 }
@@ -1780,10 +1780,18 @@ function renderComparison(report) {
 
 // --- настройки -------------------------------------------------------------
 
+// Подписи под ползунками собираются из словаря: «дБ» и оценки темпа — такой же
+// текст интерфейса, как и всё остальное, и на английском они тоже английские.
 const SLIDER_LABELS = {
-  'mix.background_gain_db': (v) => `${v > 0 ? '+' : ''}${v} дБ${v <= -20 ? ' — почти без фона' : v >= 0 ? ' — фон на уровне речи' : ''}`,
-  'mix.voice_gain_db': (v) => `${v > 0 ? '+' : ''}${v} дБ`,
-  'alignment.max_tempo': (v) => `до ${Number(v).toFixed(2)}× — ${v <= 1.15 ? 'почти незаметно' : v <= 1.3 ? 'заметно, но естественно' : 'уже торопливо'}`,
+  'mix.background_gain_db': (v) =>
+    `${v > 0 ? '+' : ''}${v} ${t('units.db')}` +
+    (v <= -20 ? t('slider.bg.silent') : v >= 0 ? t('slider.bg.level') : ''),
+  'mix.voice_gain_db': (v) => `${v > 0 ? '+' : ''}${v} ${t('units.db')}`,
+  'alignment.max_tempo': (v) =>
+    t('slider.tempo', {
+      value: Number(v).toFixed(2),
+      shade: t(v <= 1.15 ? 'slider.tempo.subtle' : v <= 1.3 ? 'slider.tempo.natural' : 'slider.tempo.rushed'),
+    }),
 };
 const SLIDER_TARGETS = { 'mix.background_gain_db': '#bgLabel', 'mix.voice_gain_db': '#voiceLabel', 'alignment.max_tempo': '#tempoLabel' };
 

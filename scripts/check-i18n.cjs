@@ -62,7 +62,48 @@ async function main() {
     .filter((text) => !['mp4','mkv','avi','mov','webm','m4a','mp3','wav','srt','json','yaml','yml','log','exe','onnx','bin'].includes(text.split('.').pop().toLowerCase()))
     .slice(0, 5)`);
 
-  console.log(JSON.stringify({ ru, en, afterReload, leftovers }, null, 1));
+  /*
+   * Второй род пропусков: не непереведённый ключ, а русский текст, зашитый в
+   * разметку без ключа вовсе. Проверка выше его не видит — он выглядит как
+   * обычная фраза, — и экран настроек месяцами оставался русским на английском
+   * интерфейсе, пока проверка печатала «ПРОЙДЕНА».
+   *
+   * Смотрим настройки: там таких пояснений больше всего. Группа YAML исключена
+   * намеренно — в ней показан config.yaml пользователя с русскими комментариями,
+   * и это не перевод, а содержимое файла.
+   */
+  await run(`(() => { const s = document.getElementById('uiLang'); s.value = 'en'; s.dispatchEvent(new Event('change')); })()`);
+  await sleep(400);
+  await run(`(() => { const b = [...document.querySelectorAll('#nav button')].find((n) => n.textContent.trim() === 'Settings'); if (b) b.click(); })()`);
+  await sleep(400);
+
+  const cyrillic = [];
+  const groups = await run(`[...document.querySelectorAll('#settingsNav button[data-group]')].map((b) => b.dataset.group)`);
+  for (const group of [...new Set(groups)].filter((g) => g !== 'yaml')) {
+    await run(
+      `(() => { const b = [...document.querySelectorAll('#settingsNav button[data-group]')]` +
+        `.find((n) => n.dataset.group === ${JSON.stringify(group)}); if (b) b.click(); return Boolean(b); })()`,
+    );
+    await sleep(250);
+    const found = await run(`(() => {
+      const out = [];
+      const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+        const text = n.textContent.trim();
+        if (!text) continue;
+        let hasCyrillic = false;
+        for (const ch of text) { const c = ch.charCodeAt(0); if (c >= 0x400 && c <= 0x4ff) { hasCyrillic = true; break; } }
+        if (!hasCyrillic) continue;
+        const el = n.parentElement;
+        if (!el || el.offsetParent === null) continue;
+        out.push(text.slice(0, 80));
+      }
+      return out;
+    })()`);
+    for (const text of found) if (!cyrillic.includes(text)) cyrillic.push(text);
+  }
+
+  console.log(JSON.stringify({ ru, en, afterReload, leftovers, cyrillic }, null, 1));
   const ok =
     ru.lang === 'ru' &&
     en.lang === 'en' &&
@@ -72,7 +113,8 @@ async function main() {
     en.dub === 'Dub' &&
     afterReload.switcher === 'en' &&
     afterReload.nav.includes('Videos') &&
-    leftovers.length === 0;
+    leftovers.length === 0 &&
+    cyrillic.length === 0;
   console.log(ok ? 'ПРОВЕРКА ПРОЙДЕНА' : 'ПРОВЕРКА НЕ ПРОЙДЕНА');
   await server.close?.();
   app.exit(ok ? 0 : 1);

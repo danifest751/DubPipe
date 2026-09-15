@@ -242,14 +242,14 @@
           <section data-view="settings" class="view">
             <div class="view-head">
               <div>
-                <h1>Настройки</h1>
+                <h1 data-i18n="nav.settings">Настройки</h1>
                 <p class="lead" data-i18n="settings.lead">Изменения применяются после сохранения. Значения проверяются, ошибка показывается у поля.</p>
               </div>
             </div>
 
             <div class="settings">
               <nav class="settings-nav" id="settingsNav">
-                <button data-group="translate" class="active">Перевод</button>
+                <button data-group="translate" class="active" data-i18n="settings.group.translate">Перевод</button>
                 <button data-group="voice" data-i18n="settings.group.voice">Голос</button>
                 <button data-group="asr" data-i18n="settings.group.asr">Распознавание</button>
                 <button data-group="audio" data-i18n="settings.group.audio">Звук</button>
@@ -261,7 +261,7 @@
               <form class="settings-form" id="settingsForm" onsubmit="return false">
                 <!-- Перевод -->
                 <fieldset data-group="translate" class="active">
-                  <legend>Перевод</legend>
+                  <legend data-i18n="settings.group.translate">Перевод</legend>
 
                   <div class="opt">
                     <div class="opt-text"><b data-i18n="settings.where">Где переводить</b><span data-i18n="settings.whereNote">Облачная модель качественнее и требует ключ. Локальный вариант работает без сети через Ollama.</span></div>
@@ -272,7 +272,7 @@
                   </div>
 
                   <div class="opt" data-only="hybrid">
-                    <div class="opt-text"><b data-i18n="settings.key">Ключ доступа</b><span id="keyHelp">Ключ Kilo Code. Хранится на этом компьютере отдельно от настроек и никуда не передаётся, кроме шлюза.</span></div>
+                    <div class="opt-text"><b data-i18n="settings.key">Ключ доступа</b><span id="keyHelp" data-i18n="settings.keyNote">Ключ Kilo Code. Хранится на этом компьютере отдельно от настроек и никуда не передаётся, кроме шлюза.</span></div>
                     <div class="opt-ctl stack">
                       <div class="row nowrap">
                         <input id="keyInput" type="password" placeholder="вставьте ключ" data-i18n-placeholder="settings.key.placeholder" autocomplete="off" />
@@ -288,7 +288,7 @@
                   </div>
 
                   <div class="opt" data-only="hybrid">
-                    <div class="opt-text"><b data-i18n="settings.model">Модель</b><span>Весь каталог шлюза Kilo Code; цена — за миллион токенов запроса / ответа. Сравнить несколько на своём видео можно на странице файла.</span></div>
+                    <div class="opt-text"><b data-i18n="settings.model">Модель</b><span data-i18n="settings.modelNote">Весь каталог шлюза Kilo Code; цена — за миллион токенов запроса / ответа. Сравнить несколько на своём материале можно на вкладке «Сравнение моделей».</span></div>
                     <div class="opt-ctl stack">
                       <div class="combo" id="settingsModelCombo">
                         <input data-key="translate.model" id="settingsModel" type="text" placeholder="начните вводить: claude, gpt, free…" data-i18n-placeholder="settings.model.placeholder" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="false" aria-controls="settingsModelList" />
@@ -356,7 +356,7 @@
                     </div>
                   </div>
                   <div class="opt">
-                    <div class="opt-text"><b data-i18n="settings.voiceMap">Голоса спикеров</b><span>Когда в видео несколько говорящих, каждому можно назначить свой голос. Пока диаризация не подключена, все реплики идут как speaker_0.</span></div>
+                    <div class="opt-text"><b data-i18n="settings.voiceMap">Голоса спикеров</b><span data-i18n="settings.voiceMapNote">Когда в видео несколько говорящих, каждому можно назначить свой голос. Пусто — голос раздаётся по полу говорящего, определённому при распознавании.</span></div>
                     <div class="opt-ctl stack" id="voiceMap"></div>
                   </div>
                   <audio id="voicePlayer" controls preload="none" hidden></audio>
@@ -399,7 +399,7 @@
                     <div class="opt-ctl"><label class="switch"><input data-key="asr.vad.enabled" type="checkbox" /><i></i></label></div>
                   </div>
                   <div class="opt">
-                    <div class="opt-text"><b data-i18n="settings.diarization">Разные голоса для персонажей</b><span>Определяет, кто говорит (pyannote, локально на процессоре), и раздаёт голоса по спикерам — см. «Голоса». Нужен Python и однократная загрузка модели.</span></div>
+                    <div class="opt-text"><b data-i18n="settings.diarization">Разные голоса для персонажей</b><span data-i18n="settings.diarizationNote">Определяет, кто говорит (pyannote, локально на процессоре), и раздаёт голоса по спикерам. Требует Python и бесплатный токен Hugging Face для загрузки весов.</span></div>
                     <div class="opt-ctl"><label class="switch"><input data-key="asr.diarization.enabled" type="checkbox" /><i></i></label></div>
                   </div>
                   <div class="opt">
@@ -415,7 +415,7 @@
                     </div>
                   </div>
                   <div class="opt" id="hfTokenBlock">
-                    <div class="opt-text"><b data-i18n="settings.hfToken">Токен Hugging Face</b><span>Нужен один раз — скачать веса модели. Бесплатный, с правом чтения. Перед этим примите условия на странице модели <code>pyannote/speaker-diarization-community-1</code> (huggingface.co). Хранится на этом компьютере, в файл настроек не попадает.</span></div>
+                    <div class="opt-text"><b data-i18n="settings.hfToken">Токен Hugging Face</b><span data-i18n="settings.hfTokenNote">Нужен один раз — скачать веса модели. Бесплатный, с правом чтения. Перед этим примите условия на странице модели pyannote/speaker-diarization-community-1 (huggingface.co). Хранится на этом компьютере, в файл настроек не попадает.</span></div>
                     <div class="opt-ctl stack">
                       <div class="row nowrap">
                         <input id="hfTokenInput" type="password" placeholder="hf_…" autocomplete="off" />
@@ -434,7 +434,7 @@
                 <fieldset data-group="audio">
                   <legend data-i18n="settings.group.audio">Звук</legend>
                   <div class="opt">
-                    <div class="opt-text"><b data-i18n="settings.separation">Убирать оригинальную речь из фонограммы</b><span>Отделяет голос от музыки нейросетью. Заметно дольше, нужен Python с numpy и onnxruntime. Иначе оригинал просто приглушается на время реплик.</span></div>
+                    <div class="opt-text"><b data-i18n="settings.separation">Убирать оригинальную речь из фонограммы</b><span data-i18n="settings.separationNote">Отделяет голос от музыки нейросетью. Заметно дольше, нужен Python с numpy и onnxruntime. Иначе оригинал просто приглушается под русской речью.</span></div>
                     <div class="opt-ctl"><label class="switch"><input data-key="separation.enabled" type="checkbox" /><i></i></label></div>
                   </div>
                   <div class="opt">
@@ -545,7 +545,7 @@
           <section data-view="environment" class="view">
             <div class="view-head">
               <div>
-                <h1>Окружение</h1>
+                <h1 data-i18n="nav.environment">Окружение</h1>
                 <p class="lead" data-i18n="env.lead">Программы и модели загружаются в служебный каталог — без установки в систему и прав администратора.</p>
               </div>
               <div class="row">
