@@ -12,7 +12,7 @@ import { effectiveSpeechShape, rememberCalibration } from '../core/calibration.j
 import { roomFor } from './s3-translate.js';
 import { sha256 } from '../util/hash.js';
 import { readClip, writeClip } from '../util/wav.js';
-import { sourcePhrases, splitTranslation, type PhrasePlan } from './s5-phrases.js';
+import { sourcePhrases, speakable, splitTranslation, type PhrasePlan } from './s5-phrases.js';
 
 /**
  * S5 — speech synthesis, one clip per replica (SPEC FR-5).
@@ -239,7 +239,27 @@ async function synthesizeAll(
   const warnings: StageWarning[] = [];
   const outputDir = await workspace.subdir('tts');
 
-  const pending = segments.filter((segment) => segment.text_ru && segment.text_ru.trim().length > 0);
+  const written = segments.filter((segment) => segment.text_ru && segment.text_ru.trim().length > 0);
+  /*
+   * Реплика, в которой синтезатору нечего произнести, синтез не останавливает.
+   *
+   * Русский движок латиницу выбрасывает молча, а на реплике из одной латиницы
+   * отвечает отказом — и этот отказ валил стадию целиком: фильм не озвучивался
+   * из-за одной строки. Теперь строка остаётся без клипа, как всякая
+   * непереведённая, и о ней сказано человеку.
+   */
+  const mute = written.filter((segment) => !speakable(segment.text_ru!));
+  if (mute.length > 0) {
+    const first = mute[0]!;
+    warnings.push(
+      warn(
+        'warn.s5.nothingToSay',
+        `${mute.length} реплик не озвучены: в переводе нет русских букв (первая — ${first.id}: «${first.text_ru!.slice(0, 40)}»)`,
+        { count: mute.length, id: first.id, text: first.text_ru!.slice(0, 40) },
+      ),
+    );
+  }
+  const pending = written.filter((segment) => speakable(segment.text_ru!));
   if (pending.length === 0) {
     return { segments, provider: provider.name, warnings: ['Нет переведённых реплик для синтеза'], measuredCps: null };
   }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildPhraseRequest, parsePhraseResponse, sourcePhrases, splitTranslation } from '../src/stages/s5-phrases.js';
+import { buildPhraseRequest, parsePhraseResponse, sourcePhrases, speakable, splitTranslation } from '../src/stages/s5-phrases.js';
 import { applyReview } from '../src/stages/review.js';
 import { makeSegment } from '../src/core/types.js';
 
@@ -76,6 +76,20 @@ describe('разбиение перевода', () => {
     expect(plan!.pauses).toHaveLength(1);
   });
 
+  it('немой кусок отменяет разбиение целиком', () => {
+    /*
+     * Настоящий случай, на нём встала озвучка ролика про локальные модели:
+     * «специальную команду — ollama serve.» резалась по тире, и второму куску
+     * доставалась одна латиница. Русский синтезатор её не читает — он ответил
+     * пустой ошибкой `ValueError:`, и стадия упала, хотя целиком эта реплика
+     * произносится прекрасно.
+     */
+    expect(splitTranslation('специальную команду — ollama serve', twoPhrases)).toBeNull();
+    // Та же реплика с русским во втором куске делится как прежде.
+    const plan = splitTranslation('специальную команду — запусти сервер', twoPhrases);
+    expect(plan!.parts).toEqual(['специальную команду —', 'запусти сервер']);
+  });
+
   it('огрызков не делает и одну фразу не делит', () => {
     expect(splitTranslation('Да, нет', twoPhrases)).toBeNull();
     expect(splitTranslation('Мира больше нет', [{ start: 0, end: 1, pauseAfter: 0 }])).toBeNull();
@@ -135,8 +149,27 @@ describe('разметка фраз моделью', () => {
     expect(parsePhraseResponse('{"items":[{"id":99,"parts":["а","б"]}]}', asked()).size).toBe(0);
   });
 
+  it('немой кусок от модели тоже не берётся', () => {
+    const asked = new Map([
+      [7, { id: 7, ru: 'ставим ollama serve и ждём', phrases: [1.2, 0.6], pauses: [0.4] }],
+    ]);
+    expect(parsePhraseResponse('{"items":[{"id":7,"parts":["ставим","ollama serve и ждём"]}]}', asked).size).toBe(1);
+    expect(parsePhraseResponse('{"items":[{"id":7,"parts":["ставим ollama serve","и ждём"]}]}', asked).size).toBe(1);
+    expect(parsePhraseResponse('{"items":[{"id":7,"parts":["ollama serve","и ждём ставим"]}]}', asked).size).toBe(0);
+  });
+
   it('ответ без JSON — это ошибка, а не молчаливый пропуск', () => {
     expect(() => parsePhraseResponse('не могу', asked())).toThrow();
+  });
+});
+
+describe('что синтезатору есть произнести', () => {
+  it('русская буква — есть, латиница и цифры — нет', () => {
+    expect(speakable('Когда её запустишь')).toBe(true);
+    expect(speakable('Ollama')).toBe(false);
+    expect(speakable('2026')).toBe(false);
+    expect(speakable('—')).toBe(false);
+    expect(speakable('Ollama и порт')).toBe(true);
   });
 });
 

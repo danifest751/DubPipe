@@ -508,6 +508,10 @@ const DICTIONARY = {
     ru: '{count} реплик ({share}%) не укладываются в слот даже при максимальном темпе — стадия S6 отключена, реплики будут наезжать друг на друга',
     en: '{count} lines ({share}%) do not fit their slot even at maximum tempo — stage S6 is off, so lines will overlap',
   },
+  'warn.s5.nothingToSay': {
+    ru: '{count} реплик не озвучены: в переводе нет русских букв (первая — {id}: «{text}»). Русский синтезатор латиницу не читает',
+    en: '{count} lines are not voiced: their translation has no Russian letters (first — {id}: “{text}”). The Russian engine does not read Latin',
+  },
   'warn.s5.rate': {
     ru: 'Фактический темп синтеза {measured} симв/с отличается от того, в который целился перевод ({used}). Замер запомнен — следующий прогон этого голоса попадёт точнее',
     en: 'The measured synthesis rate {measured} chars/s differs from the one the translation aimed at ({used}). The measurement is remembered, so the next run of this voice will aim better',

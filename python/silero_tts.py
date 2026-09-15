@@ -86,7 +86,14 @@ class Voices:
             raise KeyError(f"диктора «{name}» нет в поднятых моделях")
         tag, speaker = found
         rate = int(request.get("sample_rate", 48000))
-        return self.models[tag].apply_tts(text=request["text"], speaker=speaker, sample_rate=rate), rate
+        try:
+            audio = self.models[tag].apply_tts(text=request["text"], speaker=speaker, sample_rate=rate)
+        except ValueError as error:
+            # Русская модель выбрасывает незнакомые символы, и на тексте из одной
+            # латиницы ей нечего произнести. Ошибка приходит пустой: «ValueError: »
+            # — по такой не понять ничего, а стадия на ней встаёт.
+            raise ValueError(str(error) or f"нечего произносить: {request['text'][:60]!r}") from None
+        return audio, rate
 
 
 def main():

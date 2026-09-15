@@ -24,6 +24,23 @@ import type { WordTiming } from '../core/types.js';
  * не делим, и реплика озвучивается целиком, как раньше.
  */
 
+/**
+ * Есть ли в куске что произносить.
+ *
+ * Русский синтезатор латиницу не читает — он её молча выбрасывает: «Ollama
+ * запущена и готова» звучит ровно столько же, сколько «запущена и готова»,
+ * 1.675 с. А кусок из одной латиницы не оставляет ему вообще ничего, и silero
+ * отвечает пустой ошибкой `ValueError:` — на ней и встала озвучка ролика про
+ * локальные модели: разрез по тире оставил кусок «ollama serve.».
+ *
+ * Поэтому куском считается только то, где есть хоть одна русская буква. Резать
+ * реплику так, чтобы синтезатору достался немой кусок, нельзя: целиком она
+ * произносится, а по частям — нет.
+ */
+export function speakable(text: string): boolean {
+  return /[а-яё]/i.test(text);
+}
+
 export interface SourcePhrase {
   /** Границы фразы в оригинале, секунды от начала записи. */
   start: number;
@@ -128,6 +145,8 @@ export function splitTranslation(text: string, phrases: SourcePhrase[], options:
     at = cut;
   }
   if (parts.some((part) => part.length < minChars)) return null;
+  // Немой кусок — не кусок: см. `speakable`.
+  if (parts.some((part) => !speakable(part))) return null;
 
   return { parts, pauses: cuts.map((cut) => taken.get(cut)!) };
 }
@@ -202,6 +221,7 @@ export function parsePhraseResponse(raw: string, expected: Map<number, PhraseReq
     const parts = record['parts'].filter((part): part is string => typeof part === 'string').map((part) => part.trim());
     if (parts.length < 2 || parts.length > asked.phrases.length) continue;
     if (parts.some((part) => part.length === 0)) continue;
+    if (parts.some((part) => !speakable(part))) continue;
     if (skeleton(parts.join(' ')) !== skeleton(asked.ru)) continue;
     // Пауз нужно на одну меньше, чем кусков; берём первые — они в порядке речи.
     plans.set(id, { parts, pauses: asked.pauses.slice(0, parts.length - 1) });
