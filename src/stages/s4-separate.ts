@@ -83,6 +83,30 @@ export async function probePython(): Promise<PythonEnvironment> {
   return { available: false, executable: null, missing: ['python'], providers: [] };
 }
 
+/**
+ * Какие из названных модулей у этого Python отсутствуют.
+ *
+ * Спрашивается через `find_spec`, а не импортом: импорт torch стоит секунды, а
+ * экран готовности опрашивается часто. Нужен он для движка синтеза silero —
+ * `probePython` выше проверяет numpy и onnxruntime, то есть нужды разделения,
+ * и «Python есть» само по себе не значит, что синтез заработает.
+ */
+export async function missingPythonModules(executable: string, names: string[]): Promise<string[]> {
+  const script = [
+    'import json, importlib.util',
+    `names = ${JSON.stringify(names)}`,
+    'print(json.dumps([n for n in names if importlib.util.find_spec(n) is None]))',
+  ].join(String.fromCharCode(10));
+  try {
+    const { stdout } = await run(executable, ['-c', script], { timeoutMs: 60_000 });
+    const missing = JSON.parse(stdout.trim() || '[]') as unknown;
+    return Array.isArray(missing) ? missing.map(String) : [];
+  } catch {
+    // Не удалось спросить — не выдумываем ответ: пусть решает тот, кто вызвал.
+    return names;
+  }
+}
+
 export interface S4Result {
   backgroundPath: string | null;
   warnings: string[];

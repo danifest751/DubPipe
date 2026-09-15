@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile, rm, readdir } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rm, readdir, stat } from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
 import { normalizeOverrides, type ProjectOverrides, type SpeakerProfiles } from './overrides.js';
 import type { Cue } from '../stages/subtitles.js';
 import { existsSync } from 'node:fs';
@@ -183,6 +184,37 @@ export interface StageState {
 }
 
 /** Config subsets that actually influence each stage's output. */
+/**
+ * Сколько места занимает каталог со всем содержимым, в байтах.
+ *
+ * Нужен интерфейсу: рабочий каталог разрастается незаметно — замер на реальной
+ * машине дал 20 ГБ на шестнадцать фильмов, — а до этого единственным сигналом
+ * был кончившийся диск. Считаются только записи каталога, файлы не читаются,
+ * поэтому на тысячах файлов это доли секунды.
+ */
+export async function directorySize(dir: string): Promise<number> {
+  let total = 0;
+  let entries: Dirent[];
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      total += await directorySize(full);
+    } else {
+      try {
+        total += (await stat(full)).size;
+      } catch {
+        // Файл исчез между перечислением и замером — не повод падать.
+      }
+    }
+  }
+  return total;
+}
+
 export function stageConfigSlice(stage: StageId, config: DubConfig): unknown {
   switch (stage) {
     case 's1':

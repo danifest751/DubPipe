@@ -118,6 +118,7 @@
                 <span class="meta" id="outPreview"></span>
               </div>
               <button id="clearProjectCache" class="ghost small" data-i18n="project.clearCache">Сбросить кэш этого файла</button>
+              <span id="projectCacheSize" class="muted"></span>
             </div>
 
             <div class="stepper" id="stepper"></div>
@@ -349,6 +350,15 @@
                     </div>
                   </div>
                   <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.ttsEngine">Движок синтеза</b><span data-i18n="settings.ttsEngineNote">piper не требует ничего дополнительно. silero даёт 29 русских голосов вместо четырёх и синтезирует заметно быстрее, но ему нужен Python с torch.</span></div>
+                    <div class="opt-ctl">
+                      <select data-key="tts.engine" id="ttsEngine">
+                        <option value="piper" data-i18n="settings.ttsEngine.piper">piper — 4 голоса, без Python</option>
+                        <option value="silero" data-i18n="settings.ttsEngine.silero">silero — 29 голосов, нужен Python с torch</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="opt">
                     <div class="opt-text"><b data-i18n="settings.defaultVoice">Голос по умолчанию</b><span data-i18n="settings.defaultVoiceNote">Русские голоса piper. Работают без сети.</span></div>
                     <div class="opt-ctl row nowrap">
                       <select data-key="tts.default_voice" id="defaultVoice"></select>
@@ -517,7 +527,7 @@
                   </div>
                   <div class="opt">
                     <div class="opt-text"><b data-i18n="settings.cacheFiles">Кэш обработанных файлов</b><span data-i18n="settings.cacheFilesNote">Программы и модели не удаляются — только промежуточные результаты.</span></div>
-                    <div class="opt-ctl"><button id="clearAllCache" class="small" type="button" data-i18n="settings.clearCache">Очистить кэш</button></div>
+                    <div class="opt-ctl row nowrap"><span id="cacheSize" class="muted"></span><button id="clearAllCache" class="small" type="button" data-i18n="settings.clearCache">Очистить кэш</button></div>
                   </div>
                   <div class="opt">
                     <div class="opt-text"><b data-i18n="settings.configFile">Файл настроек</b></div>

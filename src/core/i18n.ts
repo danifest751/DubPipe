@@ -38,7 +38,7 @@ const MESSAGES: Record<string, Record<UiLanguage, string>> = {
   'ready.piper.noVoice': { ru: 'нет голоса', en: 'the voice is missing' },
   'ready.piper.blocks': { ru: 'стадия S5: без неё не будет озвучки', en: 'stage S5: without it there is no voicing' },
   'ready.silero.title': { ru: 'Синтез речи — голоса silero ({voice})', en: 'Speech synthesis — silero voices ({voice})' },
-  'ready.silero.noPython': { ru: 'нет Python — движку silero он нужен', en: 'Python is missing — the silero engine needs it' },
+  'ready.silero.noPython': { ru: 'не хватает для синтеза: {missing}', en: 'missing for synthesis: {missing}' },
   'ready.silero.noModel': { ru: 'модель голосов не скачана', en: 'the voice model is not downloaded' },
   'ready.silero.willFetch': {
     ru: 'скачается сама при первой озвучке, 92 МБ на все 29 голосов',

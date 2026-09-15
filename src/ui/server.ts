@@ -14,14 +14,14 @@ import { progress, type ProgressEvent } from '../core/progress.js';
 import { LEGAL_NOTICE } from '../core/legal.js';
 import { runPipeline } from '../core/pipeline.js';
 import { STAGE_IDS, STAGE_TITLES, type Segment, type StageId } from '../core/types.js';
-import { Workspace, TOOL_VERSION } from '../core/workspace.js';
+import { directorySize, Workspace, TOOL_VERSION } from '../core/workspace.js';
 import { compareModels } from '../core/compare.js';
 import { filterCatalog, loadCatalog } from '../providers/llm/catalog.js';
-import { voicesForEngine } from '../providers/tts/voices.js';
+import { defaultVoiceFor, voicesForEngine } from '../providers/tts/voices.js';
 import { SILERO_MODEL } from '../providers/tts/silero-voices.js';
 import { createTtsProvider } from '../providers/tts/index.js';
 import { KiloGatewayClient } from '../providers/llm/gateway.js';
-import { probePython } from '../stages/s4-separate.js';
+import { missingPythonModules, probePython } from '../stages/s4-separate.js';
 import { installDiarization, probeDiarization, resetDiarizationProbe } from '../providers/diarization/pyannote.js';
 import { applyLogRecord, finishStages, type JobStage } from './job-progress.js';
 import { checkModel } from '../core/model-check.js';
@@ -468,7 +468,10 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
     if (config.tts.engine === 'silero') {
       const model = path.join(modelsDir, 'silero', `${SILERO_MODEL.name}.pt`);
       const python = await probePython();
-      const hasPython = python.executable !== null;
+      // Мало найти Python: движку нужны torch и soundfile, а probePython
+      // спрашивает про numpy и onnxruntime — это нужды разделения, не синтеза.
+      const missing = python.executable === null ? ['python'] : await missingPythonModules(python.executable, ['torch', 'soundfile']);
+      const hasPython = python.executable !== null && missing.length === 0;
       const hasModel = existsSync(model);
       // Модель скачивается сама при первом синтезе, поэтому её отсутствие —
       // не преграда, а предупреждение о предстоящей загрузке. Кнопка «докачать»
@@ -478,7 +481,9 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
         id: 'silero',
         title: message('ready.silero.title', lang, { voice: config.tts.default_voice }),
         state: ttsReady ? 'ok' : hasPython ? 'warn' : 'blocked',
-        detail: message(!hasPython ? 'ready.silero.noPython' : hasModel ? 'ready.ready' : 'ready.silero.noModel', lang),
+        detail: hasPython
+          ? message(hasModel ? 'ready.ready' : 'ready.silero.noModel', lang)
+          : message('ready.silero.noPython', lang, { missing: missing.join(', ') }),
         blocks: ttsReady ? null : message('ready.piper.blocks', lang),
         hint: ttsReady ? null : message(hasPython ? 'ready.silero.willFetch' : 'diarization.noPythonHint', lang),
         canFix: false,
@@ -972,6 +977,29 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       return true;
     }
 
+    if (route === '/api/cache/size' && method === 'GET') {
+      // Размер показывается рядом с кнопкой очистки: без него человек узнавал о
+      // выросшем каталоге только тогда, когда кончался диск.
+      const root = path.resolve(process.cwd(), config.cache.dir);
+      const input = url.searchParams.get('input');
+      if (input) {
+        const workspace = await Workspace.open(input, config);
+        sendJson(response, 200, { bytes: await directorySize(workspace.dir) });
+        return true;
+      }
+      const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+      const projects = entries.filter((entry) => entry.isDirectory() && !['models', 'tools', 'samples'].includes(entry.name));
+      let bytes = 0;
+      for (const project of projects) bytes += await directorySize(path.join(root, project.name));
+      sendJson(response, 200, {
+        bytes,
+        projects: projects.length,
+        modelsBytes: await directorySize(path.join(root, 'models')),
+        toolsBytes: await directorySize(path.join(root, 'tools')),
+      });
+      return true;
+    }
+
     if (route === '/api/cache/clear' && method === 'POST') {
       const body = (await readBody(request)) as { input?: string };
       if (job?.status === 'running') {
@@ -1015,10 +1043,17 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
     }
 
     if (route === '/api/voices' && method === 'GET') {
+      // Каталог можно спросить и про другой движок: форма настроек показывает
+      // его голоса ещё до сохранения, чтобы выбор движка не оставлял её с
+      // именами, которых новый движок не знает.
+      const asked = url.searchParams.get('engine');
+      const engine = asked === 'piper' || asked === 'silero' ? asked : config.tts.engine;
+      const own = engine === config.tts.engine;
       sendJson(response, 200, {
-        voices: voicesForEngine(config.tts.engine),
-        defaultVoice: config.tts.default_voice,
-        voiceMap: config.tts.voice_map,
+        engine,
+        voices: voicesForEngine(engine),
+        defaultVoice: own ? config.tts.default_voice : defaultVoiceFor(engine),
+        voiceMap: own ? config.tts.voice_map : {},
       });
       return true;
     }

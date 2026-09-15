@@ -389,6 +389,7 @@ async function openProject(input, options = {}) {
   $('#advanced').hidden = true;
   showView('project');
   renderJob();
+  void showProjectCacheSize();
   await loadSegments().catch(() => {});
   if (options.subtitles) {
     showSubtab('subtitles');
@@ -444,6 +445,7 @@ $('#cancelJob').addEventListener('click', (event) =>
 $('#clearProjectCache').addEventListener('click', (event) =>
   withBusy(event.currentTarget, async () => {
     await post('/api/cache/clear', { input: state.project });
+    void showProjectCacheSize();
     toast(t('project.cacheCleared'), 'ok');
     await loadSegments().catch(() => {});
   }).catch(showError),
@@ -1319,7 +1321,7 @@ function renderReviewNow() {
       </div>
     </div>
     <div class="now-en">${escapeHtml(segment.text_en)}</div>
-    <textarea id="reviewText" rows="2" title="${escapeAttr(t('review.textTitle'))}">${escapeHtml(segment.text_ru ?? '')}</textarea>
+    <textarea id="reviewText" rows="3" title="${escapeAttr(t('review.textTitle'))}">${escapeHtml(segment.text_ru ?? '')}</textarea>
     <div class="now-row">
       <label>${t('review.speakerLabel')} <select id="reviewSpeaker">${speakers.map((item) => `<option value="${escapeAttr(item)}" ${item === segment.speaker ? 'selected' : ''}>${escapeHtml(item)}</option>`).join('')}<option value="__new">${t('review.newSpeaker')}</option></select></label>
       <span class="meta">${t('review.voiceIs', { name: escapeHtml(voice.name), gender: voice.gender })}${genderNote(segment.speaker)}</span>
@@ -1469,6 +1471,7 @@ $('#reviewReset').addEventListener('click', (event) =>
   withBusy(event.currentTarget, async () => {
     if (!window.confirm(t('review.resetConfirm'))) return;
     await post('/api/cache/clear', { input: state.project });
+    void showProjectCacheSize();
     toast(t('review.resetDone'), 'ok', 6000);
     await loadSegments().catch(() => {});
   }).catch(showError),
@@ -1875,6 +1878,55 @@ function fillForm(config) {
   renderVoiceMap(config);
 }
 
+/**
+ * Сколько занимает рабочий каталог — рядом с кнопкой очистки и на странице файла.
+ *
+ * Без этой цифры человек не знает, чистить ли: замер на реальной машине дал
+ * 20 ГБ на шестнадцать фильмов, и единственным сигналом был кончившийся диск.
+ * Считается по запросу, а не при каждой отрисовке: обход каталога стоит времени.
+ */
+async function showCacheSize() {
+  const box = $('#cacheSize');
+  if (!box) return;
+  try {
+    const data = await api('/api/cache/size');
+    box.textContent = t('cache.size', { size: formatBytes(data.bytes), count: data.projects });
+  } catch {
+    box.textContent = '';
+  }
+}
+
+async function showProjectCacheSize() {
+  const box = $('#projectCacheSize');
+  if (!box) return;
+  box.textContent = '';
+  if (!state.project) return;
+  try {
+    const data = await api(`/api/cache/size?input=${encodeURIComponent(state.project)}`);
+    box.textContent = t('cache.sizeProject', { size: formatBytes(data.bytes) });
+  } catch {
+    box.textContent = '';
+  }
+}
+
+/**
+ * Список голосов и пояснение под ним — по тому движку, чей каталог пришёл.
+ *
+ * Раньше здесь всегда стояли голоса piper и подпись про piper: выбрав другой
+ * движок, человек видел имена, которых тот не знает, и настройки отвергались
+ * при сохранении.
+ */
+function renderVoiceChoices(voices) {
+  $('#defaultVoice').innerHTML = voices.voices
+    .map((v) => `<option value="${v.name}">${escapeHtml(v.name)} — ${v.gender}, ${escapeHtml(v.note)}</option>`)
+    .join('');
+  $('#defaultVoice').value = voices.defaultVoice ?? '';
+  const note = $('#defaultVoice').closest('.opt').querySelector('.opt-text span');
+  const key = voices.engine === 'silero' ? 'settings.defaultVoiceNote.silero' : 'settings.defaultVoiceNote.piper';
+  note.dataset.i18n = key;
+  note.textContent = t(key);
+}
+
 function markDirty(key, value) {
   state.dirty[key] = value;
   $('#savebar').hidden = false;
@@ -1890,6 +1942,19 @@ $$('#settingsForm [data-key]').forEach((field) => {
   field.addEventListener(field.type === 'range' ? 'input' : 'change', handler);
 });
 
+$('#ttsEngine').addEventListener('change', async (event) => {
+  const engine = event.currentTarget.value;
+  const voices = await api(`/api/voices?engine=${encodeURIComponent(engine)}`);
+  state.voices = voices.voices;
+  renderVoiceChoices(voices);
+  // Голоса на спикеров — из того же каталога: иначе в списках рядом остались бы
+  // имена прежнего движка, которых новый не знает.
+  markDirty('tts.voice_map', {});
+  renderVoiceMap({ ...state.config, tts: { ...state.config.tts, voice_map: {}, engine } });
+  // Имя голоса из чужого каталога схема отвергнет, поэтому меняем оба поля разом.
+  markDirty('tts.default_voice', voices.defaultVoice);
+});
+
 $$('input[name="profile"]').forEach((radio) =>
   radio.addEventListener('change', () => {
     markDirty('profile', radio.value);
@@ -1903,7 +1968,16 @@ $('#configText').addEventListener('input', () => { state.yamlDirty = true; $('#s
 function renderVoiceMap(config) {
   const voices = state.voices ?? [];
   const map = config.tts.voice_map ?? {};
-  const speakers = Array.from(new Set(['speaker_0', 'speaker_1', ...Object.keys(map)]));
+  /*
+   * Сколько строк показывать, решает настройка диаризации, а не выдуманная пара.
+   *
+   * Здесь всегда стояли ровно speaker_0 и speaker_1, независимо от материала:
+   * в фильме с тремя героями третьего в настройках просто не было, хотя
+   * диаризация по умолчанию ищет до четырёх.
+   */
+  const limit = config.asr?.diarization?.max_speakers ?? 4;
+  const found = Array.from({ length: limit }, (unused, index) => `speaker_${index}`);
+  const speakers = Array.from(new Set([...found, ...Object.keys(map)]));
   $('#voiceMap').innerHTML = speakers
     .map((speaker) => `<div class="row nowrap"><span class="mono" style="width:90px">${escapeHtml(speaker)}</span>
       <select data-voicemap="${speaker}"><option value="">${t('settings.asDefault')}</option>${voices.map((v) => `<option value="${v.name}" ${map[speaker] === v.name ? 'selected' : ''}>${escapeHtml(v.name)} (${v.gender})</option>`).join('')}</select></div>`)
@@ -2107,7 +2181,7 @@ async function loadSettings() {
     api('/api/config'), api('/api/voices'), api('/api/key'), api('/api/hf-token'), api('/api/state'), loadSettingsCatalog(),
   ]);
   state.voices = voices.voices;
-  $('#defaultVoice').innerHTML = voices.voices.map((v) => `<option value="${v.name}">${escapeHtml(v.name)} — ${v.gender}, ${escapeHtml(v.note)}</option>`).join('');
+  renderVoiceChoices(voices);
   $('#configPath').textContent = configData.path + (configData.exists ? '' : t('settings.willBeCreated'));
   $('#configText').value = configData.text;
   $('#cacheDir').textContent = stateData.cacheDir;
@@ -2117,6 +2191,7 @@ async function loadSettings() {
   renderModelList();
   renderKey(key);
   renderHfToken(hfToken);
+  void showCacheSize();
 }
 
 function renderHfToken(token) {
@@ -2199,6 +2274,7 @@ $('#previewVoice').addEventListener('click', (event) =>
 $('#clearAllCache').addEventListener('click', (event) =>
   withBusy(event.currentTarget, async () => {
     const result = await post('/api/cache/clear');
+    void showCacheSize();
     toast(t('settings.cleared', { count: result.removed }), 'ok');
     await refreshState();
   }).catch(showError),

@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { downloadFile } from '../../util/download.js';
 import { StageError } from '../../core/errors.js';
-import { SILERO_VOICES } from './silero-voices.js';
+import { SILERO_DEFAULT_VOICE, SILERO_VOICES } from './silero-voices.js';
 
 /**
  * Piper voice management (SPEC FR-5). Voices are ONNX files fetched on first use
@@ -91,6 +91,14 @@ export async function ensureVoice(voice: string, modelsDir: string): Promise<Res
  */
 export function voicesForEngine(engine: string): VoiceInfo[] {
   return engine === 'silero' ? SILERO_VOICES : RUSSIAN_VOICES;
+}
+
+/**
+ * Голос по умолчанию для движка. Нужен при переключении движка: имена каталогов
+ * не пересекаются, и прежний голос для нового движка — не голос, а ошибка.
+ */
+export function defaultVoiceFor(engine: string): string {
+  return engine === 'silero' ? SILERO_DEFAULT_VOICE : 'ru_RU-irina-medium';
 }
 
 /** Voice for a speaker, falling back to the default (SPEC FR-5). */

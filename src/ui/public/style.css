@@ -904,10 +904,20 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .review-now .now-title b { font-size: 14px; margin-right: 6px; }
 .review-now .now-nav { display: flex; flex-wrap: wrap; gap: 6px; }
 .review-now .now-en { color: var(--text-dim); font-size: 13px; }
-.review-now textarea { width: 100%; box-sizing: border-box; height: 58px; min-height: 58px; max-height: 140px; resize: vertical; font: inherit; font-size: 13px; }
+/*
+ * Поле правки перевода переносит строки и растёт до трёх.
+ *
+ * Общее правило для textarea задаёт `white-space: pre` — это для редактора YAML,
+ * где перенос портит файл. Здесь оно давало однострочное поле с горизонтальной
+ * прокруткой: реплику длиннее сорока знаков приходилось листать вбок, а это
+ * главный инструмент ручной правки. В таблице реплик перенос уже возвращён,
+ * тут его забыли.
+ */
+.review-now textarea { width: 100%; box-sizing: border-box; height: 76px; min-height: 76px; max-height: 220px; resize: vertical; font: inherit; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .review-now .now-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12.5px; }
 .review-now .now-row label { display: flex; align-items: center; gap: 6px; }
-.review-now select { max-width: 260px; }
+/* Имена голосов длинные: 260px обрезали их посреди слова. */
+.review-now select { max-width: 100%; }
 .review-mix { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--surface); }
 .review-mix .slider { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
 .review-mix .slider em { font-style: normal; color: var(--accent); margin-left: 6px; }
