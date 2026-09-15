@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { SILERO_DEFAULT_VOICE, SILERO_VOICES } from '../providers/tts/silero-voices.js';
+import { DEFAULT_FILENAME_TEMPLATE, DOWNLOAD_QUALITIES } from '../util/ytdlp.js';
 
 /**
  * Configuration contract (SPEC §5.3) plus execution profiles (SPEC §15).
@@ -375,6 +376,51 @@ const subtitlesSchema = z.object({
   max_cps: z.number().min(5).max(30).default(17),
 });
 
+/**
+ * Загрузка по ссылке (SPEC FR-1).
+ *
+ * Настройки вынесены отдельно, потому что загрузка перестала быть предисловием
+ * к стадии: `dub fetch` скачивает без конвейера, а ссылку разбирают до старта,
+ * чтобы человек видел, что именно он собирается дублировать.
+ */
+const downloadSchema = z.object({
+  /** Куда складывать файлы: null — в рабочую папку, рядом с будущим дубляжем. */
+  dir: z.string().nullable().default(null),
+  /**
+   * Порог качества, а не точное разрешение: ровно 1080 дорожки есть не всегда,
+   * а для дубляжа важнее звук — видео копируется без перекодирования.
+   * `audio` берёт только звук: для режима «только субтитры» видео не нужно.
+   */
+  quality: z.enum(DOWNLOAD_QUALITIES).default('1080p'),
+  container: z.enum(['mp4', 'mkv']).default('mp4'),
+  /** Название плюс id: одноимённые ролики разных каналов не перетирают друг друга. */
+  filename_template: z.string().min(1).default(DEFAULT_FILENAME_TEMPLATE),
+  /** `ask` — спрашивать, `first` — только видео из ссылки, `all` — весь плейлист. */
+  playlist: z.enum(['ask', 'first', 'all']).default('ask'),
+  write_thumbnail: z.boolean().default(false),
+  write_subtitles: z.boolean().default(false),
+  subtitle_languages: z.array(z.string().min(2)).default(['en']),
+  /**
+   * Куки браузера — единственный способ скачать видео с возрастным
+   * ограничением или когда YouTube просит «подтвердить, что вы не робот».
+   * Это доступ к аккаунту, поэтому по умолчанию выключено.
+   */
+  cookies_from_browser: z
+    .enum(['chrome', 'chromium', 'firefox', 'edge', 'brave', 'opera', 'vivaldi', 'safari'])
+    .nullable()
+    .default(null),
+  /**
+   * Путь к cookies.txt для тех, кто не хочет пускать программу в браузер.
+   * Сам файл — учётные данные: он не читается, не копируется и не попадает в
+   * журнал, а в интерфейсе задаётся отдельно от остальных настроек.
+   */
+  cookies_file: z.string().nullable().default(null),
+  /** Сколько фрагментов тянуть сразу внутри одной загрузки. */
+  concurrent_fragments: z.number().int().min(1).max(16).default(4),
+  /** Подсказывать в doctor, что встроенный yt-dlp устарел. */
+  update_check: z.boolean().default(true),
+});
+
 const cacheSchema = z.object({
   enabled: z.boolean().default(true),
   dir: z.string().min(1).default('.dubpipe'),
@@ -406,6 +452,7 @@ export const configSchema = z
     alignment: alignmentSchema.default({}),
     mix: mixSchema.default({}),
     subtitles: subtitlesSchema.default({}),
+    download: downloadSchema.default({}),
     cache: cacheSchema.default({}),
   })
   .strict()
