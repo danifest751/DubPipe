@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import path from 'node:path';
 import { fileMetadataArgs } from '../src/stages/s7-mix.js';
 
 /**
@@ -8,6 +9,10 @@ import { fileMetadataArgs } from '../src/stages/s7-mix.js';
  * глобальные метаданные первого входа, — поэтому S7 дописывает только то, что
  * отличает перевод от оригинала: иначе дубляж выглядел бы в плеере копией
  * исходника.
+ *
+ * Пути собираются через `path.join`, а не пишутся как `C:\…`: тесты идут и на
+ * Linux, где обратный слэш — обычный символ, и литеральный Windows-путь там не
+ * разбирается на части. На этом CI уже падал.
  */
 describe('§FR-7: теги дубляжа', () => {
   it('называет итог по названию оригинала', () => {
@@ -20,24 +25,19 @@ describe('§FR-7: теги дубляжа', () => {
   });
 
   it('для локального файла берёт название из имени', () => {
-    const args = fileMetadataArgs({
-      input: 'C:\\videos\\lecture.mp4',
-      source_path: 'C:\\videos\\lecture.mp4',
-    });
-    expect(args).toEqual(['-metadata', 'title=lecture (RU)']);
+    const file = path.join('videos', 'lecture.mp4');
+    expect(fileMetadataArgs({ input: file, source_path: file })).toEqual(['-metadata', 'title=lecture (RU)']);
   });
 
   it('старым рабочим каталогам названия хватает из пути', () => {
     // Поля source_title там нет: оно появилось вместе с тегами.
-    const args = fileMetadataArgs({
-      input: 'https://youtu.be/id',
-      source_path: 'C:\\videos\\Ролик [dQw4w9WgXcQ].mp4',
-    });
+    const cached = path.join('videos', 'Ролик [dQw4w9WgXcQ].mp4');
+    const args = fileMetadataArgs({ input: 'https://youtu.be/id', source_path: cached });
     expect(args).toContain('title=Ролик [dQw4w9WgXcQ] (RU)');
   });
 
   it('без ссылки на источник comment не выдумывается', () => {
-    const args = fileMetadataArgs({ input: 'C:\\videos\\a.mp4', source_title: 'Фильм' });
+    const args = fileMetadataArgs({ input: path.join('videos', 'a.mp4'), source_title: 'Фильм' });
     expect(args.join(' ')).not.toContain('comment=');
   });
 
