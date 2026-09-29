@@ -1,0 +1,62 @@
+# dubpipe-worker в Docker — сервис DubPipe на машине с видеокартой NVIDIA.
+#
+#   cp docker/worker/.env.example docker/worker/.env   # по желанию
+#   docker compose -f docker/worker/compose.yaml up -d --build
+#
+# Нужны драйвер NVIDIA и NVIDIA Container Toolkit (на Windows — Docker Desktop
+# с WSL 2, он пробрасывает видеокарту сам). Первая сборка — около получаса,
+# образ — около 22 ГБ; веса моделей качаются при первом запуске на том
+# dubpipe-data. В DubPipe: Настройки → Вычисления → сервер, адрес этой машины.
+#
+# Языковую модель для перевода держит Ollama: уже установленная на машине
+# подойдёт, иначе — `--profile ollama` поднимет её рядом в контейнере.
+
+name: dubpipe
+
+services:
+  worker:
+    build:
+      context: ../..
+      dockerfile: docker/worker/Dockerfile
+    image: dubpipe-worker:latest
+    restart: unless-stopped
+    ports:
+      - "${DUBPIPE_WORKER_PORT:-8770}:8770"
+    environment:
+      # 0 — без голосов актёров: их весов (около 3 ГБ) не качать.
+      DUBPIPE_CLONE: ${DUBPIPE_CLONE:-1}
+      # Сервис освобождает видеопамять, выгружая простаивающие ComfyUI и
+      # Ollama; они на этой же машине — адрес машины-хозяина из контейнера.
+      DUBPIPE_COMFYUI: ${DUBPIPE_COMFYUI:-http://host.docker.internal:8188}
+      DUBPIPE_OLLAMA: ${DUBPIPE_OLLAMA:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - dubpipe-data:/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  ollama:
+    profiles: [ollama]
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  dubpipe-data:
+  ollama:
