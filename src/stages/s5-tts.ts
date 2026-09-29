@@ -9,7 +9,7 @@ import type { Workspace } from '../core/workspace.js';
 import { applyOverrides, withKnownVoices } from '../core/overrides.js';
 import { createTtsProvider, voiceForSpeaker, type TtsProvider } from '../providers/tts/index.js';
 import { effectiveSpeechShape, rememberCalibration } from '../core/calibration.js';
-import { roomFor } from './s3-translate.js';
+import { agreeGenders, roomFor } from './s3-translate.js';
 import { sha256 } from '../util/hash.js';
 import { readClip, writeClip } from '../util/wav.js';
 import { sourcePhrases, speakable, splitTranslation, type PhrasePlan } from './s5-phrases.js';
@@ -150,6 +150,10 @@ export async function runS5(workspace: Workspace, baseConfig: DubConfig, segment
       );
     }
     const config = applyOverrides(pruned.config, pruned.overrides, speakers);
+    // Голос могли сменить в панели уже после перевода: род — под тот голос,
+    // который будет говорить сейчас, а не тот, что стоял при переводе.
+    const agreed = await agreeGenders(workspace, baseConfig, segments);
+    if (agreed !== null) stale.push(agreed);
     const result = await synthesizeAll(workspace, config, segments, provider);
     return { ...result, warnings: [...stale, ...result.warnings] };
   } finally {

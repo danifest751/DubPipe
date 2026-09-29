@@ -297,7 +297,7 @@ export async function resolveYt(
   const ytDlp = await requireTool('yt-dlp', toolsDir);
   log.debug(`разбор ссылки: ${url}`);
 
-  const { stdout } = await run(ytDlp, ['-J', '--flat-playlist', '--skip-download', '--no-warnings', url], {
+  const { stdout } = await run(ytDlp, [...(await jsRuntimeArgs()), '-J', '--flat-playlist', '--skip-download', '--no-warnings', url], {
     timeoutMs: 180_000,
     captureStdout: true,
   });
@@ -439,6 +439,32 @@ export async function collectDownloadResults(
   return [];
 }
 
+/**
+ * Движок JavaScript для yt-dlp: системный Node, если он есть.
+ *
+ * YouTube прячет часть форматов за проверкой на JavaScript, и yt-dlp без движка
+ * предупреждает, что извлечение «устарело и форматы могут пропасть». Сам он
+ * ищет только deno. Node на машине разработчика есть почти всегда; встроенный
+ * в приложение Electron yt-dlp за Node не признаёт (проверено) — без Node всё
+ * работает как раньше, с предупреждением. Ищется один раз за запуск.
+ */
+let jsRuntime: Promise<string[]> | null = null;
+
+export function jsRuntimeArgs(): Promise<string[]> {
+  jsRuntime ??= (async () => {
+    const names = process.platform === 'win32' ? ['node.exe'] : ['node'];
+    for (const dir of (process.env['PATH'] ?? '').split(path.delimiter)) {
+      if (!dir) continue;
+      for (const name of names) {
+        const candidate = path.join(dir, name);
+        if (existsSync(candidate)) return ['--js-runtimes', `node:${candidate}`];
+      }
+    }
+    return [];
+  })();
+  return jsRuntime;
+}
+
 export function buildYtArgs(
   ffmpegDir: string,
   url: string,
@@ -524,7 +550,7 @@ export async function downloadYt(
   progress.emit({ id: progressId, kind: 'download', label, status: 'running', percent: null, detail: 'загрузка' });
 
   try {
-    await run(ytDlp, buildYtArgs(ffmpegDir, url, options, template), {
+    await run(ytDlp, [...(await jsRuntimeArgs()), ...buildYtArgs(ffmpegDir, url, options, template)], {
       timeoutMs: options.timeoutMs ?? 6 * 3_600_000,
       ...(options.signal ? { signal: options.signal } : {}),
       onStdout: (chunk) => {
@@ -676,7 +702,7 @@ export interface YtFormatRow {
  */
 export async function listFormats(url: string, toolsDir: string): Promise<YtFormatRow[]> {
   const ytDlp = await requireTool('yt-dlp', toolsDir);
-  const { stdout } = await run(ytDlp, ['-J', '--skip-download', '--no-warnings', '--no-playlist', url], {
+  const { stdout } = await run(ytDlp, [...(await jsRuntimeArgs()), '-J', '--skip-download', '--no-warnings', '--no-playlist', url], {
     timeoutMs: 180_000,
     captureStdout: true,
   });

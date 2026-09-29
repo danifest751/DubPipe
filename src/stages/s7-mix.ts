@@ -181,7 +181,7 @@ export async function runS7(
 
   const extension = meta.has_video ? '.mp4' : '.m4a';
   const outputPath = resolveOutputPath({
-    input: meta.input,
+    input: namingInput(meta),
     extension,
     outputOverride,
     outputDir,
@@ -419,6 +419,18 @@ async function resolveSource(workspace: Workspace, meta: Meta): Promise<string> 
  */
 export function isDubbedName(fileName: string): boolean {
   return path.extname(path.basename(fileName, path.extname(fileName))).toLowerCase() === '.ru';
+}
+
+/**
+ * По чему называть итог: у ссылки — по скачанному файлу.
+ *
+ * Имени у ссылки нет, и итог назывался `dubbed.ru.mp4` — хотя рядом уже лежал
+ * скачанный ролик под своим названием, а два дубляжа по ссылкам в одной папке
+ * затирали друг друга. Скачанный файл называется «Название [id]», и дубляж
+ * становится «Название [id].ru.mp4» — рядом с ним, как у файлов с диска.
+ */
+export function namingInput(meta: Pick<Meta, 'input' | 'source_path'>): string {
+  return /^https?:\/\//i.test(meta.input) && meta.source_path ? meta.source_path : meta.input;
 }
 
 export function defaultOutputName(input: string, extension: string): string {

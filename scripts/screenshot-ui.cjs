@@ -62,7 +62,7 @@ async function main() {
   // Настройки — каждая группа отдельно.
   await run(`document.querySelector('#nav button[data-view="settings"]').click()`);
   await sleep(1500);
-  for (const group of ['translate', 'voice', 'asr', 'audio', 'fit', 'system', 'yaml']) {
+  for (const group of ['compute', 'translate', 'voice', 'asr', 'audio', 'fit', 'download', 'system', 'yaml']) {
     await run(`document.querySelector('#settingsNav button[data-group="${group}"]').click()`);
     await shot(`settings-${group}`, 400);
   }

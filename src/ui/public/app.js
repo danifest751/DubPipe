@@ -563,9 +563,15 @@ async function loadLibrary() {
         <button data-dub="${escapeAttr(file.path)}" data-dubbed="${file.dubbed ? '1' : '0'}" class="primary small">${icon('play')} ${t('library.dub')}</button>
         <button data-subs="${escapeAttr(file.path)}" class="small" title="${escapeAttr(t('library.subtitlesHint'))}">${t('library.subtitles')}</button>
         <button data-open="${escapeAttr(file.path)}" class="small">${t('common.open')}</button>
+        <button data-delete="${escapeAttr(file.path)}" data-size="${file.size}" class="ghost small danger" title="${escapeAttr(t('library.deleteHint'))}" aria-label="${escapeAttr(t('library.delete'))}">${icon('trash')}</button>
       </div>`)
     .join('');
 
+  list.querySelectorAll('[data-delete]').forEach((button) =>
+    button.addEventListener('click', () =>
+      withBusy(button, () => deleteFile(button.dataset.delete, Number(button.dataset.size))).catch(showError),
+    ),
+  );
   list.querySelectorAll('[data-dub]').forEach((button) =>
     button.addEventListener('click', () => {
       // Дубляж дубляжа — почти всегда промах по кнопке, а стоит он часа работы.
@@ -576,6 +582,40 @@ async function loadLibrary() {
   list.querySelectorAll('[data-subs]').forEach((button) => button.addEventListener('click', () => openProject(button.dataset.subs, { subtitles: true })));
   list.querySelectorAll('[data-open]').forEach((button) => button.addEventListener('click', () => openProject(button.dataset.open)));
 }
+
+/**
+ * Удалить видео из папки — в Корзину, вместе с рабочими файлами его дубляжа.
+ *
+ * Спрашиваем всегда: удаляют гигабайты, и промах по кнопке рядом с «Открыть»
+ * не должен стоить фильма. Корзина — вторая страховка.
+ */
+async function deleteFile(file, size) {
+  if (!window.confirm(t('library.deleteConfirm', { name: baseName(file), size: formatBytes(size) }))) return;
+  const result = await post('/api/library/delete', { path: file });
+  toast(
+    t(result.how === 'trash' ? 'library.deletedTrash' : 'library.deletedForever', {
+      name: baseName(file),
+      freed: formatBytes(result.workspaceBytes ?? 0),
+    }),
+    'ok',
+    6000,
+  );
+  if (state.project === file) state.project = null;
+  await loadLibrary();
+  await refreshState().catch(() => {});
+}
+
+/**
+ * Папку меняют мимо программы — скачали в неё видео, перенесли готовый дубляж.
+ * Возвращаясь в окно, человек ждёт видеть её как есть, а не как было.
+ */
+let libraryFocusAt = 0;
+window.addEventListener('focus', () => {
+  const visible = document.querySelector('section[data-view="library"]')?.classList.contains('active');
+  if (!visible || Date.now() - libraryFocusAt < 2000) return;
+  libraryFocusAt = Date.now();
+  loadLibrary().catch(() => {});
+});
 
 function renderProjects() {
   const list = $('#projectList');
@@ -856,7 +896,8 @@ function outputFileName(input) {
   if (!input) return '';
   const name = baseName(input);
   const dot = name.lastIndexOf('.');
-  const stem = /^https?:/i.test(input) ? 'dubbed' : dot > 0 ? name.slice(0, dot) : name;
+  // Ссылка: итог называется по скачанному ролику — «Название [id]».
+  const stem = /^https?:/i.test(input) ? t('project.outStemLink') : dot > 0 ? name.slice(0, dot) : name;
   return `${stem}.ru.mp4`;
 }
 
@@ -1109,6 +1150,7 @@ function renderCast() {
           genderClash(speaker) ? `<br><span class="clash-note">${t('cast.clash', { gender: state.speakers[speaker].gender, hz: state.speakers[speaker].f0 ?? '?' })}</span>` : ''
         }${foreignVoiceNote(speaker)}${genderDisputeNote(speaker)}</span>
         <button class="ghost small" data-cast-play="${escapeAttr(speaker)}">${icon('play')} ${t('cast.listen')}</button>
+        ${cloneRow(speaker)}
       </div>`;
     })
     .join('');
@@ -1133,12 +1175,76 @@ function renderCast() {
       }).catch(showError),
     ),
   );
+  list.querySelectorAll('[data-clone-ref]').forEach((select) =>
+    select.addEventListener('change', () => setReference(select.dataset.cloneRef, select.value)),
+  );
+  list.querySelectorAll('[data-clone-play]').forEach((button) =>
+    button.addEventListener('click', () => playReference(button.dataset.clonePlay)),
+  );
   list.querySelectorAll('[data-cast-play]').forEach((button) =>
     button.addEventListener('click', () => {
       const index = first.get(button.dataset.castPlay);
       if (index !== undefined) playTranslated(state.segments[index]);
     }),
   );
+}
+
+/**
+ * Образец голоса актёра для персонажа: какая реплика взята и из чего выбрать.
+ *
+ * Модель клонирует голос по одной реплике, и от неё зависит всё: в реплике с
+ * музыкой или чужим голосом модель услышит не того. Программа выбирает сама,
+ * а здесь её выбор можно послушать и заменить — или не клонировать персонажа.
+ */
+function cloneRow(speaker) {
+  const info = state.clone?.speakers?.[speaker];
+  if (!info) return '';
+  const chosen = state.overrides.refs?.[speaker];
+  const label = (candidate) =>
+    `#${candidate.id} · ${t('common.seconds', { value: candidate.seconds.toFixed(1) })} · ${candidate.text.length > 48 ? `${candidate.text.slice(0, 48)}…` : candidate.text}`;
+  const auto = info.auto ? t('cast.clone.auto', { line: label(info.auto) }) : t('cast.clone.autoNone');
+  const options = [
+    `<option value="auto" ${chosen === undefined ? 'selected' : ''}>${escapeHtml(auto)}</option>`,
+    ...info.candidates.map(
+      (candidate) =>
+        `<option value="${candidate.id}" ${chosen === candidate.id ? 'selected' : ''}>${escapeHtml(label(candidate))}${candidate.good ? '' : ` — ${escapeHtml(t('cast.clone.weak'))}`}</option>`,
+    ),
+    `<option value="off" ${chosen === 'off' ? 'selected' : ''}>${escapeHtml(t('cast.clone.off'))}</option>`,
+  ].join('');
+  return `<div class="cast-clone">
+    <span class="meta">${t('cast.clone.label')}</span>
+    <select data-clone-ref="${escapeAttr(speaker)}">${options}</select>
+    <button class="ghost small" data-clone-play="${escapeAttr(speaker)}" title="${escapeAttr(t('cast.clone.playHint'))}">${icon('play')} ${t('cast.clone.play')}</button>
+  </div>`;
+}
+
+/** Реплика, с которой будет снят образец: выбранная человеком или программой. */
+function referenceOf(speaker) {
+  const info = state.clone?.speakers?.[speaker];
+  if (!info) return null;
+  const chosen = state.overrides.refs?.[speaker];
+  if (chosen === 'off') return null;
+  if (typeof chosen === 'number') {
+    return info.candidates.find((candidate) => candidate.id === chosen) ?? state.segments.find((segment) => segment.id === chosen) ?? null;
+  }
+  return info.auto;
+}
+
+function playReference(speaker) {
+  const reference = referenceOf(speaker);
+  if (!reference) { toast(t('cast.clone.nothing'), 'warn'); return; }
+  $('#reviewVideo')?.pause();
+  // Образец снимается с отделённой дорожки голоса: её и слушаем.
+  playAt(state.clone.source ?? state.originalAudio, reference.start, reference.end);
+}
+
+function setReference(speaker, value) {
+  state.overrides.refs ??= {};
+  if (value === 'auto') delete state.overrides.refs[speaker];
+  else state.overrides.refs[speaker] = value === 'off' ? 'off' : Number(value);
+  // Тем же путём, что и смена голоса: сохранение спросит, что переозвучить.
+  state.voicesDirty = true;
+  renderCast();
 }
 
 function renderSegments() {
@@ -1663,7 +1769,10 @@ async function loadSegments() {
     voices: { ...(data.overrides?.voices ?? {}) },
     names: { ...(data.overrides?.names ?? {}) },
     mix: { ...(data.overrides?.mix ?? {}) },
+    refs: { ...(data.overrides?.refs ?? {}) },
   };
+  // Голоса актёров: образцы по персонажам; null — клонирование выключено.
+  state.clone = data.clone ?? null;
   state.voicesDirty = false;
   state.namesDirty = false;
   if (data.fit) state.fit = data.fit;
@@ -1916,9 +2025,9 @@ $('#reviewApply').addEventListener('click', (event) =>
     state.job = await post('/api/jobs', { input: state.project, fromStage: result.fromStage });
     renderJob();
     toast(
-      result.fromStage === 's5'
-        ? t('review.applied', { count: result.affected.length })
-        : t('review.appliedMix'),
+      result.fromStage === 's7'
+        ? t('review.appliedMix')
+        : t('review.applied', { count: result.affected.length }),
       'ok',
       6000,
     );
@@ -2265,11 +2374,60 @@ $$('#settingsNav button').forEach((button) => button.addEventListener('click', (
 function fieldValue(field) {
   if (field.type === 'checkbox') return field.checked;
   if (field.type === 'number' || field.type === 'range') return field.value === '' ? null : Number(field.value);
+  // Выпадающий список чисел: строка «-12» настройками не принимается.
+  if (field.dataset.type === 'number') return field.value === '' ? null : Number(field.value);
   return field.value;
 }
 
 function applyProfileVisibility(profile) {
   $$('[data-only]').forEach((element) => { element.hidden = element.dataset.only !== profile; });
+}
+
+/** Качество и проверка голосов актёров — только когда они включены: иначе поля ни на что не влияют. */
+function applyCloneVisibility() {
+  const clone = $('[data-key="tts.clone.enabled"]');
+  for (const option of [$('#cloneStepsOpt'), $('#cloneCheckOpt')]) {
+    if (clone && option) option.hidden = !clone.checked || clone.disabled;
+  }
+}
+$('[data-key="tts.clone.enabled"]')?.addEventListener('change', applyCloneVisibility);
+
+/** Сборка whisper.cpp важна только самому whisper.cpp: faster-whisper её не читает. */
+function applyAsrEngineVisibility() {
+  const engine = $('[data-key="asr.engine"]');
+  const backend = $('[data-key="asr.backend"]')?.closest('.opt');
+  if (engine && backend) backend.hidden = engine.value === 'faster-whisper';
+}
+$('[data-key="asr.engine"]')?.addEventListener('change', applyAsrEngineVisibility);
+
+/** Считается ли всё на сервере — по сохранённым настройкам и несохранённой правке. */
+function computeOnServer(config = state.config) {
+  const enabled = state.dirty?.['server.enabled'] ?? config?.server?.enabled ?? true;
+  const host = state.dirty?.['server.host'] ?? config?.server?.host ?? '';
+  return Boolean(enabled && String(host ?? '').trim());
+}
+
+/**
+ * «Этот компьютер» или «сервер»: видно только то, что относится к выбранному.
+ *
+ * Раньше «где считать» стояло в пяти местах сразу — сборка распознавания и
+ * устройство голосов в «Распознавании», устройство разделения в «Звуке»,
+ * шесть переключателей в «Сервере», — и при включённом сервере локальные
+ * выборы ни на что не влияли, но выглядели главными.
+ */
+function applyComputeVisibility(onServer) {
+  const mode = onServer ? 'server' : 'local';
+  $$('[data-compute]').forEach((element) => { element.hidden = element.dataset.compute !== mode; });
+  const clone = $('[data-key="tts.clone.enabled"]');
+  if (clone) clone.disabled = !onServer;
+  applyCloneVisibility();
+  applyAsrEngineVisibility();
+  // «Локально» при сервере — это Ollama сервера, а не этого компьютера.
+  const local = $('#profileLocalLabel');
+  if (local) {
+    local.dataset.i18n = onServer ? 'settings.localServer' : 'settings.local';
+    local.textContent = t(local.dataset.i18n);
+  }
 }
 
 /*
@@ -2317,6 +2475,9 @@ async function loadDevices() {
 
 function fillForm(config) {
   state.config = config;
+  // Облачная модель запоминается отдельно: поле модели одно на оба движка, и
+  // после «Ollama → облако» в нём должна вернуться прежняя облачная.
+  if (config.translate?.engine === 'kilo-gateway') state.cloudModel = config.translate.model;
   state.dirty = {};
   $('#savebar').hidden = true;
   renderDeviceOptions(config);
@@ -2331,9 +2492,23 @@ function fillForm(config) {
     if (label) $(label).textContent = SLIDER_LABELS[field.dataset.key](field.value);
   });
 
-  $$('input[name="profile"]').forEach((radio) => { radio.checked = radio.value === config.profile; });
+  $$('input[name="compute"]').forEach((radio) =>
+  radio.addEventListener('change', () => {
+    const onServer = radio.value === 'server';
+    markDirty('server.enabled', onServer);
+    applyComputeVisibility(computeOnServer());
+    // Сервер выбран, а адреса нет — сразу туда, где его вписать.
+    if (onServer && !computeOnServer()) $('[data-key="server.host"]')?.focus();
+  }),
+);
+$('[data-key="server.host"]')?.addEventListener('input', () => applyComputeVisibility(computeOnServer()));
+
+$$('input[name="profile"]').forEach((radio) => { radio.checked = radio.value === config.profile; });
   applyProfileVisibility(config.profile);
-  renderVoiceMap(config);
+  const onServer = Boolean(config.server?.enabled && config.server?.host);
+  $$('input[name="compute"]').forEach((radio) => { radio.checked = radio.value === (onServer ? 'server' : 'local'); });
+  applyComputeVisibility(onServer);
+  void checkServer();
 }
 
 /**
@@ -2421,6 +2596,46 @@ function renderVoiceChoices(voices) {
   note.textContent = t(key);
 }
 
+/**
+ * Связь с сервером видеокарты — по кнопке и при открытии настроек.
+ *
+ * Проверяются сохранённые настройки: адрес, вписанный в поле, но ещё не
+ * сохранённый, сервер ещё не знает.
+ */
+async function checkServer() {
+  const box = $('#serverStatus');
+  if (!box) return;
+  box.textContent = t('settings.serverChecking');
+  try {
+    const data = await api('/api/server');
+    if (!data.host) {
+      box.textContent = t('settings.serverNone');
+      return;
+    }
+    if (!data.online) {
+      box.textContent = t('settings.serverOffline');
+      return;
+    }
+    const gpu = data.health.gpu;
+    const missing = Object.entries(data.health.capabilities ?? {})
+      .filter(([, ready]) => !ready)
+      .map(([name]) => name);
+    const parts = [
+      t('settings.serverOnline', {
+        gpu: gpu?.name ?? '—',
+        used: gpu ? (gpu.memory_used_mb / 1024).toFixed(1) : '—',
+        total: gpu ? (gpu.memory_total_mb / 1024).toFixed(0) : '—',
+      }),
+    ];
+    if (missing.length > 0) parts.push(t('settings.serverMissing', { what: missing.join(', ') }));
+    box.textContent = parts.join('; ');
+  } catch {
+    box.textContent = t('settings.serverOffline');
+  }
+}
+
+$('#serverCheck')?.addEventListener('click', () => void checkServer());
+
 function markDirty(key, value) {
   state.dirty[key] = value;
   $('#savebar').hidden = false;
@@ -2444,7 +2659,6 @@ $('#ttsEngine').addEventListener('change', async (event) => {
   // Голоса на спикеров — из того же каталога: иначе в списках рядом остались бы
   // имена прежнего движка, которых новый не знает.
   markDirty('tts.voice_map', {});
-  renderVoiceMap({ ...state.config, tts: { ...state.config.tts, voice_map: {}, engine } });
   // Имя голоса из чужого каталога схема отвергнет, поэтому меняем оба поля разом.
   markDirty('tts.default_voice', voices.defaultVoice);
 });
@@ -2454,6 +2668,23 @@ $$('input[name="profile"]').forEach((radio) =>
     markDirty('profile', radio.value);
     const engine = radio.value === 'offline' ? 'ollama' : 'kilo-gateway';
     markDirty('translate.engine', engine);
+    /*
+     * Поле модели одно на оба движка, и имя одного другой не знает: после
+     * «облако → Ollama» в поле оставалась `~anthropic/claude-haiku-latest`, и
+     * перевод падал на «модель не установлена». Переключаем и модель: для
+     * Ollama — локальную (запасную), для облака — прежнюю облачную.
+     */
+    const field = $('#settingsModel');
+    if (field) {
+      const current = state.dirty['translate.model'] ?? field.value;
+      if (engine === 'ollama') {
+        if (state.config?.translate?.engine !== 'ollama') state.cloudModel = current;
+        field.value = state.dirty['translate.fallback_model'] ?? state.config?.translate?.fallback_model ?? current;
+      } else {
+        field.value = state.cloudModel ?? 'anthropic/claude-sonnet-4.5';
+      }
+      markDirty('translate.model', field.value);
+    }
     applyProfileVisibility(radio.value);
     // Список моделей — под новый движок, иначе в поле останутся чужие имена.
     void loadSettingsCatalog(false, engine).then(renderModelList);
@@ -2461,32 +2692,6 @@ $$('input[name="profile"]').forEach((radio) =>
 );
 
 $('#configText').addEventListener('input', () => { state.yamlDirty = true; $('#savebar').hidden = false; $('#saveNote').textContent = t('settings.yamlDirty'); });
-
-function renderVoiceMap(config) {
-  const voices = state.voices ?? [];
-  const map = config.tts.voice_map ?? {};
-  /*
-   * Сколько строк показывать, решает настройка диаризации, а не выдуманная пара.
-   *
-   * Здесь всегда стояли ровно speaker_0 и speaker_1, независимо от материала:
-   * в фильме с тремя героями третьего в настройках просто не было, хотя
-   * диаризация по умолчанию ищет до четырёх.
-   */
-  const limit = config.asr?.diarization?.max_speakers ?? 4;
-  const found = Array.from({ length: limit }, (unused, index) => `speaker_${index}`);
-  const speakers = Array.from(new Set([...found, ...Object.keys(map)]));
-  $('#voiceMap').innerHTML = speakers
-    .map((speaker) => `<div class="row nowrap"><span class="mono" style="width:90px">${escapeHtml(speaker)}</span>
-      <select data-voicemap="${speaker}"><option value="">${t('settings.asDefault')}</option>${voices.map((v) => `<option value="${v.name}" ${map[speaker] === v.name ? 'selected' : ''}>${escapeHtml(v.name)} (${v.gender})</option>`).join('')}</select></div>`)
-    .join('');
-  $('#voiceMap').querySelectorAll('[data-voicemap]').forEach((select) =>
-    select.addEventListener('change', () => {
-      const next = { ...(state.dirty['tts.voice_map'] ?? map) };
-      if (select.value) next[select.dataset.voicemap] = select.value; else delete next[select.dataset.voicemap];
-      markDirty('tts.voice_map', next);
-    }),
-  );
-}
 
 // --- модель перевода в настройках: поле с подсказками по всему каталогу ------
 

@@ -10,9 +10,13 @@ import {
   cachedTurns,
   diarize,
   diarizationFingerprint,
+  diarizeOnServer,
   probeDiarization,
   speakerNames,
+  type DiarizationTurn,
 } from '../providers/diarization/pyannote.js';
+import { onServer, serverUnavailable } from '../providers/remote/server.js';
+import { isCancelled } from '../core/cancel.js';
 import { disputedSpans, profileSpeech, type SpeechInterval } from '../providers/diarization/gender.js';
 import { message } from '../core/i18n.js';
 import { detectSpeech, snapToSpeech, type SpeechRegion } from '../providers/vad/silero.js';
@@ -76,58 +80,91 @@ export async function runS2(workspace: Workspace, config: DubConfig, audioPath: 
   // Диаризация — внешний Python-процесс (pyannote). Любая неполадка
   // допустима, но обязана попасть в отчёт (ТЗ FR-2, §12.2).
   if (config.asr.diarization.enabled && config.asr.diarization.engine !== 'none' && segments.length > 0) {
-    const probe = await probeDiarization(config, workspace.modelsDir);
-    if (!probe.available) {
-      const reason = message(probe.reason ?? '', 'ru');
-      const hint = message(probe.hint ?? '', 'ru');
-      warnings.push(
-        warn(
-          'warn.s2.diarizationSkipped',
-          `Диаризация пропущена (${reason}): все реплики помечены speaker_0, ` +
-            `назначение голосов по спикерам работать не будет. ${hint}`,
-          { reason, hint },
-        ),
-      );
-    } else {
-      log.step(`диаризация моделью ${config.asr.diarization.model} (Python + PyTorch)`);
-      log.progress('диаризация: загрузка модели', null, null, { key: 'work.diarizeLoad' });
-      try {
-        const diarizationInput = workspace.file('audio16k.wav');
-        const diarizationFile = workspace.file('diarization.json');
-        const fingerprint = diarizationFingerprint(
-          workspace.inputHash,
-          config.asr.diarization.model,
-          config.asr.diarization.max_speakers,
-        );
-        // Готовый разбор по говорящим годится, если он от этой же записи:
-        // распознавание могли перезапустить другой моделью, а звук не менялся.
-        const reused = existsSync(diarizationFile)
-          ? cachedTurns(JSON.parse(readFileSync(diarizationFile, 'utf8')), fingerprint)
-          : null;
-        if (reused) log.step('диаризация взята из кэша: звук и настройки те же');
-        const turns =
-          reused ??
-          (await diarize(
-            config,
-            workspace.modelsDir,
-            existsSync(diarizationInput) ? diarizationInput : audioPath,
-            diarizationFile,
-            fingerprint,
-          ));
-        const before = segments.length;
-        segments = assignSpeakers(segments, turns);
-        const names = speakerNames(turns);
-        speechBySpeaker = turns.map((turn) => ({ ...turn, speaker: names.get(turn.speaker) ?? turn.speaker }));
-        const split = segments.length - before;
-        log.step(`спикеров найдено: ${new Set(turns.map((t) => t.speaker)).size}` + (split > 0 ? `, реплик разделено по смене говорящего: ${split}` : ''));
-      } catch (error) {
-        const failure = (error as Error).message;
+    const diarizationInput = workspace.file('audio16k.wav');
+    const input = existsSync(diarizationInput) ? diarizationInput : audioPath;
+    const diarizationFile = workspace.file('diarization.json');
+    const fingerprint = diarizationFingerprint(
+      workspace.inputHash,
+      config.asr.diarization.model,
+      config.asr.diarization.max_speakers,
+    );
+    // Готовый разбор по говорящим годится, если он от этой же записи:
+    // распознавание могли перезапустить другой моделью, а звук не менялся.
+    const reused = existsSync(diarizationFile)
+      ? cachedTurns(JSON.parse(readFileSync(diarizationFile, 'utf8')), fingerprint)
+      : null;
+    if (reused) log.step('диаризация взята из кэша: звук и настройки те же');
+
+    let turns: DiarizationTurn[] | null = reused;
+    // Сервер с видеокартой первым; не вышло — локальный pyannote, как раньше.
+    let serverReason: string | null = null;
+    if (turns === null && onServer(config, 'diarization')) {
+      serverReason = await serverUnavailable(config, 'diarization');
+      if (serverReason === null) {
+        log.step(`диаризация моделью ${config.asr.diarization.model} на сервере`);
+        log.progress('диаризация: загрузка модели', null, null, { key: 'work.diarizeLoad' });
+        try {
+          const remote = await diarizeOnServer(config, input, diarizationFile, fingerprint, workspace.toolsDir);
+          turns = remote.turns;
+          if (remote.onCpu) {
+            warnings.push(
+              warn('warn.server.cpu', 'Сервер разобрал запись по голосам на процессоре, а не на видеокарте', { stage: 'S2' }),
+            );
+          }
+        } catch (error) {
+          if (isCancelled(error)) throw error;
+          serverReason = (error as Error).message;
+        }
+      }
+      if (turns === null) {
+        log.warn(`диаризация на сервере недоступна (${serverReason}), считаю на этом компьютере`);
         warnings.push(
-          warn('warn.s2.diarizationFailed', `Диаризация не удалась (${failure}): все реплики помечены speaker_0`, {
-            reason: failure,
+          warn('warn.server.fallback', `Сервер не разобрал запись по голосам (${serverReason}); считаю на этом компьютере`, {
+            stage: 'S2',
+            reason: serverReason ?? '',
           }),
         );
+        if (!config.server.fallback_local) turns = [];
       }
+    }
+
+    if (turns === null) {
+      const probe = await probeDiarization(config, workspace.modelsDir);
+      if (!probe.available) {
+        const reason = message(probe.reason ?? '', 'ru');
+        const hint = message(probe.hint ?? '', 'ru');
+        warnings.push(
+          warn(
+            'warn.s2.diarizationSkipped',
+            `Диаризация пропущена (${reason}): все реплики помечены speaker_0, ` +
+              `назначение голосов по спикерам работать не будет. ${hint}`,
+            { reason, hint },
+          ),
+        );
+      } else {
+        log.step(`диаризация моделью ${config.asr.diarization.model} (Python + PyTorch)`);
+        log.progress('диаризация: загрузка модели', null, null, { key: 'work.diarizeLoad' });
+        try {
+          turns = await diarize(config, workspace.modelsDir, input, diarizationFile, fingerprint);
+        } catch (error) {
+          if (isCancelled(error)) throw error;
+          const failure = (error as Error).message;
+          warnings.push(
+            warn('warn.s2.diarizationFailed', `Диаризация не удалась (${failure}): все реплики помечены speaker_0`, {
+              reason: failure,
+            }),
+          );
+        }
+      }
+    }
+
+    if (turns !== null && turns.length > 0) {
+      const before = segments.length;
+      segments = assignSpeakers(segments, turns);
+      const names = speakerNames(turns);
+      speechBySpeaker = turns.map((turn) => ({ ...turn, speaker: names.get(turn.speaker) ?? turn.speaker }));
+      const split = segments.length - before;
+      log.step(`спикеров найдено: ${new Set(turns.map((t) => t.speaker)).size}` + (split > 0 ? `, реплик разделено по смене говорящего: ${split}` : ''));
     }
   }
 

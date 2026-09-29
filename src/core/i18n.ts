@@ -58,6 +58,26 @@ const MESSAGES: Record<string, Record<UiLanguage, string>> = {
     en: 'set the {env} environment variable and restart, or switch the profile to offline in the settings',
   },
   'ready.ytdlp.title': { ru: 'Загрузка видео по ссылке', en: 'Downloading video by link' },
+  'ready.onServer': { ru: 'считается на сервере {host}: {gpu}', en: 'runs on the server {host}: {gpu}' },
+  'ready.server.title': { ru: 'Сервер с видеокартой — {host}', en: 'GPU server — {host}' },
+  'ready.server.online': { ru: 'на связи: {gpu}, занято {used} из {total} ГБ', en: 'online: {gpu}, {used} of {total} GB in use' },
+  'ready.server.offline': { ru: 'сервис dubpipe-worker не отвечает', en: 'the dubpipe-worker service does not answer' },
+  'ready.server.blocks': {
+    ru: 'тяжёлые стадии пойдут на этом компьютере — медленнее, и для них нужно то, что перечислено ниже',
+    en: 'the heavy stages will run on this computer — slower, and they need what is listed below',
+  },
+  'ready.server.hint': {
+    ru: 'проверьте, что сервер включён и служба запущена: systemctl status dubpipe-worker',
+    en: 'check that the server is on and the service is running: systemctl status dubpipe-worker',
+  },
+  'ready.clone.title': { ru: 'Голоса актёров (X-Voice)', en: "Actors' voices (X-Voice)" },
+  'ready.clone.noServer': { ru: 'нужен сервер с видеокартой', en: 'a GPU server is needed' },
+  'ready.clone.missing': { ru: 'сервер не отвечает или X-Voice на нём не установлен', en: 'the server does not answer or has no X-Voice installed' },
+  'ready.clone.blocks': { ru: 'реплики будут озвучены базовым голосом', en: 'lines will be voiced with the base voice' },
+  'ready.clone.hint': {
+    ru: 'на сервере: bash install-worker.sh --with-clone',
+    en: 'on the server: bash install-worker.sh --with-clone',
+  },
   'ready.ytdlp.missing': { ru: 'не найдена', en: 'not found' },
   'ready.ytdlp.blocks': {
     ru: 'обработка ссылок YouTube; файлы с диска работают и без неё',

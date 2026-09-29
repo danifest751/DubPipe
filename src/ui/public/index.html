@@ -23,6 +23,8 @@
       <symbol id="i-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12M6 12l6 6 6-6M4 20h16" /></symbol>
       <symbol id="i-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.5 1.5" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.5-1.5" /></symbol>
       <symbol id="i-sound" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v4h4l5 4V6L8 10z" /><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11" /></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" /></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" /></symbol>
       <symbol id="i-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20zM12 9v5M12 17.5v.5" /></symbol>
     </svg>
 
@@ -70,7 +72,7 @@
                 <div class="mono" id="workdirPath" data-i18n="library.noFolder">не выбрана</div>
               </div>
               <button id="pickFolder" class="primary" data-i18n="library.pickFolder">Выбрать папку</button>
-              <button id="refreshLibrary" class="ghost" data-i18n="library.refresh">Обновить</button>
+              <button id="refreshLibrary" type="button"><svg class="ico"><use href="#i-refresh" /></svg> <span data-i18n="library.refresh">Обновить</span></button>
             </div>
 
             <div id="libraryList" class="cards"></div>
@@ -290,7 +292,8 @@
 
             <div class="settings">
               <nav class="settings-nav" id="settingsNav">
-                <button data-group="translate" class="active" data-i18n="settings.group.translate">Перевод</button>
+                <button data-group="compute" class="active" data-i18n="settings.group.compute">Вычисления</button>
+                <button data-group="translate" data-i18n="settings.group.translate">Перевод</button>
                 <button data-group="voice" data-i18n="settings.group.voice">Голос</button>
                 <button data-group="asr" data-i18n="settings.group.asr">Распознавание</button>
                 <button data-group="audio" data-i18n="settings.group.audio">Звук</button>
@@ -302,14 +305,139 @@
 
               <form class="settings-form" id="settingsForm" onsubmit="return false">
                 <!-- Перевод -->
-                <fieldset data-group="translate" class="active">
+                <!-- Где считать: этот компьютер или сервер с видеокартой -->
+                <fieldset data-group="compute" class="active">
+                  <legend data-i18n="settings.group.compute">Вычисления</legend>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.computeWhere">Где считать</b><span data-i18n="settings.computeWhereNote">Распознавание, разбор по голосам, отделение голоса, синтез и голоса актёров — тяжёлые нейросети. На сервере с видеокартой они считаются в десятки раз быстрее, а этот компьютер остаётся свободен.</span></div>
+                    <div class="opt-ctl seg" role="radiogroup">
+                      <label><input type="radio" name="compute" value="local" /> <span data-i18n="settings.computeLocal">Этот компьютер</span></label>
+                      <label><input type="radio" name="compute" value="server" /> <span data-i18n="settings.computeServer">Сервер с видеокартой</span></label>
+                    </div>
+                  </div>
+                  <div data-compute="server">
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.serverHost">Сервер с видеокартой</b><span data-i18n="settings.serverHostNote">Имя или адрес машины, где запущен сервис dubpipe-worker (ставится scripts/server/install-worker.sh). Перевод через Ollama пойдёт в её же Ollama.</span></div>
+                    <div class="opt-ctl stack">
+                      <input data-key="server.host" type="text" placeholder="192.168.0.70" autocomplete="off" spellcheck="false" />
+                      <div class="row"><button id="serverCheck" class="small" type="button" data-i18n="settings.serverCheck">Проверить связь</button><span class="meta" id="serverStatus"></span></div>
+                    </div>
+                  </div>
+                  <details class="more">
+                    <summary data-i18n="settings.serverMore">Подробнее: что отдавать серверу</summary>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.serverAsr">Распознавание на сервере</b><span data-i18n="settings.serverAsrNote">faster-whisper на CUDA. Модель та же, что выбрана в разделе «Распознавание».</span></div>
+                    <div class="opt-ctl"><label class="switch"><input data-key="server.stages.asr" type="checkbox" /><i></i></label></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.serverDiarization">Разбор по голосам на сервере</b><span data-i18n="settings.serverDiarizationNote">pyannote на CUDA — самая долгая стадия на процессоре.</span></div>
+                    <div class="opt-ctl"><label class="switch"><input data-key="server.stages.diarization" type="checkbox" /><i></i></label></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.serverSeparation">Отделение голоса на сервере</b><span data-i18n="settings.serverSeparationNote">Дорожка уходит на сервер и возвращается разделённой.</span></div>
+                    <div class="opt-ctl"><label class="switch"><input data-key="server.stages.separation" type="checkbox" /><i></i></label></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.serverTts">Синтез на сервере</b><span data-i18n="settings.serverTtsNote">Для движка silero: модель голосов держится на видеокарте сервера.</span></div>
+                    <div class="opt-ctl"><label class="switch"><input data-key="server.stages.tts" type="checkbox" /><i></i></label></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.serverClone">Голоса актёров на сервере</b><span data-i18n="settings.serverCloneNote">X-Voice. Считается только на сервере: модели нужно своё окружение (scripts/server/install-worker.sh --with-clone).</span></div>
+                    <div class="opt-ctl"><label class="switch"><input data-key="server.stages.clone" type="checkbox" /><i></i></label></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.serverTranslate">Локальный перевод на сервере</b><span data-i18n="settings.serverTranslateNote">Ollama сервера вместо Ollama этого компьютера: для профиля offline — основной путь, для hybrid — запасной.</span></div>
+                    <div class="opt-ctl"><label class="switch"><input data-key="server.stages.translate" type="checkbox" /><i></i></label></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.serverFree">Освобождать видеопамять под задачу</b><span data-i18n="settings.serverFreeNote">Карта общая с ComfyUI и Ollama. Когда задаче не хватает памяти, сервис выгружает простаивающий ComfyUI, затем модели Ollama — иначе задача ушла бы на процессор. Идущую генерацию ComfyUI не трогает.</span></div>
+                    <div class="opt-ctl"><label class="switch"><input data-key="server.free_gpu_memory" type="checkbox" /><i></i></label></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.serverFallback">Считать здесь, если сервер недоступен</b><span data-i18n="settings.serverFallbackNote">Иначе прогон остановится с ошибкой.</span></div>
+                    <div class="opt-ctl"><label class="switch"><input data-key="server.fallback_local" type="checkbox" /><i></i></label></div>
+                  </div>
+                    <div class="opt">
+                      <div class="opt-text"><b data-i18n="settings.serverWorkerPort">Порт сервиса dubpipe-worker</b></div>
+                      <div class="opt-ctl"><input data-key="server.worker_port" type="number" min="1" max="65535" /></div>
+                    </div>
+                    <div class="opt">
+                      <div class="opt-text"><b data-i18n="settings.serverOllamaPort">Порт Ollama</b></div>
+                      <div class="opt-ctl"><input data-key="server.ollama_port" type="number" min="1" max="65535" /></div>
+                    </div>
+                  </details>
+                  </div>
+                  <div data-compute="local">
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.asrEngine">Движок распознавания</b><span data-i18n="settings.asrEngineNote">whisper.cpp работает везде. faster-whisper — для видеокарты NVIDIA в этом компьютере, нужен Python с пакетом faster-whisper.</span></div>
+                    <div class="opt-ctl">
+                      <select data-key="asr.engine">
+                        <option value="whisper-cpp" data-i18n="settings.asrEngine.cpp">whisper.cpp — работает везде</option>
+                        <option value="faster-whisper" data-i18n="settings.asrEngine.faster">faster-whisper (NVIDIA)</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.asrBackend">Чем считать распознавание</b><span data-i18n="settings.asrBackendNote">Сборка whisper.cpp. Автоматически выбирается официальная под ваше железо. Vulkan работает на видеокартах AMD и Intel и вдвое быстрее, но собран не проектом whisper.cpp.</span></div>
+                    <div class="opt-ctl">
+                      <select data-key="asr.backend">
+                        <option value="auto" data-i18n="settings.backend.auto">Автоматически</option>
+                        <option value="blas" data-i18n="settings.backend.blas">Процессор (BLAS)</option>
+                        <option value="cpu" data-i18n="settings.backend.cpu">Процессор без BLAS</option>
+                        <option value="cuda" data-i18n="settings.backend.cuda">Видеокарта NVIDIA (CUDA)</option>
+                        <option value="vulkan" data-i18n="settings.backend.vulkan">Видеокарта через Vulkan (AMD, Intel)</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.diarizationDevice">Где считать голоса</b><span data-i18n="settings.diarizationDeviceNote">На видеокарте вчетверо быстрее, если установлен onnxruntime-directml. Результат тот же.</span></div>
+                    <div class="opt-ctl">
+                      <select data-key="asr.diarization.device">
+                        <option value="auto" data-i18n="settings.device.auto">Автоматически</option>
+                        <option value="gpu" data-i18n="settings.device.gpu">Видеокарта</option>
+                        <option value="igpu" data-i18n="settings.device.igpu">Встроенная видеокарта</option>
+                        <option value="dgpu" data-i18n="settings.device.dgpu">Отдельная видеокарта</option>
+                        <option value="cpu" data-i18n="settings.device.cpu">Процессор</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.separationDevice">Где считать отделение</b><span data-i18n="settings.separationDeviceNote">На видеокарте впятеро быстрее: минута звука за три секунды вместо семнадцати.</span></div>
+                    <div class="opt-ctl">
+                      <select data-key="separation.device">
+                        <option value="auto" data-i18n="settings.device.auto">Автоматически</option>
+                        <option value="gpu" data-i18n="settings.device.gpu">Видеокарта</option>
+                        <option value="igpu" data-i18n="settings.device.igpu">Встроенная видеокарта</option>
+                        <option value="dgpu" data-i18n="settings.device.dgpu">Отдельная видеокарта</option>
+                        <option value="cpu" data-i18n="settings.device.cpu">Процессор</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="opt" id="hfTokenBlock">
+                    <div class="opt-text"><b data-i18n="settings.hfToken">Токен Hugging Face</b><span data-i18n="settings.hfTokenNote">Нужен один раз — скачать веса модели. Бесплатный, с правом чтения. Перед этим примите условия на странице модели pyannote/speaker-diarization-community-1 (huggingface.co). Хранится на этом компьютере, в файл настроек не попадает.</span></div>
+                    <div class="opt-ctl stack">
+                      <div class="row nowrap">
+                        <input id="hfTokenInput" type="password" placeholder="hf_…" autocomplete="off" />
+                        <button id="hfTokenToggle" class="ghost small" type="button" data-i18n="common.show">показать</button>
+                      </div>
+                      <div class="row">
+                        <button id="hfTokenSave" class="small" type="button" data-i18n="settings.hfToken.save">Сохранить токен</button>
+                        <button id="hfTokenRemove" class="ghost small" type="button" data-i18n="common.delete">Удалить</button>
+                        <span class="meta" id="hfTokenStatus"></span>
+                      </div>
+                    </div>
+                  </div>
+                  </div>
+                </fieldset>
+
+                <fieldset data-group="translate">
                   <legend data-i18n="settings.group.translate">Перевод</legend>
 
                   <div class="opt">
                     <div class="opt-text"><b data-i18n="settings.where">Где переводить</b><span data-i18n="settings.whereNote">Облачная модель качественнее и требует ключ. Локальный вариант работает без сети через Ollama.</span></div>
                     <div class="opt-ctl seg" role="radiogroup">
                       <label><input type="radio" name="profile" value="hybrid" /> <span data-i18n="settings.cloud">Облачная модель</span></label>
-                      <label><input type="radio" name="profile" value="offline" /> <span data-i18n="settings.local">Локально (Ollama)</span></label>
+                      <label><input type="radio" name="profile" value="offline" /> <span id="profileLocalLabel" data-i18n="settings.local">Локально (Ollama)</span></label>
                     </div>
                   </div>
 
@@ -350,8 +478,8 @@
                     </div>
                   </div>
 
-                  <div class="opt" data-only="offline">
-                    <div class="opt-text"><b data-i18n="settings.ollamaModel">Локальная модель Ollama</b><span>Должна быть установлена: <code>ollama pull имя</code>.</span></div>
+                  <div class="opt" data-only="hybrid">
+                    <div class="opt-text"><b data-i18n="settings.ollamaModel">Запасная модель Ollama</b><span data-i18n="settings.ollamaModelNote">Если облако недоступно, перевод пойдёт через Ollama этой моделью. Имя — как в ollama list.</span></div>
                     <div class="opt-ctl"><input data-key="translate.fallback_model" type="text" /></div>
                   </div>
 
@@ -373,10 +501,6 @@
                       <div class="opt-ctl"><input data-key="translate.batch_size" type="number" min="1" max="50" /></div>
                     </div>
                     <div class="opt">
-                      <div class="opt-text"><b data-i18n="settings.cps">Темп речи, символов в секунду</b><span data-i18n="settings.cpsNote">Ориентир для подбора длины перевода. Фактический темп показывается после синтеза.</span></div>
-                      <div class="opt-ctl"><input data-key="translate.chars_per_second" type="number" min="5" max="30" step="0.5" /></div>
-                    </div>
-                    <div class="opt">
                       <div class="opt-text"><b data-i18n="settings.fillToTarget">Добивать короткие реплики до длины слота</b><span data-i18n="settings.fillToTargetNote">Так требует ТЗ, и доля укладки выходит выше. Но чтобы попасть в длину, модель дописывает то, чего нет в оригинале: «Лиза.» превращается в «Лиза, Лиза». Выключите — короткая реплика останется короткой, а лишнее время паузой.</span></div>
                       <div class="opt-ctl"><label class="switch"><input data-key="translate.fill_to_target" type="checkbox" /><i></i></label></div>
                     </div>
@@ -391,20 +515,11 @@
                 <fieldset data-group="voice">
                   <legend data-i18n="settings.group.voice">Голос</legend>
                   <div class="opt">
-                    <div class="opt-text"><b data-i18n="settings.voiceMode">Голоса персонажей</b><span data-i18n="settings.voiceModeNote">Многоголосый дубляж раздаёт голоса по полу говорящих; одноголосый читает весь фильм голосом по умолчанию.</span></div>
-                    <div class="opt-ctl">
-                      <select data-key="tts.voice_mode">
-                        <option value="per_speaker" data-i18n="settings.voiceMode.perSpeaker">Многоголосый: голос на каждого</option>
-                        <option value="single" data-i18n="settings.voiceMode.single">Одноголосый: один на весь фильм</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div class="opt">
-                    <div class="opt-text"><b data-i18n="settings.ttsEngine">Движок синтеза</b><span data-i18n="settings.ttsEngineNote">piper не требует ничего дополнительно. silero даёт 34 русских голоса вместо четырёх и синтезирует заметно быстрее, но ему нужен Python с torch.</span></div>
+                    <div class="opt-text"><b data-i18n="settings.ttsEngine">Движок синтеза</b><span data-i18n="settings.ttsEngineNote">Базовый голос дубляжа. piper работает везде; silero даёт 34 русских голоса вместо четырёх и быстрее — на сервере считается там, а без сервера ему нужен Python с torch.</span></div>
                     <div class="opt-ctl">
                       <select data-key="tts.engine" id="ttsEngine">
-                        <option value="piper" data-i18n="settings.ttsEngine.piper">piper — 4 голоса, без Python</option>
-                        <option value="silero" data-i18n="settings.ttsEngine.silero">silero — 34 голоса, из них пять без акцента; нужен Python с torch</option>
+                        <option value="piper" data-i18n="settings.ttsEngine.piper">piper — 4 голоса</option>
+                        <option value="silero" data-i18n="settings.ttsEngine.silero">silero — 34 голоса, из них пять без акцента</option>
                       </select>
                     </div>
                   </div>
@@ -416,8 +531,30 @@
                     </div>
                   </div>
                   <div class="opt">
-                    <div class="opt-text"><b data-i18n="settings.voiceMap">Голоса спикеров</b><span data-i18n="settings.voiceMapNote">Когда в видео несколько говорящих, каждому можно назначить свой голос. Пусто — голос раздаётся по полу говорящего, определённому при распознавании.</span></div>
-                    <div class="opt-ctl stack" id="voiceMap"></div>
+                    <div class="opt-text"><b data-i18n="settings.voiceMode">Голоса персонажей</b><span data-i18n="settings.voiceModeNote">Многоголосый дубляж раздаёт голоса по полу говорящих; одноголосый читает весь фильм голосом по умолчанию.</span></div>
+                    <div class="opt-ctl">
+                      <select data-key="tts.voice_mode">
+                        <option value="per_speaker" data-i18n="settings.voiceMode.perSpeaker">Многоголосый: голос на каждого</option>
+                        <option value="single" data-i18n="settings.voiceMode.single">Одноголосый: один на весь фильм</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.clone">Голоса актёров</b><span class="needs-server" data-compute="local" data-i18n="settings.needsServer">Нужен сервер с видеокартой — раздел «Вычисления».</span><span data-i18n="settings.cloneNote">Реплика звучит голосом того, кто говорит в оригинале. Считается на сервере с видеокартой (X-Voice), образцы голосов снимаются с отделённой дорожки голоса. Движок выше остаётся: по нему подгонка решает длину реплик, и им говорят персонажи, для которых образца нет. Веса X-Voice — под некоммерческой лицензией (CC BY-NC): только для личного использования.</span></div>
+                    <div class="opt-ctl"><label class="switch"><input data-key="tts.clone.enabled" type="checkbox" /><i></i></label></div>
+                  </div>
+                  <div class="opt" id="cloneStepsOpt">
+                    <div class="opt-text"><b data-i18n="settings.cloneSteps">Качество голосов актёров</b><span data-i18n="settings.cloneStepsNote">Шаги модели: 32 — лучше звучит, около полутора секунд на реплику; 16 — вдвое быстрее.</span></div>
+                    <div class="opt-ctl">
+                      <select data-key="tts.clone.steps" data-type="number">
+                        <option value="32" data-i18n="settings.cloneSteps.32">32 шага — качество</option>
+                        <option value="16" data-i18n="settings.cloneSteps.16">16 шагов — быстрее</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="opt" id="cloneCheckOpt">
+                    <div class="opt-text"><b data-i18n="settings.cloneCheck">Проверять голоса актёров</b><span data-i18n="settings.cloneCheckNote">Сервер распознаёт каждую озвученную реплику; если в начале лишний звук или пропало слово, реплика озвучивается заново — до трёх попыток. Озвучка голосами дольше примерно на треть.</span></div>
+                    <div class="opt-ctl"><label class="switch"><input data-key="tts.clone.check" type="checkbox" /><i></i></label></div>
                   </div>
                   <audio id="voicePlayer" controls preload="none" hidden></audio>
                 </fieldset>
@@ -439,18 +576,6 @@
                     </div>
                   </div>
                   <div class="opt">
-                    <div class="opt-text"><b data-i18n="settings.asrBackend">Чем считать распознавание</b><span data-i18n="settings.asrBackendNote">Сборка whisper.cpp. Автоматически выбирается официальная под ваше железо. Vulkan работает на видеокартах AMD и Intel и вдвое быстрее, но собран не проектом whisper.cpp.</span></div>
-                    <div class="opt-ctl">
-                      <select data-key="asr.backend">
-                        <option value="auto" data-i18n="settings.backend.auto">Автоматически</option>
-                        <option value="blas" data-i18n="settings.backend.blas">Процессор (BLAS)</option>
-                        <option value="cpu" data-i18n="settings.backend.cpu">Процессор без BLAS</option>
-                        <option value="cuda" data-i18n="settings.backend.cuda">Видеокарта NVIDIA (CUDA)</option>
-                        <option value="vulkan" data-i18n="settings.backend.vulkan">Видеокарта через Vulkan (AMD, Intel)</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div class="opt">
                     <div class="opt-text"><b data-i18n="settings.sourceLanguage">Язык оригинала</b><span data-i18n="settings.sourceLanguageNote">На каком языке говорят в оригинале.</span></div>
                     <div class="opt-ctl"><select data-key="asr.language" id="sourceLanguage"></select></div>
                   </div>
@@ -459,34 +584,8 @@
                     <div class="opt-ctl"><label class="switch"><input data-key="asr.vad.enabled" type="checkbox" /><i></i></label></div>
                   </div>
                   <div class="opt">
-                    <div class="opt-text"><b data-i18n="settings.diarization">Разные голоса для персонажей</b><span data-i18n="settings.diarizationNote">Определяет, кто говорит (pyannote, локально на процессоре), и раздаёт голоса по спикерам. Требует Python и бесплатный токен Hugging Face для загрузки весов.</span></div>
+                    <div class="opt-text"><b data-i18n="settings.diarization">Разные голоса для персонажей</b><span data-i18n="settings.diarizationNote">Определяет, кто говорит, и раздаёт голоса по персонажам. Без этого весь фильм читает один голос.</span></div>
                     <div class="opt-ctl"><label class="switch"><input data-key="asr.diarization.enabled" type="checkbox" /><i></i></label></div>
-                  </div>
-                  <div class="opt">
-                    <div class="opt-text"><b data-i18n="settings.diarizationDevice">Где считать голоса</b><span data-i18n="settings.diarizationDeviceNote">На видеокарте вчетверо быстрее, если установлен onnxruntime-directml. Результат тот же.</span></div>
-                    <div class="opt-ctl">
-                      <select data-key="asr.diarization.device">
-                        <option value="auto" data-i18n="settings.device.auto">Автоматически</option>
-                        <option value="gpu" data-i18n="settings.device.gpu">Видеокарта</option>
-                        <option value="igpu" data-i18n="settings.device.igpu">Встроенная видеокарта</option>
-                        <option value="dgpu" data-i18n="settings.device.dgpu">Отдельная видеокарта</option>
-                        <option value="cpu" data-i18n="settings.device.cpu">Процессор</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div class="opt" id="hfTokenBlock">
-                    <div class="opt-text"><b data-i18n="settings.hfToken">Токен Hugging Face</b><span data-i18n="settings.hfTokenNote">Нужен один раз — скачать веса модели. Бесплатный, с правом чтения. Перед этим примите условия на странице модели pyannote/speaker-diarization-community-1 (huggingface.co). Хранится на этом компьютере, в файл настроек не попадает.</span></div>
-                    <div class="opt-ctl stack">
-                      <div class="row nowrap">
-                        <input id="hfTokenInput" type="password" placeholder="hf_…" autocomplete="off" />
-                        <button id="hfTokenToggle" class="ghost small" type="button" data-i18n="common.show">показать</button>
-                      </div>
-                      <div class="row">
-                        <button id="hfTokenSave" class="small" type="button" data-i18n="settings.hfToken.save">Сохранить токен</button>
-                        <button id="hfTokenRemove" class="ghost small" type="button" data-i18n="common.delete">Удалить</button>
-                        <span class="meta" id="hfTokenStatus"></span>
-                      </div>
-                    </div>
                   </div>
                 </fieldset>
 
@@ -494,7 +593,7 @@
                 <fieldset data-group="audio">
                   <legend data-i18n="settings.group.audio">Звук</legend>
                   <div class="opt">
-                    <div class="opt-text"><b data-i18n="settings.separation">Убирать оригинальную речь из фонограммы</b><span data-i18n="settings.separationNote">Отделяет голос от музыки нейросетью. Заметно дольше, нужен Python с numpy и onnxruntime. Иначе оригинал просто приглушается под русской речью.</span></div>
+                    <div class="opt-text"><b data-i18n="settings.separation">Убирать оригинальную речь из фонограммы</b><span data-i18n="settings.separationNote">Отделяет голос от музыки нейросетью: музыка и шумы остаются, исходная речь уходит. Нужно и для голосов актёров — образцы снимаются с отделённой дорожки. Без этого оригинал просто приглушается под русской речью.</span></div>
                     <div class="opt-ctl"><label class="switch"><input data-key="separation.enabled" type="checkbox" /><i></i></label></div>
                   </div>
                   <div class="opt">
@@ -509,23 +608,11 @@
                   <div class="opt">
                     <div class="opt-text"><b data-i18n="settings.voiceResidual">Подложка исходного голоса</b><span data-i18n="settings.voiceResidualNote">Сколько исходного голоса оставить под русской речью. Полная тишина звучит стерильно: вместе с голосом уходят дыхание и отзвук комнаты.</span></div>
                     <div class="opt-ctl">
-                      <select data-key="separation.voice_residual_db">
+                      <select data-key="separation.voice_residual_db" data-type="number">
                         <option value="-6" data-i18n="settings.residual.loud">Заметная (−6 дБ)</option>
                         <option value="-12" data-i18n="settings.residual.normal">Обычная (−12 дБ)</option>
                         <option value="-18" data-i18n="settings.residual.quiet">Тихая (−18 дБ)</option>
                         <option value="-60" data-i18n="settings.residual.none">Без подложки</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div class="opt">
-                    <div class="opt-text"><b data-i18n="settings.separationDevice">Где считать отделение</b><span data-i18n="settings.separationDeviceNote">На видеокарте впятеро быстрее: минута звука за три секунды вместо семнадцати.</span></div>
-                    <div class="opt-ctl">
-                      <select data-key="separation.device">
-                        <option value="auto" data-i18n="settings.device.auto">Автоматически</option>
-                        <option value="gpu" data-i18n="settings.device.gpu">Видеокарта</option>
-                        <option value="igpu" data-i18n="settings.device.igpu">Встроенная видеокарта</option>
-                        <option value="dgpu" data-i18n="settings.device.dgpu">Отдельная видеокарта</option>
-                        <option value="cpu" data-i18n="settings.device.cpu">Процессор</option>
                       </select>
                     </div>
                   </div>
@@ -602,20 +689,22 @@
                     <div class="opt-ctl"><input data-key="download.dir" type="text" placeholder="рабочая папка" data-i18n-placeholder="settings.dlDir.placeholder" /></div>
                   </div>
                   <div class="opt">
-                    <div class="opt-text"><b data-i18n="settings.dlConcurrent">Фрагментов одновременно</b><span data-i18n="settings.dlConcurrentNote">Сколько частей файла тянуть сразу. Помогает на быстром канале.</span></div>
-                    <div class="opt-ctl"><input data-key="download.concurrent_fragments" type="number" min="1" max="16" /></div>
-                  </div>
-                  <div class="opt">
-                    <div class="opt-text"><b data-i18n="settings.dlThumbnail">Сохранять превью</b><span data-i18n="settings.dlThumbnailNote">Картинка ролика рядом с видеофайлом.</span></div>
-                    <div class="opt-ctl"><label class="switch"><input data-key="download.write_thumbnail" type="checkbox" /><i></i></label></div>
-                  </div>
-                  <div class="opt">
                     <div class="opt-text"><b data-i18n="settings.dlEmbed">Вписывать данные в файл</b><span data-i18n="settings.dlEmbedNote">Название, канал, дата и ссылка на источник внутри файла. Без этого плеер покажет его безымянным. Стоит одного прохода перепаковки без перекодирования.</span></div>
                     <div class="opt-ctl"><label class="switch"><input data-key="download.embed_metadata" type="checkbox" /><i></i></label></div>
                   </div>
                   <div class="opt">
                     <div class="opt-text"><b data-i18n="settings.dlEmbedThumb">Вкладывать обложку</b><span data-i18n="settings.dlEmbedThumbNote">Картинка ролика внутри файла: видна в проводнике и плеере. Тот же проход, что и у данных.</span></div>
                     <div class="opt-ctl"><label class="switch"><input data-key="download.embed_thumbnail" type="checkbox" /><i></i></label></div>
+                  </div>
+                  <details class="more">
+                    <summary data-i18n="settings.more">Дополнительно</summary>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.dlConcurrent">Фрагментов одновременно</b><span data-i18n="settings.dlConcurrentNote">Сколько частей файла тянуть сразу. Помогает на быстром канале.</span></div>
+                    <div class="opt-ctl"><input data-key="download.concurrent_fragments" type="number" min="1" max="16" /></div>
+                  </div>
+                  <div class="opt">
+                    <div class="opt-text"><b data-i18n="settings.dlThumbnail">Сохранять превью</b><span data-i18n="settings.dlThumbnailNote">Картинка ролика рядом с видеофайлом.</span></div>
+                    <div class="opt-ctl"><label class="switch"><input data-key="download.write_thumbnail" type="checkbox" /><i></i></label></div>
                   </div>
                   <div class="opt">
                     <div class="opt-text"><b data-i18n="settings.dlEmbedChapters">Вкладывать главы</b><span data-i18n="settings.dlEmbedChaptersNote">Пометки глав из описания ролика. Нужны длинным лекциям и подкастам, у коротких роликов их нет.</span></div>
@@ -647,9 +736,12 @@
                     <div class="opt-text"><b data-i18n="settings.dlCookiesFile">Файл cookies.txt</b><span data-i18n="settings.dlCookiesFileNote">Путь вместо браузера, для тех, кто не хочет пускать программу в браузер. DubPipe сам этот файл не читает — его открывает только yt-dlp.</span></div>
                     <div class="opt-ctl"><input data-key="download.cookies_file" type="text" placeholder="C:\cookies.txt" /></div>
                   </div>
+                  </details>
                 </fieldset>
 
                 <!-- Система -->
+                <!-- Сервер с видеокартой -->
+
                 <fieldset data-group="system">
                   <legend data-i18n="settings.group.system">Система</legend>
                   <div class="opt">

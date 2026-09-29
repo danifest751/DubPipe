@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { ConfigError } from '../core/errors.js';
 import { log } from '../core/logger.js';
 import { configSchema, type DubConfig, type Profile, LOCAL_DEFAULT_MODEL } from './schema.js';
+import { applyServer } from '../providers/remote/server.js';
 
 export const DEFAULT_CONFIG_NAME = 'config.yaml';
 
@@ -153,7 +154,7 @@ export function parseConfig(raw: unknown, source: string): DubConfig {
       'Справка по полям — ТЗ §5.3; пример — config.yaml.example',
     ]);
   }
-  return result.data;
+  return applyServer(result.data);
 }
 
 /**

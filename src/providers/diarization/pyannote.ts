@@ -9,6 +9,8 @@ import { progress } from '../../core/progress.js';
 import { makeSegment, type Segment } from '../../core/types.js';
 import { run, ProcessError } from '../../util/exec.js';
 import { message } from '../../core/i18n.js';
+import { discard, dropWorkerJob, packForServer, runWorkerJob } from '../remote/server.js';
+import { requireTool } from '../../util/tools.js';
 
 /**
  * Диаризация спикеров через pyannote (SPEC FR-2, §12.2).
@@ -315,6 +317,48 @@ export async function diarize(
   // что файл посчитан для этой же записи, и не станет считать заново.
   if (fingerprint) await writeFile(outputPath, JSON.stringify({ ...parsed, fingerprint, turns }, null, 1), 'utf8');
   return turns;
+}
+
+/**
+ * Диаризация на сервере с видеокартой — тем же скриптом `diarize.py`.
+ *
+ * Токен Hugging Face уходит заголовком только затем, чтобы сервер один раз
+ * скачал веса; в аргументы и журналы он не попадает ни там, ни здесь.
+ */
+export async function diarizeOnServer(
+  config: DubConfig,
+  audioPath: string,
+  outputPath: string,
+  fingerprint = '',
+  toolsDir = '',
+): Promise<{ turns: DiarizationTurn[]; onCpu: boolean }> {
+  const token = process.env[config.asr.diarization.hf_token_env];
+  let lastPercent = -1;
+  const upload = toolsDir ? await packForServer(await requireTool('ffmpeg', toolsDir), audioPath, `${outputPath}.upload.flac`) : audioPath;
+  const job = await runWorkerJob(
+    config,
+    'diarize',
+    { model: config.asr.diarization.model, max_speakers: String(config.asr.diarization.max_speakers) },
+    upload,
+    {
+      headers: token ? { 'X-HF-Token': token } : {},
+      onProgress: (percent) => {
+        log.progress(`диаризация ${percent}%`, percent, null, { key: 'work.diarize', params: { percent } });
+        if (percent - lastPercent >= 10 || percent === 100) {
+          lastPercent = percent;
+          log.step(`диаризация ${percent}%`);
+        }
+      },
+      onLog: (text) => log.debug(`сервер: ${text}`),
+    },
+  );
+  await dropWorkerJob(config, job.job);
+  if (upload !== audioPath) await discard(upload);
+  log.step(`диаризация на сервере заняла ${Math.round(job.seconds)} с`);
+  const parsed = (job.result ?? {}) as { turns?: DiarizationTurn[]; speakers?: number };
+  const turns = (parsed.turns ?? []).filter((turn) => turn.end > turn.start);
+  await writeFile(outputPath, JSON.stringify({ ...parsed, fingerprint, turns }, null, 1), 'utf8');
+  return { turns, onCpu: job.onCpu };
 }
 
 function overlap(a: { start: number; end: number }, b: { start: number; end: number }): number {

@@ -1,6 +1,6 @@
 ﻿import { describe, it, expect } from 'vitest';
 import path from 'node:path';
-import { pickSource } from '../src/stages/s7-mix.js';
+import { namingInput, pickSource, resolveOutputPath } from '../src/stages/s7-mix.js';
 import { StageError } from '../src/core/errors.js';
 
 /**
@@ -80,5 +80,17 @@ describe('§FR-7: откуда S7 берёт источник', () => {
     } catch (error) {
       expect((error as StageError).hints.join(' ')).toContain('--from-stage s1');
     }
+  });
+});
+
+describe('имя дубляжа по ссылке', () => {
+  it('называется по скачанному ролику, а не «dubbed»', () => {
+    const meta = { input: 'https://www.youtube.com/watch?v=jNQXAC9IVRw', source_path: path.join('C:', 'video', 'Me at the zoo [jNQXAC9IVRw].mp4') };
+    expect(namingInput(meta)).toBe(meta.source_path);
+    expect(path.basename(resolveOutputPath({ input: namingInput(meta), extension: '.mp4' }))).toBe('Me at the zoo [jNQXAC9IVRw].ru.mp4');
+    // Файл с диска называется по себе, как и раньше.
+    expect(namingInput({ input: 'C:/film.mkv', source_path: 'C:/other.mkv' })).toBe('C:/film.mkv');
+    // Ссылка, ещё не скачанная, — прежнее имя по умолчанию.
+    expect(namingInput({ input: 'https://youtu.be/x' })).toBe('https://youtu.be/x');
   });
 });

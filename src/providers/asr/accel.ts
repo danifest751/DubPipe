@@ -234,7 +234,25 @@ const ADAPTER_QUERY = '(Get-CimInstance Win32_VideoController).Name';
  * видеокарты нет, и остаёмся на процессоре.
  */
 export async function detectHardware(): Promise<Hardware> {
-  if (process.platform !== 'win32') return classifyAdapters([]);
+  if (process.platform !== 'win32') {
+    // Вне Windows спрашиваем драйвер NVIDIA: других карт стадиям всё равно не
+    // взять — сборок под них здесь не качается, а torch видит только CUDA.
+    try {
+      const result = await run('nvidia-smi', ['--query-gpu=name', '--format=csv,noheader'], {
+        timeoutMs: 20_000,
+        captureStdout: true,
+      });
+      return classifyAdapters(
+        (result.stdout ?? '')
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0)
+          .map((line) => (/nvidia/i.test(line) ? line : `NVIDIA ${line}`)),
+      );
+    } catch {
+      return classifyAdapters([]);
+    }
+  }
   try {
     const result = await run('powershell', ['-NoProfile', '-NonInteractive', '-Command', ADAPTER_QUERY], {
       timeoutMs: 20_000,

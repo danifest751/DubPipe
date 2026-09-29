@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface, type Interface } from 'node:readline';
 import { existsSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { DubConfig } from '../../config/schema.js';
@@ -14,11 +14,14 @@ import { killTree, run } from '../../util/exec.js';
 import { requireTool } from '../../util/tools.js';
 import { wavDuration } from '../../util/wav.js';
 import { probePython } from '../../stages/s4-separate.js';
+import { isCancelled } from '../../core/cancel.js';
+import { onServer, serverTitle, serverUnavailable, workerHealth, workerSpeech } from '../remote/server.js';
 import { SILERO_MODELS, SILERO_VOICES, sileroModelFor, type SileroModel } from './silero-voices.js';
 import type { SynthesisRequest, SynthesisResult, TtsProvider } from './index.js';
 
 /**
- * Синтез через silero (ТЗ FR-5): 34 русских диктора, офлайн, на процессоре.
+ * Синтез через silero (ТЗ FR-5): 34 русских диктора, офлайн — на сервере с
+ * видеокартой (раздел `server`) или здесь, на видеокарте NVIDIA или процессоре.
  *
  * Взят ради того, чего piper дать не может: у piper один русский женский голос,
  * и две героини в фильме звучат одинаково. Попутно оказался в пятнадцать раз
@@ -57,7 +60,13 @@ interface Pending {
 }
 
 export class SileroProvider implements TtsProvider {
-  readonly name = 'silero (локально, CPU)';
+  name = 'silero (локально)';
+  /**
+   * Синтез на сервере: решается один раз, при первой реплике. Сервер отказал
+   * посреди стадии — остальные реплики озвучиваются здесь, тем же голосом той же
+   * модели, так что фильм звучит одинаково.
+   */
+  private remote: Promise<boolean> | null = null;
 
   private child: ChildProcessWithoutNullStreams | null = null;
   private reader: Interface | null = null;
@@ -160,7 +169,7 @@ export class SileroProvider implements TtsProvider {
     }
     // Модели не перечисляются: мост поднимает их по требованию, когда до него
     // дойдёт реплика диктора из такой модели.
-    const child = spawn(python.executable, ['-X', 'utf8', script], {
+    const child = spawn(python.executable, ['-X', 'utf8', script, '--device', 'auto'], {
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -265,22 +274,80 @@ export class SileroProvider implements TtsProvider {
     return result;
   }
 
-  async synthesize(request: SynthesisRequest): Promise<SynthesisResult> {
-    await this.ensureVoice(request.voice);
+  private useServer(): Promise<boolean> {
+    this.remote ??= (async () => {
+      if (!onServer(this.config, 'tts')) return false;
+      const reason = await serverUnavailable(this.config, 'tts');
+      if (reason !== null) {
+        log.warn(`синтез на сервере недоступен (${reason}), озвучиваю на этом компьютере`);
+        return false;
+      }
+      this.name = `silero (${serverTitle(this.config, await workerHealth(this.config))})`;
+      return true;
+    })();
+    return this.remote;
+  }
 
+  /** Реплика на сервере; false — сервер отказал, и её надо озвучить здесь. */
+  private async synthesizeOnServer(request: SynthesisRequest, out: string, rate: number): Promise<boolean> {
+    const model = sileroModelFor(request.voice);
+    if (model === null) {
+      throw new StageError('s5', `движок silero не знает голоса «${request.voice}»`, {
+        hints: ['Список голосов: dub voices list', `Например: ${SILERO_VOICES[0]!.name}`],
+      });
+    }
+    try {
+      const audio = await workerSpeech(this.config, {
+        model: model.name,
+        url: model.url,
+        naming: model.naming,
+        voice: request.voice,
+        text: request.text,
+        sample_rate: rate,
+      });
+      await writeFile(out, audio);
+      return true;
+    } catch (error) {
+      if (isCancelled(error)) throw error;
+      const reason = (error as Error).message;
+      // Отказ по самому тексту («нечего произносить») сервер и здесь даст тот же.
+      if (/ValueError|KeyError/.test(reason)) {
+        throw new StageError('s5', `не удалось синтезировать реплику ${request.id}: ${reason}`, { cause: error });
+      }
+      log.warn(`синтез на сервере прервался (${reason}), остальные реплики — на этом компьютере`);
+      this.remote = Promise.resolve(false);
+      this.name = 'silero (локально: сервер отказал)';
+      return false;
+    }
+  }
+
+  async synthesize(request: SynthesisRequest): Promise<SynthesisResult> {
     const target = this.config.tts.sample_rate;
     const native = NATIVE_RATES.has(target);
     const raw = native ? request.outputPath : `${request.outputPath}.raw.wav`;
+    const rate = native ? target : 48_000;
+
+    if (!((await this.useServer()) && (await this.synthesizeOnServer(request, raw, rate)))) {
+      await this.synthesizeHere(request, raw, rate);
+    }
+    return await this.finish(request, raw, native);
+  }
+
+  private async synthesizeHere(request: SynthesisRequest, raw: string, rate: number): Promise<void> {
+    await this.ensureVoice(request.voice);
 
     try {
-      await this.ask({ text: request.text, voice: request.voice, out: raw, sample_rate: native ? target : 48_000 });
+      await this.ask({ text: request.text, voice: request.voice, out: raw, sample_rate: rate });
     } catch (cause) {
       throw new StageError('s5', `не удалось синтезировать реплику ${request.id}: ${(cause as Error).message}`, {
         artifact: raw,
         cause,
       });
     }
+  }
 
+  private async finish(request: SynthesisRequest, raw: string, native: boolean): Promise<SynthesisResult> {
+    const target = this.config.tts.sample_rate;
     if (!native) {
       // Bring every clip to one rate and layout before mixing.
       const ffmpeg = await requireTool('ffmpeg', this.workspace.toolsDir);

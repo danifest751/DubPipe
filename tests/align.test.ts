@@ -4,6 +4,7 @@ import {
   alignmentStats,
   passthroughPlan,
   planAlignment,
+  pullContinuations,
   shortenTargetChars,
   type AlignmentOptions,
 } from '../src/stages/s6-align.js';
@@ -486,5 +487,35 @@ describe('FR-7: готовый дубляж узнаётся по имени', (
     // Имя, где «ru» — часть слова, а не отдельная часть имени.
     expect(isDubbedName('Peru.mp4')).toBe(false);
     expect(isDubbedName('kangaru.mkv')).toBe(false);
+  });
+});
+
+describe('продолжение фразы', () => {
+  const placed = (id: number, start: number, end: number, text: string, duration: number, speaker = 'speaker_1'): Segment =>
+    makeSegment({ id, start, end, speaker, text_en: `line ${id}`, text_ru: text, aligned_duration: duration, shift_ms: 0 });
+
+  it('подтягивает конец фразы к её началу, а не держит паузу посреди предложения', () => {
+    // Ролик FRANCE 24: «…моделей ИИ ещё» кончилось на 63.3 с, «до их релиза» стояло на 66.0.
+    const segments = [placed(7, 51.16, 66, 'Похоже, государство будет проверять модели ещё', 12.18), placed(8, 66, 67.5, 'до их официального релиза.', 1.66)];
+    expect(pullContinuations(segments, 0.05)).toBe(1);
+    const start = 66 + segments[1]!.shift_ms! / 1000;
+    expect(start).toBeGreaterThanOrEqual(51.16 + 12.18);
+    expect(start).toBeLessThan(51.16 + 12.18 + 0.1);
+  });
+
+  it('законченную фразу и чужую реплику не трогает', () => {
+    const done = [placed(1, 0, 10, 'Это всё.', 5), placed(2, 10.2, 12, 'Дальше.', 1.5)];
+    const other = [placed(1, 0, 10, 'и тогда', 5), placed(2, 10.2, 12, 'он ушёл.', 1.5, 'speaker_2')];
+    expect(pullContinuations(done, 0.05)).toBe(0);
+    expect(pullContinuations(other, 0.05)).toBe(0);
+  });
+
+  it('не уводит реплику раньше оригинала дальше предела и не кладёт на предыдущую', () => {
+    const segments = [placed(1, 0, 20, 'и тогда', 3), placed(2, 20, 22, 'он ушёл.', 1.5)];
+    pullContinuations(segments, 0.05);
+    expect(segments[1]!.shift_ms).toBe(-3000);
+    const tight = [placed(1, 0, 10, 'и тогда', 9.9), placed(2, 10, 12, 'он ушёл.', 1.5)];
+    pullContinuations(tight, 0.05);
+    expect(10 + (tight[1]!.shift_ms ?? 0) / 1000).toBeGreaterThanOrEqual(9.9);
   });
 });

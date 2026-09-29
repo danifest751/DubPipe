@@ -438,6 +438,9 @@ body.col-resizing { cursor: col-resize; user-select: none; }
 .cast-name { font-weight: 600; }
 .cast-voice { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .cast-voice select { min-width: 0; flex: 1; }
+/* Образец голоса актёра — отдельной строкой под героем. */
+.cast-clone { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; min-width: 0; padding-left: 22px; }
+.cast-clone select { min-width: 0; flex: 1; max-width: 640px; }
 @media (max-width: 900px) {
   .cast-row { grid-template-columns: 1fr 1fr; }
 }

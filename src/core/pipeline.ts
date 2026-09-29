@@ -8,7 +8,7 @@ import { runS3 } from '../stages/s3-translate.js';
 import { runS4 } from '../stages/s4-separate.js';
 import { runS5 } from '../stages/s5-tts.js';
 import { runS6 } from '../stages/s6-align.js';
-import { resolveOutputPath, runS7 } from '../stages/s7-mix.js';
+import { namingInput, resolveOutputPath, runS7 } from '../stages/s7-mix.js';
 import { subtitleOptionsFrom, writeSubtitleFiles, type SubtitleResult } from '../stages/subtitles.js';
 import { sha256 } from '../util/hash.js';
 import { StageError } from './errors.js';
@@ -186,7 +186,11 @@ export function stageInputHash(
        */
       return sha256(JSON.stringify([segments.map((segment) => [segment.id, segment.text_ru]), overrides.voices]));
     case 's6':
-      return sha256(JSON.stringify(segments.map((segment) => [segment.id, segment.tts_file, segment.tts_duration])));
+      // Образцы голосов актёров, выбранные в панели, — тоже вход подгонки:
+      // она рисует реплики их голосами.
+      return sha256(
+        JSON.stringify([segments.map((segment) => [segment.id, segment.tts_file, segment.tts_duration]), overrides.refs]),
+      );
     default:
       return null;
   }
@@ -424,13 +428,13 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRep
       options.outDir ??
       path.dirname(
         resolveOutputPath({
-          input,
+          input: meta ? namingInput(meta) : input,
           extension: meta?.has_video === false ? '.m4a' : '.mp4',
           outputOverride: options.out,
           configured: config.output,
         }),
       );
-    const result = await writeSubtitleFiles(current, input, targetDir, subtitleOptionsFrom(config), config.asr.language);
+    const result = await writeSubtitleFiles(current, meta ? namingInput(meta) : input, targetDir, subtitleOptionsFrom(config), config.asr.language);
     subtitleFiles = result.files;
     /*
      * Предупреждения кладутся как есть, без приставки стадии.

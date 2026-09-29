@@ -250,10 +250,18 @@ export function stageConfigSlice(stage: StageId, config: DubConfig): unknown {
       };
     case 's4':
       return config.separation;
-    case 's5':
-      return config.tts;
+    case 's5': {
+      // Голоса актёров рисует S6 поверх её же длины: включение их не должно
+      // пересинтезировать базовый движок.
+      const { clone: _clone, ...tts } = config.tts;
+      return tts;
+    }
     case 's6':
-      return { alignment: config.alignment, chars_per_second: config.translate.chars_per_second };
+      return {
+        alignment: config.alignment,
+        chars_per_second: config.translate.chars_per_second,
+        clone: config.tts.clone.enabled ? { ...config.tts.clone, server: config.server.host } : null,
+      };
     case 's7':
       return { mix: config.mix, keep_original_track: config.keep_original_track };
   }

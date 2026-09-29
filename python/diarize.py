@@ -105,6 +105,20 @@ def load_pipeline(args):
 
     torch.set_num_threads(max(1, os.cpu_count() or 1))
 
+    # Видеокарта NVIDIA: весь конвейер pyannote на CUDA через torch. Обход через
+    # onnxruntime ниже придуман для DirectML, где torch видеокарту не видит; на
+    # CUDA он только мешает — onnxruntime без CUDA-сборки молча считал бы
+    # отпечатки на процессоре, а сегментация осталась бы там же.
+    if args.device != "cpu" and args.device != "igpu" and nvidia_cuda(torch):
+        index = pick_torch_gpu(torch, args.device)
+        if index is not None:
+            try:
+                pipeline.to(torch.device(f"cuda:{index}"))
+                note(f"устройство: {torch.cuda.get_device_name(index)} (CUDA, весь конвейер)")
+                return pipeline, torch
+            except Exception as error:  # noqa: BLE001 — откат на прежний путь важнее причины
+                note(f"CUDA не взяла конвейер ({type(error).__name__}: {str(error)[:70]}); пробую иначе")
+
     # Почти вся диаризация — это сеть голосовых отпечатков: 105 секунд из 108
     # на пятиминутном отрезке. Её и переносим на видеокарту, через onnxruntime:
     # 0.20 с на пакет против 1.89 с у torch. Остальные шаги трогать не надо —
@@ -161,7 +175,10 @@ class ProgressHook:
         if span is None or not total:
             return
         low, high = span
-        percent = int(low + (high - low) * (completed or 0) / total)
+        # pyannote 4 на коротких записях сообщает «сделано» больше «всего»:
+        # было «диаризация 150%». Ход не выходит за рамки своего шага.
+        share = min(1.0, max(0.0, (completed or 0) / total))
+        percent = int(low + (high - low) * share)
         if percent != self.last:
             self.last = percent
             print(f"progress={percent}", file=sys.stderr, flush=True)
@@ -261,6 +278,14 @@ def use_onnx_embedding(pipeline, cache_dir, device, torch):
         return True
     except Exception as error:  # noqa: BLE001 — причина в журнал, прогон продолжается
         note(f"ONNX для отпечатков не задействован ({type(error).__name__}: {str(error)[:70]})")
+        return False
+
+
+def nvidia_cuda(torch):
+    """torch видит видеокарту через CUDA от NVIDIA, а не через ROCm под тем же именем."""
+    try:
+        return torch.cuda.is_available() and not getattr(torch.version, "hip", None)
+    except Exception:  # noqa: BLE001
         return False
 
 

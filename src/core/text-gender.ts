@@ -9,9 +9,10 @@ import type { Segment } from './types.js';
  * определитель молчит) либо опирается на полсекунды речи. А русский текст род
  * называет прямо: «я пришёл», «ты сказала».
  *
- * Улика честная, не круговая: переводчику пол говорящего не сообщают — в запрос
- * уходят только номер, слот и оригинал, — значит род выбран из смысла сцены,
- * а не переписан из нашего же замера.
+ * Улика честная, не круговая: пол сообщают переводчику только для говорящих,
+ * чей голос уже решён (по тону или человеком). У остальных — тех, о ком тон
+ * промолчал и для кого эта улика и нужна, — род выбран из смысла сцены, а не
+ * переписан из нашего же замера.
  *
  * Улик две, и они разной прочности. Первое лицо говорит о том, кто произносит
  * реплику, — гадать не о чем. Обращение говорит о собеседнике, а кто собеседник,
@@ -19,9 +20,55 @@ import type { Segment } from './types.js';
  * подписанного персонажа либо в сцене ровно один второй голос.
  */
 
-/** Краткие прилагательные и местоимения, у которых род виден без глагола. */
-const SHORT_MALE = new Set(['должен', 'рад', 'готов', 'уверен', 'сам', 'один', 'виноват', 'прав', 'обязан', 'согласен', 'вынужден']);
-const SHORT_FEMALE = new Set(['должна', 'рада', 'готова', 'уверена', 'сама', 'одна', 'виновата', 'права', 'обязана', 'согласна', 'вынуждена']);
+/** Краткие прилагательные и местоимения, у которых род виден без глагола: «мужской — женский». */
+const SHORT_PAIRS: ReadonlyArray<readonly [string, string]> = [
+  ['должен', 'должна'], ['рад', 'рада'], ['готов', 'готова'], ['уверен', 'уверена'], ['сам', 'сама'],
+  ['один', 'одна'], ['виноват', 'виновата'], ['прав', 'права'], ['обязан', 'обязана'],
+  ['согласен', 'согласна'], ['вынужден', 'вынуждена'], ['зол', 'зла'], ['болен', 'больна'],
+  ['счастлив', 'счастлива'], ['свободен', 'свободна'], ['голоден', 'голодна'], ['занят', 'занята'],
+  ['удивлён', 'удивлена'], ['благодарен', 'благодарна'], ['влюблён', 'влюблена'], ['ранен', 'ранена'],
+  ['способен', 'способна'], ['доволен', 'довольна'], ['знаком', 'знакома'], ['жив', 'жива'],
+  ['нужен', 'нужна'], ['спокоен', 'спокойна'], ['напуган', 'напугана'], ['измотан', 'измотана'],
+];
+const SHORT_MALE = new Set(SHORT_PAIRS.map(([male]) => male));
+const SHORT_FEMALE = new Set(SHORT_PAIRS.map(([, female]) => female));
+
+/**
+ * Глаголы прошедшего времени, у которых мужская форма не кончается на «л»:
+ * «я мог», «я пришёл». Правило окончаний их не видит — и «я могла» у мужского
+ * голоса находилось, а «я мог» у женского проходило молча. Основа → женская форма.
+ *
+ * «мёл» (смёл) сюда намеренно не входит: «смела» — ещё и краткое прилагательное,
+ * и «я смела» превратилось бы в «я смёл» вместо «я смел».
+ */
+const IRREGULAR_STEMS: ReadonlyArray<readonly [string, string]> = [
+  ['шёл', 'шла'], ['шел', 'шла'], ['мог', 'могла'], ['лёг', 'легла'], ['лег', 'легла'], ['умер', 'умерла'],
+  ['нёс', 'несла'], ['нес', 'несла'], ['вёз', 'везла'], ['вёл', 'вела'], ['рос', 'росла'], ['тёр', 'тёрла'],
+  ['пёк', 'пекла'], ['лез', 'лезла'], ['полз', 'ползла'], ['жёг', 'жгла'], ['мёрз', 'мёрзла'], ['мерз', 'мерзла'],
+  ['брёл', 'брела'], ['цвёл', 'цвела'], ['плёл', 'плела'],
+];
+
+/** Приставки, с которыми эти основы встречаются в речи: «при-шёл», «с-мог», «вы-рос». */
+const PREFIXES = ['', 'с', 'по', 'вы', 'при', 'у', 'за', 'на', 'от', 'ото', 'пере', 'до', 'об', 'обо', 'под', 'подо', 'про', 'раз', 'разо', 'из', 'изо', 'в', 'во', 'вз', 'со'];
+
+/** Неправильные глаголы, не сводимые к основе выше, — целиком. */
+const IRREGULAR_WORDS: ReadonlyArray<readonly [string, string]> = [
+  ['спас', 'спасла'], ['запер', 'заперла'], ['отпер', 'отперла'], ['берёг', 'берегла'], ['уберёг', 'уберегла'],
+  ['сберёг', 'сберегла'], ['привык', 'привыкла'], ['отвык', 'отвыкла'], ['исчез', 'исчезла'],
+  ['достиг', 'достигла'], ['постиг', 'постигла'],
+];
+
+/** Словарь пар для перестановки рода: неправильные глаголы и краткие формы. */
+const TO_FEMALE = new Map<string, string>();
+const TO_MALE = new Map<string, string>();
+for (const [male, female] of [
+  ...IRREGULAR_WORDS,
+  ...IRREGULAR_STEMS.flatMap(([m, f]) => PREFIXES.map((prefix) => [prefix + m, prefix + f] as const)),
+  ...SHORT_PAIRS,
+]) {
+  if (!TO_FEMALE.has(male)) TO_FEMALE.set(male, female);
+  if (!TO_MALE.has(female)) TO_MALE.set(female, male);
+}
 
 /**
  * Существительные, которые кончаются как глагол прошедшего времени.
@@ -48,6 +95,10 @@ export function markWord(word: string): VoiceGender | null {
   if (SHORT_FEMALE.has(lower)) return 'ж';
   if (SHORT_MALE.has(lower)) return 'м';
   if (NOT_VERBS.has(lower)) return null;
+  // «нашёлся» и «нашлась»: род у возвратного глагола — род его основы.
+  const core = lower.length > 4 && /с[яь]$/.test(lower) ? lower.slice(0, -2) : lower;
+  if (TO_FEMALE.has(core)) return 'м';
+  if (TO_MALE.has(core)) return 'ж';
   if (lower.length > 3 && (lower.endsWith('лась') || lower.endsWith('ла'))) return 'ж';
   if (lower.length > 2 && (lower.endsWith('лся') || lower.endsWith('л'))) return 'м';
   return null;
@@ -209,4 +260,204 @@ export function speakerGenderByText(segments: Segment[], options: TextGenderOpti
     };
   }
   return result;
+}
+
+/*
+ * Согласование рода с голосом.
+ *
+ * Переводчик выбирает род первого лица сам: в английском «I could» рода нет, и
+ * модель угадывает его по сцене. Голос же назначается по тону актёра. Когда они
+ * расходятся, мужской голос произносит «я могла» — и это слышно сразу. Правило
+ * простое: род того, что говорящий говорит о себе, определяет голос, который
+ * реплику произносит. Применяется оно после модели, а не только в промпте:
+ * подсказку модель слушает не всегда, а голос могли сменить в панели уже после
+ * перевода.
+ *
+ * Исправление морфологическое, без нового запроса к модели: слово меняет только
+ * окончание, длина реплики сдвигается на знак-два, и укладка не страдает.
+ */
+
+type Gender = 'м' | 'ж';
+
+function matchCase(original: string, replacement: string): string {
+  if (original === original.toUpperCase() && original.length > 1) return replacement.toUpperCase();
+  return original[0] === original[0]!.toUpperCase() ? replacement[0]!.toUpperCase() + replacement.slice(1) : replacement;
+}
+
+/**
+ * То же слово в другом роде: «могла» → «мог», «испугался» → «испугалась»,
+ * «рада» → «рад». `null` — слово рода не показывает, уже нужного рода или
+ * переставить его не умеем.
+ */
+export function flipGender(word: string, to: Gender): string | null {
+  const lower = word.toLowerCase();
+  const from = markWord(lower);
+  if (from === null || from === '—' || from === to) return null;
+
+  // Возвратная частица снимается и возвращается в форме нужного рода:
+  // «испугался» → «испугал» + «сь», «нашлась» → «нашла» → «нашёл» + «ся».
+  let core = lower;
+  let tail = '';
+  if (lower.length > 4 && /с[яь]$/.test(lower)) {
+    core = lower.slice(0, -2);
+    tail = to === 'ж' ? 'сь' : 'ся';
+  }
+
+  let result = (to === 'ж' ? TO_FEMALE : TO_MALE).get(core) ?? null;
+  if (result === null) {
+    if (to === 'ж') {
+      if (core.endsWith('ёл')) result = `${core.slice(0, -2)}ела`;
+      else if (core.endsWith('л')) result = `${core}а`;
+    } else if (core.endsWith('ла')) {
+      result = core.slice(0, -1);
+    }
+  }
+  return result === null ? null : matchCase(word, result + tail);
+}
+
+/** Знаки, на которых кончается предложение: дальше «я» уже не подлежащее. */
+const SENTENCE_END = /[.!?;…]/;
+/** Союзы, через которые одно «я» тянет второе сказуемое: «я пришла и сказала». */
+const JOINERS = new Set(['и', 'а', 'но', 'или', 'потом', 'затем']);
+/** Слова, за которыми начинается чужое подлежащее: «я знаю, что она пришла». */
+const OTHER_SUBJECTS = new Set(['он', 'она', 'оно', 'они', 'я', 'ты', 'вы', 'мы', 'это', 'кто', 'что']);
+/** «Сам» относится к подлежащему, где бы в предложении ни стоял: «я сделал это сам». */
+const EMPHATIC = new Set(['сам', 'сама']);
+/** До «сам» подлежащее сменяет только личное местоимение: «это» там дополнение. */
+const PERSONAL = new Set(['он', 'она', 'оно', 'они', 'я', 'ты', 'вы', 'мы']);
+
+export interface GenderFix {
+  from: string;
+  to: string;
+}
+
+/**
+ * Приводит к нужному роду всё, что относится к местоимению: сказуемое в окне из
+ * трёх слов, краткое прилагательное сразу за ним («я была рада»), однородные
+ * сказуемые через союз («я пришла и сказала») и «сам» до конца предложения («я
+ * сделал это сам»). Слова при других подлежащих («я знаю, что она пришла») не
+ * трогает.
+ */
+export function agreePronoun(text: string, pronoun: 'я' | 'ты', gender: Gender): { text: string; fixes: GenderFix[] } {
+  // Нечётные элементы — слова, чётные — всё между ними.
+  const parts = text.split(/([а-яёА-ЯЁ]+)/);
+  const fixes: GenderFix[] = [];
+  const wordAt = (index: number) => parts[index]!.toLowerCase();
+  const nextWord = (index: number): number | null => {
+    const next = index + 2;
+    if (next >= parts.length || SENTENCE_END.test(parts[index + 1] ?? '')) return null;
+    return next;
+  };
+  const fix = (index: number) => {
+    const flipped = flipGender(parts[index]!, gender);
+    if (flipped === null) return;
+    fixes.push({ from: parts[index]!, to: flipped });
+    parts[index] = flipped;
+  };
+
+  for (let index = 1; index < parts.length; index += 2) {
+    if (wordAt(index) !== pronoun) continue;
+    // Сказуемое: ближайшее слово с видимым родом не дальше трёх слов.
+    let hit: number | null = null;
+    let cursor: number | null = index;
+    for (let step = 0; step < WINDOW; step++) {
+      cursor = cursor === null ? null : nextWord(cursor);
+      if (cursor === null) break;
+      if (OTHER_SUBJECTS.has(wordAt(cursor))) break;
+      if (markWord(parts[cursor]!) !== null) {
+        hit = cursor;
+        break;
+      }
+    }
+    let last = index;
+    while (hit !== null) {
+      fix(hit);
+      last = hit;
+      let after = nextWord(hit);
+      // «я была рада», «я был уверен»: краткое прилагательное при связке.
+      if (after !== null && (SHORT_MALE.has(wordAt(after)) || SHORT_FEMALE.has(wordAt(after)))) {
+        fix(after);
+        after = nextWord(after);
+      }
+      // Однородное сказуемое через союз: «я пришла и сказала».
+      hit = null;
+      if (after !== null && JOINERS.has(wordAt(after))) {
+        let probe: number | null = after;
+        for (let step = 0; step < 2; step++) {
+          probe = probe === null ? null : nextWord(probe);
+          if (probe === null || OTHER_SUBJECTS.has(wordAt(probe))) break;
+          if (markWord(parts[probe]!) !== null) {
+            hit = probe;
+            break;
+          }
+        }
+      }
+    }
+    // «Сам» — до конца предложения, пока не появилось другое подлежащее.
+    for (let cursor = nextWord(last); cursor !== null; cursor = nextWord(cursor)) {
+      if (PERSONAL.has(wordAt(cursor))) break;
+      if (EMPHATIC.has(wordAt(cursor))) fix(cursor);
+    }
+  }
+  return { text: parts.join(''), fixes };
+}
+
+/** Род всего, что говорящий говорит о себе. */
+export function agreeFirstPerson(text: string, gender: Gender): { text: string; fixes: GenderFix[] } {
+  return agreePronoun(text, 'я', gender);
+}
+
+export interface AgreedLine {
+  id: number;
+  before: string;
+  after: string;
+}
+
+/**
+ * Подгоняет род в репликах под пол голосов.
+ *
+ * То, что говорящий говорит о себе («я пришла»), — под пол его собственного
+ * голоса. Обращение («ты пришла») — под пол голоса собеседника, если тот
+ * опознан: назван по имени или остался единственным другим голосом в сцене;
+ * иначе не трогается. Говорящий без известного пола не трогается тоже.
+ *
+ * Разметка фраз правится теми же заменами, что и сам текст: иначе синтез по
+ * фразам произнёс бы прежний род.
+ */
+export function agreeWithVoices(
+  segments: Segment[],
+  genders: Record<string, Gender>,
+  options: TextGenderOptions = {},
+): AgreedLine[] {
+  const resolved = { names: options.names ?? {}, sceneWindowSeconds: options.sceneWindowSeconds ?? 8 };
+  const changed: AgreedLine[] = [];
+  for (const [index, segment] of segments.entries()) {
+    if (!segment.text_ru) continue;
+    const fixes: GenderFix[] = [];
+    let text = segment.text_ru;
+    const own = genders[segment.speaker];
+    if (own) {
+      const self = agreePronoun(text, 'я', own);
+      text = self.text;
+      fixes.push(...self.fixes);
+    }
+    if (addressHits(text).length > 0) {
+      const addressee = addresseeOf(segments, index, resolved);
+      const theirs = addressee ? genders[addressee] : undefined;
+      if (theirs) {
+        const other = agreePronoun(text, 'ты', theirs);
+        text = other.text;
+        fixes.push(...other.fixes);
+      }
+    }
+    if (fixes.length === 0) continue;
+    changed.push({ id: segment.id, before: segment.text_ru!, after: text });
+    segment.text_ru = text;
+    if (segment.phrases) {
+      segment.phrases = segment.phrases.map((phrase) =>
+        fixes.reduce((piece, { from, to }) => piece.replace(new RegExp(`(?<![а-яёА-ЯЁ])${from}(?![а-яёА-ЯЁ])`), to), phrase),
+      );
+    }
+  }
+  return changed;
 }

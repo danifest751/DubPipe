@@ -2,6 +2,7 @@ import type { DubConfig } from '../../config/schema.js';
 import { log } from '../../core/logger.js';
 import { cancellation } from '../../core/cancel.js';
 import { withRetry } from '../../util/exec.js';
+import { freeServerGpu, onServer } from '../remote/server.js';
 import { ChatError, type ChatClient, type ChatMessage, type ChatOptions, type ChatResult } from './types.js';
 
 /**
@@ -59,14 +60,33 @@ export async function listLocalModels(endpoint: string): Promise<LocalModel[]> {
 }
 
 export class OllamaClient implements ChatClient {
-  readonly name = 'Ollama (локально)';
+  readonly name: string;
   readonly model: string;
+  /** Видеопамять сервера освобождена под модель — один раз на клиента. */
+  private prepared: Promise<void> | null = null;
 
   constructor(
     private readonly config: DubConfig,
     model?: string,
   ) {
     this.model = model ?? config.translate.fallback_model;
+    this.name = onServer(config, 'translate') ? `Ollama (сервер ${config.server.host})` : 'Ollama (локально)';
+  }
+
+  /**
+   * Перед первым запросом к Ollama сервера — освободить видеопамять.
+   *
+   * ComfyUI держит в карте последние модели, и gemma4 на 15 ГБ рядом с ними не
+   * помещается: Ollama считает тогда большую часть слоёв процессором, во много
+   * раз медленнее. Сервис выгружает модели ComfyUI, только если тот простаивает.
+   */
+  private prepare(): Promise<void> {
+    this.prepared ??= (async () => {
+      if (!onServer(this.config, 'translate')) return;
+      const reason = await freeServerGpu(this.config);
+      if (reason) log.debug(`сервер: ${reason}`);
+    })();
+    return this.prepared;
   }
 
   private get base(): string {
@@ -74,6 +94,7 @@ export class OllamaClient implements ChatClient {
   }
 
   async complete(messages: ChatMessage[], options: ChatOptions = {}): Promise<ChatResult> {
+    await this.prepare();
     const body: Record<string, unknown> = {
       model: this.model,
       messages,

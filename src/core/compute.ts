@@ -1,4 +1,5 @@
 import type { DubConfig } from '../config/schema.js';
+import { onServer, serverEnabled, workerHealth, type ServerStage, type WorkerHealth } from '../providers/remote/server.js';
 import { probePython, type PythonEnvironment } from '../stages/s4-separate.js';
 import {
   chooseAccel,
@@ -31,6 +32,8 @@ export interface StageCompute {
 
 export interface ComputeMap {
   adapters: string[];
+  /** Сервер с видеокартой, если он задан: адрес и что о нём известно. */
+  server?: { host: string; online: boolean; gpu: string | null };
   stages: StageCompute[];
   /** Советы: что можно включить и чего для этого не хватает. */
   hints: string[];
@@ -57,6 +60,7 @@ export function describeCompute(
   hardware: Hardware,
   accel: AccelChoice,
   python: PythonEnvironment,
+  health: WorkerHealth | null = null,
 ): ComputeMap {
   const adapters = hardware.adapters.map(
     (name) => `${name} (${gpuKind(name) === 'integrated' ? 'встроенная' : 'отдельная'})`,
@@ -65,19 +69,41 @@ export function describeCompute(
   const stages: StageCompute[] = [];
   const hints: string[] = [];
 
-  stages.push({
+  /*
+   * Стадия, отданная серверу. Сервер ответил и умеет её — считается там;
+   * нет — строка говорит, куда она откатится, а ниже её описывает локальный
+   * путь, как если бы сервера не было.
+   */
+  const gpu = health?.gpu?.name ?? null;
+  const remote = (stage: ServerStage, capability: keyof WorkerHealth['capabilities'], name: string, detail: string): boolean => {
+    if (!onServer(config, stage)) return false;
+    if (health?.capabilities[capability]) {
+      stages.push({ stage: name, where: `сервер ${config.server.host}${gpu ? ` (${gpu})` : ''}`, detail });
+      return true;
+    }
+    hints.push(
+      health === null
+        ? `${name}: сервер ${config.server.host} не отвечает — считается на этом компьютере`
+        : `${name}: на сервере не установлено нужное — считается на этом компьютере`,
+    );
+    return false;
+  };
+
+  if (remote('asr', 'asr', 'Распознавание речи', `faster-whisper ${config.asr.model}, CUDA`)) {
+    // на сервере
+  } else stages.push({
     stage: 'Распознавание речи',
     where: accel.build.title,
     // О происхождении говорим только когда сборка не из официальных релизов:
     // для официальной это шум, для чужой — то, что человек должен знать.
     detail: accel.build.origin.official ? accel.reason : `${accel.reason}; собрана ${accel.build.origin.name}`,
   });
-  if (config.asr.backend === 'auto' && (hardware.amd || hardware.intel) && !hardware.nvidia) {
+  if (!onServer(config, 'asr') && config.asr.backend === 'auto' && (hardware.amd || hardware.intel) && !hardware.nvidia) {
     hints.push('Распознавание можно ускорить вдвое сборкой с Vulkan: asr.backend: vulkan');
   }
 
   const speakers = config.asr.diarization.enabled && config.asr.diarization.engine !== 'none';
-  stages.push({
+  if (!(speakers && remote('diarization', 'diarization', 'Разбор по голосам', 'pyannote, CUDA'))) stages.push({
     stage: 'Разбор по голосам',
     where: !speakers ? 'выключен' : config.asr.diarization.device === 'cpu' ? 'процессор' : onnx.name,
     detail: !speakers
@@ -86,11 +112,11 @@ export function describeCompute(
         ? 'отпечатки голосов на onnxruntime, остальные шаги на процессоре'
         : `нет Python или модулей: ${python.missing.join(', ')}`,
   });
-  if (speakers && python.available && !onnx.gpu) {
+  if (speakers && !onServer(config, 'diarization') && python.available && !onnx.gpu) {
     hints.push('Разбор по голосам ускоряется вчетверо: pip install onnxruntime-directml');
   }
 
-  stages.push({
+  if (!(config.separation.enabled && remote('separation', 'separation', 'Отделение голоса', 'MDX-Net, onnxruntime CUDA'))) stages.push({
     stage: 'Отделение голоса',
     where: !config.separation.enabled
       ? 'выключено'
@@ -100,10 +126,27 @@ export function describeCompute(
     detail: config.separation.enabled ? 'сеть маски на onnxruntime, спектр на процессоре' : 'оригинал приглушается',
   });
 
-  stages.push({ stage: 'Синтез речи', where: 'процессор', detail: 'piper' });
+  if (!(config.tts.engine === 'silero' && remote('tts', 'tts', 'Синтез речи', 'silero, CUDA'))) {
+    stages.push({ stage: 'Синтез речи', where: 'процессор', detail: config.tts.engine });
+  }
+  if (config.tts.clone.enabled) {
+    if (!remote('clone', 'clone', 'Голоса актёров', 'X-Voice, образец с отделённой дорожки голоса')) {
+      stages.push({
+        stage: 'Голоса актёров',
+        where: 'выключены',
+        detail: onServer(config, 'clone') ? 'сервер не отвечает или X-Voice на нём не установлен' : 'нужен сервер с видеокартой',
+      });
+    }
+  }
+  // Ollama — отдельная служба сервера: dubpipe-worker за неё не отвечает, и его
+  // молчание о ней ничего не говорит. Облачный перевод от сервера не зависит.
+  if (onServer(config, 'translate')) {
+    stages.push({ stage: 'Перевод (локальный)', where: `Ollama на ${config.server.host}`, detail: config.translate.fallback_model });
+  }
   stages.push({ stage: 'Укладка и сведение', where: 'процессор', detail: 'ffmpeg; видео копируется без перекодирования' });
 
-  return { adapters, stages, hints };
+  const server = serverEnabled(config) ? { host: config.server.host!, online: health !== null, gpu } : undefined;
+  return { adapters, stages, hints, ...(server ? { server } : {}) };
 }
 
 /**
@@ -179,5 +222,6 @@ export async function inspectCompute(config: DubConfig): Promise<ComputeMap> {
   const hardware = await detectHardware();
   const accel = chooseAccel(config.asr.backend, hardware);
   const python = await probePython();
-  return describeCompute(config, hardware, accel, python);
+  const health = await workerHealth(config, 0);
+  return describeCompute(config, hardware, accel, python, health);
 }

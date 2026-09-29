@@ -57,9 +57,11 @@ def russian(model, mode):
 class Voices:
     """Поднятые модели и дикторы в них: имя наружу -> (модель, имя внутри)."""
 
-    def __init__(self):
+    def __init__(self, device="cpu"):
         self.models = {}
         self.speakers = {}
+        # «cuda» — на сервере с видеокартой; локально мост работает на процессоре.
+        self.device = device
 
     def load(self, tag, path, mode="ru"):
         import torch
@@ -67,7 +69,7 @@ class Voices:
         if tag in self.models:
             return [name for name, (owner, _) in self.speakers.items() if owner == tag]
         model = torch.package.PackageImporter(path).load_pickle("tts_models", "model")
-        model.to(torch.device("cpu"))
+        model.to(torch.device(self.device))
         self.models[tag] = model
         added = []
         for name, speaker in russian(model, mode).items():
@@ -106,16 +108,27 @@ def main():
         help="модель silero; можно указать несколько, остальные подгрузятся по требованию",
     )
     parser.add_argument("--list", action="store_true", help="напечатать дикторов и выйти")
+    parser.add_argument(
+        "--device",
+        default="cpu",
+        choices=("auto", "cpu", "cuda"),
+        help="auto — видеокарта NVIDIA, если torch её видит",
+    )
     args = parser.parse_args()
 
     try:
-        import torch  # noqa: F401 — проверяем, что зависимости на месте
+        import torch
         import soundfile as sf
     except ImportError as error:
         emit({"ready": False, "error": f"нет модуля: {error.name}"})
         return 3
 
-    voices = Voices()
+    device = args.device
+    if device == "auto":
+        # Только CUDA от NVIDIA: ROCm под Windows роняет часть операций, а
+        # выигрыш на такой маленькой сети там не стоит риска.
+        device = "cuda" if torch.cuda.is_available() and not getattr(torch.version, "hip", None) else "cpu"
+    voices = Voices(device=device)
     try:
         for item in args.model:
             tag, _, rest = item.partition("=")
@@ -141,7 +154,7 @@ def main():
                 continue
             audio, rate = voices.say(request)
             # 16 бит — то же, что пишет piper: дальше клип читают наши же утилиты.
-            sf.write(request["out"], audio.numpy(), rate, subtype="PCM_16")
+            sf.write(request["out"], audio.cpu().numpy(), rate, subtype="PCM_16")
             emit({"ok": True, "duration": len(audio) / rate})
         except Exception as error:  # noqa: BLE001
             emit({"ok": False, "error": f"{type(error).__name__}: {error}"})

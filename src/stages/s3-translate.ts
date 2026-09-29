@@ -12,7 +12,8 @@ import { clientFor, selectChatClient, type ChatClient, type ChatUsage } from '..
 import { formatCost } from '../providers/llm/catalog.js';
 import { effectiveSpeechShape } from '../core/calibration.js';
 import { rememberTokenRate } from '../core/translation-cost.js';
-import { speakerGenderByText } from '../core/text-gender.js';
+import { agreeWithVoices, speakerGenderByText } from '../core/text-gender.js';
+import { speakingGenders } from '../core/overrides.js';
 import { buildPhraseRequest, parsePhraseResponse } from './s5-phrases.js';
 import { genderDisputed } from '../providers/diarization/gender.js';
 import {
@@ -330,15 +331,19 @@ export function buildBatchRequest(
   overheadSeconds = 0,
   room: (segment: Segment) => number = slotOf,
   fillToTarget = true,
+  genders: Record<string, 'м' | 'ж'> = {},
 ): string {
   const lines = batch.map((segment) => {
     const slot = room(segment);
     const chars = boundedTargetChars(segment.text_en, slot, charsPerSecond, expansionCap, overheadSeconds);
+    const gender = genders[segment.speaker];
     return JSON.stringify({
       id: segment.id,
       slot_seconds: Number(slot.toFixed(2)),
       // Имя поля — это и есть правило: «цель» модель добивает, «предел» — нет.
       ...(fillToTarget ? { target_chars: chars } : { max_chars: chars }),
+      // Пол голоса, которым реплику озвучат: по нему род «я сделал/сделала».
+      ...(gender ? { speaker: gender === 'м' ? 'male' : 'female' } : {}),
       text_en: segment.text_en,
     });
   });
@@ -435,6 +440,11 @@ export interface TranslateOptions {
    * которых перевод зависит.
    */
   reusable?: ReadonlySet<number>;
+  /**
+   * Пол голоса говорящих, чей голос уже решён: переводчик ставит по нему род
+   * первого лица. Говорящих, чей пол решит сам перевод, здесь нет.
+   */
+  genders?: Record<string, 'м' | 'ж'>;
 }
 
 async function loadPromptTemplate(name: string): Promise<string> {
@@ -465,9 +475,10 @@ async function translateBatch(
   overheadSeconds: number,
   room: (segment: Segment) => number,
   fillToTarget: boolean,
+  genders: Record<string, 'м' | 'ж'> = {},
 ): Promise<TranslationPayload> {
   const ids = batch.map((segment) => segment.id);
-  const request = buildBatchRequest(batch, charsPerSecond, expansionCap, overheadSeconds, room, fillToTarget);
+  const request = buildBatchRequest(batch, charsPerSecond, expansionCap, overheadSeconds, room, fillToTarget, genders);
   let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -750,6 +761,7 @@ export async function translateSegments(
         overhead,
         room,
         config.translate.fill_to_target,
+        options.genders,
       );
     } catch (error) {
       // Один упрямый пакет не должен обнулять час работы: на 99 пакетах модель
@@ -988,7 +1000,8 @@ export async function reviewTranslation(
     maxChangesShare: review.max_changes_share,
   };
 
-  const lines = buildReviewLines(segments, { ...applyOptions, speakers, names: overrides.names });
+  const voices = speakingGenders(config, overrides, speakers, { firmOnly: true });
+  const lines = buildReviewLines(segments, { ...applyOptions, speakers, names: overrides.names, voices });
   if (lines.length === 0) return segments;
 
   const template = await loadPromptTemplate('review.md');
@@ -1160,8 +1173,11 @@ export async function runS3(
   const reusable = new Set(saved && saved.fingerprint === fingerprint ? saved.ids : []);
   if (reusable.size > 0) log.step(`прерванный прогон: готово ${reusable.size} реплик, продолжаю с них`);
 
+  // Голоса, которые уже решены, — переводчику: род первого лица по ним.
+  const genders = speakingGenders(config, await workspace.readOverrides(), await workspace.readSpeakers(), { firmOnly: true });
   const run = await translateSegments(client, config, segments, {
     reusable,
+    genders,
     // Persist after every batch so a crash never loses completed work (SPEC §7).
     onBatch: async (done, total, partial, settled) => {
       await workspace.writeSegments(partial);
@@ -1308,6 +1324,14 @@ export async function runS3(
     }
   }
 
+  /*
+   * Последний шаг — согласовать род с голосами. Здесь, а не раньше: голоса
+   * говорящих, чей пол решил текст, стали известны только что, а подгонка
+   * длины и рецензия могли переписать род после перевода.
+   */
+  const agreed = await agreeGenders(workspace, config, run.segments);
+  if (agreed !== null) warnings.push(agreed);
+
   return {
     segments: run.segments,
     provider: `${client.name} / ${client.model}${selection.degraded ? ' (деградация)' : ''}`,
@@ -1316,4 +1340,35 @@ export async function runS3(
     glossary: run.glossary,
     usage: run.usage,
   };
+}
+
+/**
+ * Согласует род в переводе с полом голосов и записывает результат.
+ *
+ * Зовут её перевод, синтез и укладка: после перевода — потому что модель
+ * ошибается и с подсказкой; перед синтезом — потому что голос могли сменить в
+ * панели уже после перевода; после сокращения — потому что модель переписала
+ * реплику заново. Возвращает предупреждение для отчёта, если что-то поправлено.
+ */
+export async function agreeGenders(
+  workspace: Workspace,
+  config: DubConfig,
+  segments: Segment[],
+): Promise<StageWarning | null> {
+  const overrides = await workspace.readOverrides();
+  const speakers = await workspace.readSpeakers();
+  const genders = speakingGenders(config, overrides, speakers);
+  const changed = agreeWithVoices(segments, genders, { names: overrides.names });
+  if (changed.length === 0) return null;
+  await workspace.writeSegments(segments);
+  const examples = changed
+    .slice(0, 3)
+    .map((line) => `${line.id}: «${line.before}» → «${line.after}»`)
+    .join('; ');
+  log.step(`род подстроен под голос: ${changed.length} реплик (${examples})`);
+  return warn(
+    'warn.gender.agreed',
+    `Род подстроен под пол голоса в ${changed.length} репликах — например, ${examples}`,
+    { count: changed.length, examples },
+  );
 }

@@ -34,9 +34,15 @@ export interface ProjectOverrides {
    */
   names: Record<string, string>;
   mix: MixOverrides;
+  /**
+   * Образец голоса актёра: номер реплики, с которой он снят, или `off` —
+   * этого персонажа не клонировать (говорит базовым голосом). Нет записи —
+   * образец выбирается сам.
+   */
+  refs?: Record<string, number | 'off'>;
 }
 
-export const EMPTY_OVERRIDES: ProjectOverrides = { voices: {}, names: {}, mix: {} };
+export const EMPTY_OVERRIDES: ProjectOverrides = { voices: {}, names: {}, mix: {}, refs: {} };
 
 export function normalizeOverrides(raw: unknown): ProjectOverrides {
   const source = (raw && typeof raw === 'object' ? raw : {}) as Partial<ProjectOverrides>;
@@ -56,7 +62,12 @@ export function normalizeOverrides(raw: unknown): ProjectOverrides {
     const value = mixSource[key];
     if (typeof value === 'number' && Number.isFinite(value)) mix[key] = value;
   }
-  return { voices, names, mix };
+  const refs: Record<string, number | 'off'> = {};
+  for (const [speaker, ref] of Object.entries((source.refs ?? {}) as Record<string, unknown>)) {
+    if (ref === 'off') refs[speaker] = 'off';
+    else if (typeof ref === 'number' && Number.isInteger(ref) && ref >= 0) refs[speaker] = ref;
+  }
+  return { voices, names, mix, refs };
 }
 
 /**
@@ -173,6 +184,52 @@ export function voiceMapFor(
   return { ...autoVoiceMap(speakers, config), ...config.tts.voice_map, ...overrides.voices };
 }
 
+/**
+ * Пол голоса, которым будет говорить каждый говорящий, — по нему согласуется
+ * род в переводе: мужской голос не может сказать «я могла».
+ *
+ * В многоголосом дубляже это пол назначенного голоса по каталогу движка. В
+ * одноголосом один диктор читает всех, как в закадровом переводе, и род там
+ * следует персонажу, а не диктору, — поэтому берётся пол самого говорящего;
+ * голос, назначенный ему в правках видео, сильнее.
+ *
+ * `firmOnly` — только те, чей голос уже не изменится: назначен человеком или
+ * выбран по замеренному тону. Говорящий, чей пол решит сам перевод (тон
+ * промолчал), тогда пропускается: подсказать переводчику его пол значило бы
+ * выдумать улику, по которой этот пол потом и определят.
+ */
+export function speakingGenders(
+  config: DubConfig,
+  overrides: ProjectOverrides,
+  speakers: SpeakerProfiles,
+  options: { firmOnly?: boolean; voices?: VoiceInfo[] } = {},
+): Record<string, 'м' | 'ж'> {
+  const voices = options.voices ?? voicesForEngine(config.tts.engine);
+  const genderOf = (voice: string | undefined): 'м' | 'ж' | null => {
+    const gender = voices.find((item) => item.name === voice)?.gender;
+    return gender === 'м' || gender === 'ж' ? gender : null;
+  };
+  const map = voiceMapFor(config, overrides, speakers);
+  const result: Record<string, 'м' | 'ж'> = {};
+  for (const speaker of new Set([...Object.keys(speakers), ...Object.keys(map)])) {
+    const profile = speakers[speaker];
+    const chosen = overrides.voices[speaker] ?? (config.tts.voice_mode === 'single' ? undefined : config.tts.voice_map[speaker]);
+    const firm = chosen !== undefined || (profile?.gender === 'м' || profile?.gender === 'ж');
+    if (options.firmOnly && !firm) continue;
+
+    let gender: 'м' | 'ж' | null;
+    if (chosen !== undefined) gender = genderOf(chosen);
+    else if (config.tts.voice_mode === 'single') gender = null;
+    else gender = genderOf(map[speaker] ?? config.tts.default_voice);
+    if (gender === null) {
+      const own = effectiveGender(profile);
+      gender = own === 'м' || own === 'ж' ? own : null;
+    }
+    if (gender !== null) result[speaker] = gender;
+  }
+  return result;
+}
+
 export interface DroppedVoice {
   speaker: string;
   voice: string;
@@ -242,8 +299,8 @@ export interface ReviewPlan {
   segments: Segment[];
   /** id реплик, которым нужен новый синтез. */
   affected: number[];
-  /** С какой стадии перезапускать: синтез, только сведение или ничего не менялось. */
-  fromStage: 's5' | 's7' | null;
+  /** С какой стадии перезапускать: синтез, голоса актёров, только сведение или ничего. */
+  fromStage: 's5' | 's6' | 's7' | null;
 }
 
 /**
@@ -297,6 +354,18 @@ export function planReview(
   const mixChanged = (['background_gain_db', 'voice_gain_db', 'duck_db'] as const).some(
     (key) => (previousOverrides.mix[key] ?? config.mix[key]) !== (nextOverrides.mix[key] ?? config.mix[key]),
   );
-  const fromStage = affected.length > 0 ? 's5' : mixChanged ? 's7' : null;
-  return { segments, affected, fromStage };
+  /*
+   * Сменился образец голоса актёра — переозвучить реплики этого персонажа.
+   * Синтез базовым голосом им не нужен: голос актёра рисует подгонка (S6).
+   */
+  const refsChanged = new Set(
+    [...new Set([...Object.keys(previousOverrides.refs ?? {}), ...Object.keys(nextOverrides.refs ?? {})])].filter(
+      (speaker) => (previousOverrides.refs ?? {})[speaker] !== (nextOverrides.refs ?? {})[speaker],
+    ),
+  );
+  const recloned = config.tts.clone.enabled
+    ? segments.filter((segment) => refsChanged.has(segment.speaker) && !affected.includes(segment.id)).map((segment) => segment.id)
+    : [];
+  const fromStage = affected.length > 0 ? 's5' : recloned.length > 0 ? 's6' : mixChanged ? 's7' : null;
+  return { segments, affected: [...affected, ...recloned], fromStage };
 }

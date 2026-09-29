@@ -43,7 +43,13 @@ const asrSchema = z.object({
    * ради него в зависимостях жил `@xenova/transformers` — источник всех пяти
    * уязвимостей проекта. Распознавание идёт нативным whisper.cpp.
    */
-  engine: z.enum(['whisper-cpp', 'kilo-gateway']).default('whisper-cpp'),
+  /**
+   * `faster-whisper` — та же модель whisper на CTranslate2: на видеокарте NVIDIA
+   * считает в fp16 и оставляет whisper.cpp далеко позади. Нужен Python с
+   * пакетом faster-whisper; на сервере (раздел `server`) распознавание идёт им
+   * всегда, какой бы движок ни стоял здесь.
+   */
+  engine: z.enum(['whisper-cpp', 'faster-whisper', 'kilo-gateway']).default('whisper-cpp'),
   model: z.string().min(1).default('small'),
   /** Пословные таймкоды: `dtw` — выравнивание по вниманию (точное), `heuristic` — по вероятностям токенов (сдвигает первые слова раньше речи). */
   timestamps: z.enum(['dtw', 'heuristic']).default('dtw'),
@@ -289,6 +295,31 @@ const ttsSchema = z.object({
    */
   phrase_rhythm: z.boolean().default(true),
   sample_rate: z.number().int().min(8000).max(48_000).default(48_000),
+  /**
+   * Голоса актёров: реплика звучит голосом того, кто говорит в оригинале.
+   *
+   * Считает X-Voice на сервере с видеокартой (раздел `server`). Базовый движок
+   * (`engine`) при этом остаётся: по его клипам подгонка решает, сколько времени
+   * у каждой реплики, а X-Voice озвучивает ровно в это время своим темпом.
+   * Образец голоса — реплика с отделённой дорожки голоса, поэтому нужна S4.
+   * Реплика, которую сервер не озвучил, остаётся голосом базового движка.
+   */
+  clone: z
+    .object({
+      enabled: z.boolean().default(false),
+      /**
+       * Шаги диффузии: 32 — качество, 16 — вдвое быстрее. Замер на восьмом
+       * эпизоде при 32: 1.46 с на реплику на CMP 50HX.
+       */
+      steps: z.union([z.literal(16), z.literal(32)]).default(32),
+      /**
+       * Проверять каждую реплику распознаванием на сервере и озвучивать заново
+       * неудачные (обрывок образца в начале, пропавшее слово). Замер на ролике
+       * FRANCE 24 — в тексте CHANGELOG.
+       */
+      check: z.boolean().default(true),
+    })
+    .default({}),
 });
 
 const separationSchema = z.object({
@@ -460,6 +491,70 @@ const cacheSchema = z.object({
   keep_intermediate: z.boolean().default(false),
 });
 
+/**
+ * Машина с видеокартой, куда уходят тяжёлые сети конвейера.
+ *
+ * Конвейер остаётся на этом компьютере — файлы, интерфейс, ffmpeg, сведение, —
+ * а распознавание, разбор по голосам, отделение голоса и синтез считает
+ * `python/dubpipe_worker.py` на сервере, перевод — его Ollama. Сервер
+ * недоступен — стадия считается здесь и говорит об этом в отчёте.
+ *
+ * Если видеокарта стоит в этом же компьютере, сервер не нужен: оставьте `host`
+ * пустым, и стадии на Python сами возьмут CUDA.
+ */
+const serverSchema = z.object({
+  /**
+   * Считать ли на сервере. Отдельно от адреса: переключатель «этот компьютер /
+   * сервер» в настройках не должен стирать адрес, чтобы вернуться к серверу
+   * можно было одним щелчком.
+   */
+  enabled: z.boolean().default(true),
+  /** Имя или адрес сервера, например 192.168.0.70; null — всё считается здесь. */
+  host: z
+    .preprocess(
+      // Пустое поле в интерфейсе значит «сервера нет», а не адрес из пустой строки.
+      (value) => (typeof value === 'string' ? value.trim() || null : value),
+      z
+        .string()
+        .regex(/^[A-Za-z0-9.:[\]-]{1,253}$/, 'только имя или адрес, без http:// и порта')
+        .nullable(),
+    )
+    .default(null),
+  worker_port: z.number().int().min(1).max(65_535).default(8770),
+  ollama_port: z.number().int().min(1).max(65_535).default(11_434),
+  /** Какие стадии отдавать серверу. */
+  stages: z
+    .object({
+      asr: z.boolean().default(true),
+      diarization: z.boolean().default(true),
+      separation: z.boolean().default(true),
+      tts: z.boolean().default(true),
+      /** Голоса актёров (X-Voice) — только сервер: модели нужно своё окружение. */
+      clone: z.boolean().default(true),
+      /** Локальный перевод — в Ollama сервера; облачный перевод профиля hybrid это не отменяет. */
+      translate: z.boolean().default(true),
+    })
+    .default({}),
+  /**
+   * Модель Ollama на сервере вместо той, что выбрана в разделе перевода.
+   * Обычно не нужна: там одно поле модели, и список в нём — с того Ollama,
+   * где идёт перевод. null — брать оттуда.
+   */
+  translate_model: z.string().min(1).nullable().default(null),
+  /**
+   * Освобождать видеопамять сервера, когда её не хватает задаче.
+   *
+   * Карта общая: ComfyUI держит в ней последние модели (16 ГБ из 20), Ollama
+   * после перевода — gemma4 на 15 ГБ. Без освобождения задача не падает, а
+   * молча уходит считать на процессор: распознавание эпизода — десять минут
+   * вместо одной. Сервис выгружает простаивающий ComfyUI, затем модели Ollama;
+   * идущую генерацию ComfyUI не трогает.
+   */
+  free_gpu_memory: z.boolean().default(true),
+  /** Сервер не ответил — считать здесь, а не останавливать прогон. */
+  fallback_local: z.boolean().default(true),
+});
+
 export const configSchema = z
   .object({
     profile: z.enum(PROFILES).default('hybrid'),
@@ -476,6 +571,7 @@ export const configSchema = z
     subtitles: subtitlesSchema.default({}),
     download: downloadSchema.default({}),
     cache: cacheSchema.default({}),
+    server: serverSchema.default({}),
   })
   .strict()
   .superRefine((cfg, ctx) => {

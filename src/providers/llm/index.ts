@@ -87,6 +87,24 @@ export async function selectChatClient(config: DubConfig, model?: string): Promi
   const local = new OllamaClient(config, model ?? config.translate.model);
   if (await local.available()) return { client: local, warnings, degraded: false };
 
+  /*
+   * Имени нет в этом Ollama, но есть запасная модель — переводим ею и говорим
+   * об этом. Так бывает, когда в поле модели осталось имя облачной модели или
+   * модели с другого компьютера: останавливать из-за этого перевод незачем.
+   */
+  if (config.translate.fallback_model !== local.model) {
+    const fallback = new OllamaClient(config, config.translate.fallback_model);
+    if (await fallback.available()) {
+      warnings.push(
+        warn('warn.llm.modelMissing', `Модели ${local.model} нет в Ollama — перевод идёт моделью ${fallback.model}`, {
+          model: local.model,
+          fallback: fallback.model,
+        }),
+      );
+      return { client: fallback, warnings, degraded: true };
+    }
+  }
+
   throw new StageError('s3', `Ollama недоступен или модель ${local.model} не установлена`, {
     hints: [
       'Запустите демон: ollama serve',

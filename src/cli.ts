@@ -379,6 +379,11 @@ program
     const compute = await inspectCompute(config);
     log.info('');
     log.info(`Видеоадаптеры: ${compute.adapters.length > 0 ? compute.adapters.join(', ') : 'не найдены'}`);
+    if (compute.server) {
+      const { host, online, gpu } = compute.server;
+      if (online) log.success(`Сервер ${host}: на связи${gpu ? `, ${gpu}` : ''}`);
+      else log.warn(`Сервер ${host}: сервис dubpipe-worker не отвечает — стадии считаются здесь`);
+    }
     for (const stage of compute.stages) {
       log.info(`  ${stage.stage.padEnd(20)} ${stage.where}${stage.detail ? ` — ${stage.detail}` : ''}`);
     }

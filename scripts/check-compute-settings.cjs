@@ -28,12 +28,15 @@ async function main() {
     await sleep(300);
   }
 
-  // Вкладка настроек, а внутри неё — раздел «Распознавание»: страница настроек
-  // разбита на разделы, и поля соседних разделов честно скрыты.
+  // Вкладка настроек, а внутри неё — раздел «Вычисления»: выбор устройств
+  // собран там, в половине «Этот компьютер». При включённом сервере она скрыта —
+  // переключаемся на неё (без сохранения).
   await run(`[...document.querySelectorAll('#nav button')].find((b) => b.dataset.view === 'settings')?.click()`);
   await sleep(700);
-  await run(`document.querySelector('#settingsNav button[data-group="asr"]').click()`);
+  await run(`document.querySelector('#settingsNav button[data-group="compute"]').click()`);
   await sleep(500);
+  await run(`(() => { const r = document.querySelector('input[name="compute"][value="local"]'); r.checked = true; r.dispatchEvent(new Event('change')); })()`);
+  await sleep(300);
 
   // Каждое поле проверяем в своём разделе: соседние разделы честно скрыты.
   const keys = ['asr.backend', 'asr.diarization.device', 'separation.apply', 'separation.device'];
@@ -62,7 +65,7 @@ async function main() {
     );
   }
 
-  await run(`document.querySelector('#settingsNav button[data-group="asr"]').click()`);
+  await run(`document.querySelector('#settingsNav button[data-group="compute"]').click()`);
   await sleep(400);
   fs.writeFileSync(path.join(outDir, 'compute-settings.png'), (await window.webContents.capturePage()).toPNG());
 

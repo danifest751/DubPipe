@@ -11,6 +11,17 @@ import { run, ProcessError } from '../util/exec.js';
 import { downloadFile } from '../util/download.js';
 import { requireTool } from '../util/tools.js';
 import { warn, type StageWarning } from '../core/types.js';
+import { isCancelled } from '../core/cancel.js';
+import {
+  dropWorkerJob,
+  fetchWorkerFile,
+  onServer,
+  packForServer,
+  runWorkerJob,
+  serverTitle,
+  serverUnavailable,
+  workerHealth,
+} from '../providers/remote/server.js';
 
 /**
  * S4 — separating voice from music and effects (SPEC FR-4).
@@ -126,6 +137,140 @@ function sidecarPath(): string {
 export async function runS4(workspace: Workspace, config: DubConfig): Promise<S4Result> {
   const warnings: StageWarning[] = [];
 
+  const source = MODEL_SOURCES[config.separation.model];
+  if (!source) {
+    throw new StageError('s4', `неизвестная модель разделения «${config.separation.model}»`, {
+      hints: [`Доступны: ${Object.keys(MODEL_SOURCES).join(', ')}`],
+    });
+  }
+
+  const original = workspace.file('original.wav');
+  if (!existsSync(original)) {
+    throw new StageError('s4', 'нет исходного аудио для разделения', {
+      artifact: original,
+      hints: ['Выполните стадию s1'],
+    });
+  }
+
+  const instrumental = workspace.file('separate-instrumental.wav');
+  const separatedVocals = workspace.file('separate-vocals.wav');
+  const modelInput = workspace.file('separate-input.wav');
+  // Звук в том виде, в каком его ждёт модель: 44.1 кГц стерео.
+  const prepareInput = async (): Promise<void> => {
+    const ffmpeg = await requireTool('ffmpeg', workspace.toolsDir);
+    await run(
+      ffmpeg,
+      ['-y', '-v', 'error', '-i', original, '-ar', String(MODEL_SAMPLE_RATE), '-ac', '2', '-acodec', 'pcm_s16le', modelInput],
+      { timeoutMs: 1_800_000 },
+    );
+  };
+
+  // Сервер с видеокартой первым; не вышло — локальный путь, как раньше.
+  let provider: string | null = null;
+  // Откуда брать дорожки для сведения: с сервера они приходят во FLAC.
+  let instrumentalSource = instrumental;
+  let vocalsSource = separatedVocals;
+  if (onServer(config, 'separation')) {
+    let reason = await serverUnavailable(config, 'separation');
+    if (reason === null) {
+      const upload = workspace.file('separate-input.flac');
+      try {
+        // Сразу в том виде, какой нужен модели, и сжатым: сеть — узкое место.
+        const ffmpeg = await requireTool('ffmpeg', workspace.toolsDir);
+        await packForServer(ffmpeg, original, upload, ['-ar', String(MODEL_SAMPLE_RATE), '-ac', '2', '-sample_fmt', 's16']);
+        const health = await workerHealth(config);
+        log.step(`разделение моделью ${config.separation.model} на сервере`);
+        const job = await runWorkerJob(config, 'separate', { model: config.separation.model, url: source }, upload, {
+          onProgress: (percent) => {
+            log.progress(`разделение ${percent}%`, percent, null, { key: 'work.separate', params: { percent } });
+          },
+          onLog: (text) => log.debug(`сервер: ${text}`),
+        });
+        log.step(`разделение на сервере заняло ${Math.round(job.seconds)} с, забираю дорожки`);
+        instrumentalSource = workspace.file('separate-instrumental.flac');
+        vocalsSource = workspace.file('separate-vocals.flac');
+        try {
+          await fetchWorkerFile(config, job.files['instrumental.wav'] ?? '', instrumentalSource);
+          await fetchWorkerFile(config, job.files['vocals.wav'] ?? '', vocalsSource);
+        } finally {
+          await dropWorkerJob(config, job.job);
+        }
+        if (job.onCpu) {
+          warnings.push(warn('warn.server.cpu', 'Сервер отделил голос на процессоре, а не на видеокарте', { stage: 'S4' }));
+        }
+        provider = `MDX-Net ${config.separation.model} (${serverTitle(config, health)})`;
+      } catch (error) {
+        if (isCancelled(error)) throw error;
+        reason = (error as Error).message;
+        instrumentalSource = instrumental;
+        vocalsSource = separatedVocals;
+      } finally {
+        await rm(upload, { force: true });
+      }
+    }
+    if (provider === null) {
+      if (!config.server.fallback_local) {
+        throw new StageError('s4', `разделение на сервере не выполнено: ${reason}`, {
+          hints: ['Проверьте, что сервис dubpipe-worker запущен на сервере', 'Либо разрешите считать здесь: server.fallback_local: true'],
+        });
+      }
+      log.warn(`разделение на сервере недоступно (${reason}), считаю на этом компьютере`);
+      warnings.push(
+        warn('warn.server.fallback', `Сервер не отделил голос (${reason}); считаю на этом компьютере`, {
+          stage: 'S4',
+          reason: reason ?? '',
+        }),
+      );
+    }
+  }
+
+  if (provider === null) {
+    const degraded = await separateLocally(workspace, config, source, prepareInput, modelInput, instrumental, separatedVocals, warnings);
+    if (degraded !== null) return degraded;
+    provider = `MDX-Net ${config.separation.model}`;
+  }
+
+  const ffmpeg = await requireTool('ffmpeg', workspace.toolsDir);
+  const background = workspace.file('background.wav');
+  await run(
+    ffmpeg,
+    ['-y', '-v', 'error', '-i', instrumentalSource, '-ar', '48000', '-acodec', 'pcm_s16le', background],
+    { timeoutMs: 1_800_000 },
+  );
+  // Голос приводится к той же частоте, что и оригинал: сведение вычитает его
+  // из оригинала, а вычитать дорожки разной частоты нельзя.
+  const vocals = workspace.file('vocals.wav');
+  await run(
+    ffmpeg,
+    ['-y', '-v', 'error', '-i', vocalsSource, '-ar', '48000', '-acodec', 'pcm_s16le', vocals],
+    { timeoutMs: 1_800_000 },
+  );
+  for (const leftover of [modelInput, separatedVocals, instrumental, instrumentalSource, vocalsSource]) {
+    await rm(leftover, { force: true });
+  }
+
+  return {
+    backgroundPath: background,
+    warnings,
+    provider,
+    degradedToDucking: false,
+  };
+}
+
+/**
+ * Разделение на этом компьютере. Возвращает готовый итог, если стадия отступила
+ * к приглушению оригинала, и null, если дорожки посчитаны и лежат на месте.
+ */
+async function separateLocally(
+  workspace: Workspace,
+  config: DubConfig,
+  source: string,
+  prepareInput: () => Promise<void>,
+  modelInput: string,
+  instrumental: string,
+  separatedVocals: string,
+  warnings: StageWarning[],
+): Promise<S4Result | null> {
   const python = await probePython();
   if (!python.available) {
     const reason =
@@ -158,13 +303,6 @@ export async function runS4(workspace: Workspace, config: DubConfig): Promise<S4
     throw new StageError('s4', 'не найден скрипт разделения', { artifact: script });
   }
 
-  const source = MODEL_SOURCES[config.separation.model];
-  if (!source) {
-    throw new StageError('s4', `неизвестная модель разделения «${config.separation.model}»`, {
-      hints: [`Доступны: ${Object.keys(MODEL_SOURCES).join(', ')}`],
-    });
-  }
-
   const modelPath = path.join(workspace.modelsDir, `${config.separation.model}.onnx`);
   if (!existsSync(modelPath)) {
     await downloadFile(source, modelPath, {
@@ -174,25 +312,7 @@ export async function runS4(workspace: Workspace, config: DubConfig): Promise<S4
     });
   }
 
-  const ffmpeg = await requireTool('ffmpeg', workspace.toolsDir);
-  const original = workspace.file('original.wav');
-  if (!existsSync(original)) {
-    throw new StageError('s4', 'нет исходного аудио для разделения', {
-      artifact: original,
-      hints: ['Выполните стадию s1'],
-    });
-  }
-
-  // The model works at its own rate and layout; convert in and back out.
-  const modelInput = workspace.file('separate-input.wav');
-  await run(
-    ffmpeg,
-    ['-y', '-v', 'error', '-i', original, '-ar', String(MODEL_SAMPLE_RATE), '-ac', '2', '-acodec', 'pcm_s16le', modelInput],
-    { timeoutMs: 1_800_000 },
-  );
-
-  const instrumental = workspace.file('separate-instrumental.wav');
-  const separatedVocals = workspace.file('separate-vocals.wav');
+  await prepareInput();
 
   log.step(`разделение моделью ${config.separation.model} (Python + onnxruntime)`);
   try {
@@ -225,6 +345,7 @@ export async function runS4(workspace: Workspace, config: DubConfig): Promise<S4
       },
     );
   } catch (error) {
+    if (isCancelled(error)) throw error;
     const detail = error instanceof ProcessError ? error.stderr.trim().split('\n').slice(-3).join('; ') : '';
     if (config.separation.fallback_to_ducking) {
       const why = detail || (error as Error).message;
@@ -239,29 +360,5 @@ export async function runS4(workspace: Workspace, config: DubConfig): Promise<S4
     }
     throw new StageError('s4', `разделение не удалось: ${detail || (error as Error).message}`, { cause: error });
   }
-
-  const background = workspace.file('background.wav');
-  await run(
-    ffmpeg,
-    ['-y', '-v', 'error', '-i', instrumental, '-ar', '48000', '-acodec', 'pcm_s16le', background],
-    { timeoutMs: 1_800_000 },
-  );
-  // Голос приводится к той же частоте, что и оригинал: сведение вычитает его
-  // из оригинала, а вычитать дорожки разной частоты нельзя.
-  const vocals = workspace.file('vocals.wav');
-  await run(
-    ffmpeg,
-    ['-y', '-v', 'error', '-i', separatedVocals, '-ar', '48000', '-acodec', 'pcm_s16le', vocals],
-    { timeoutMs: 1_800_000 },
-  );
-  await rm(modelInput, { force: true });
-  await rm(separatedVocals, { force: true });
-  await rm(instrumental, { force: true });
-
-  return {
-    backgroundPath: background,
-    warnings,
-    provider: `MDX-Net ${config.separation.model}`,
-    degradedToDucking: false,
-  };
+  return null;
 }

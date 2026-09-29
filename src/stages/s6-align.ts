@@ -7,7 +7,9 @@ import { StageError } from '../core/errors.js';
 import { counter, log } from '../core/logger.js';
 import { availableSeconds, slotOf, warn, type Segment, type StageWarning } from '../core/types.js';
 import type { Workspace } from '../core/workspace.js';
-import { applyOverrides, withKnownVoices } from '../core/overrides.js';
+import { applyOverrides, speakingGenders, withKnownVoices } from '../core/overrides.js';
+import { agreeFirstPerson } from '../core/text-gender.js';
+import { voiceWithActors } from '../providers/tts/clone.js';
 import { selectChatClient, type ChatClient } from '../providers/llm/index.js';
 import { createTtsProvider, voiceForSpeaker } from '../providers/tts/index.js';
 import { recordClip } from './s5-tts.js';
@@ -54,6 +56,54 @@ export interface AlignmentPlanItem {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+/**
+ * Продолжает ли реплика фразу предыдущей: тот же говорящий, пауза в оригинале
+ * короткая, а перевод предыдущей не закончил предложение.
+ */
+export function continuesPhrase(previous: Segment, segment: Segment): boolean {
+  if (previous.speaker !== segment.speaker || segment.start - previous.end > 0.6) return false;
+  const text = (previous.text_ru ?? '').trim();
+  return text.length > 0 && !/[.!?…]["»”)\]]*$/.test(text);
+}
+
+/** На сколько раньше оригинала может начаться продолжение фразы, секунд. */
+export const CONTINUATION_PULL_SECONDS = 3;
+/** Пауза внутри фразы между её репликами — не длиннее этой, секунд. */
+const CONTINUATION_PAUSE_SECONDS = 0.3;
+
+/**
+ * Подтягивает продолжения фраз к их началу; возвращает, сколько подтянуто.
+ *
+ * Распознавание режет длинную фразу на реплики где придётся, и перевод
+ * держит разрез: «…моделей ИИ ещё» | «до их официального релиза». Если
+ * русское начало короче английского, конец фразы ждал своего места в
+ * оригинале — на ролике FRANCE 24 это 2.7 с тишины посреди предложения, и
+ * дубляж звучал оборванным.
+ *
+ * Идёт последним шагом подгонки, по готовым клипам: паузы внутри реплик и
+ * голоса актёров меняют их длину уже после плана, и подтянутая по плану
+ * реплика налезала на удлинившуюся предыдущую. Реплика уходит только раньше и
+ * не дальше `CONTINUATION_PULL_SECONDS` — на соседей это не влияет.
+ */
+export function pullContinuations(segments: Segment[], gapSeconds: number): number {
+  const ordered = segments.filter((segment) => segment.aligned_duration).sort((a, b) => a.start - b.start);
+  let pulled = 0;
+  for (let index = 1; index < ordered.length; index++) {
+    const previous = ordered[index - 1]!;
+    const segment = ordered[index]!;
+    if (!continuesPhrase(previous, segment)) continue;
+    const previousEnd = previous.start + (previous.shift_ms ?? 0) / 1000 + previous.aligned_duration!;
+    const pause = Math.max(gapSeconds, Math.min(segment.start - previous.end, CONTINUATION_PAUSE_SECONDS));
+    const current = segment.start + (segment.shift_ms ?? 0) / 1000;
+    const wanted = Math.max(segment.start - CONTINUATION_PULL_SECONDS, previousEnd + pause);
+    if (wanted < current - 0.05) {
+      segment.shift_ms = Math.round((wanted - segment.start) * 1000);
+      pulled++;
+    }
+  }
+  return pulled;
 }
 
 /**
@@ -297,6 +347,7 @@ export async function runS6(workspace: Workspace, baseConfig: DubConfig, segment
       );
     }
     config = applyOverrides(pruned.config, pruned.overrides, speakers);
+    const genders = speakingGenders(baseConfig, overrides, speakers);
     const byId = new Map(segments.map((segment) => [segment.id, segment]));
 
     for (let iteration = 1; iteration <= config.alignment.max_retranslate; iteration++) {
@@ -326,6 +377,10 @@ export async function runS6(workspace: Workspace, baseConfig: DubConfig, segment
         // Разметка фраз была сделана по прежнему тексту: теперь она лжёт, и
         // синтез по ней произнёс бы то, что мы только что сократили.
         segment.phrases = null;
+        // Сокращая, модель пишет реплику заново — и род тоже выбирает заново.
+        const gender = genders[segment.speaker];
+        if (gender) segment.text_ru = agreeFirstPerson(segment.text_ru, gender).text;
+        shortened = segment.text_ru;
         segment.retranslate_count++;
         const voice = voiceForSpeaker(segment.speaker, config.tts.voice_map, config.tts.default_voice);
         const result = await tts.synthesize({
@@ -448,10 +503,19 @@ export async function runS6(workspace: Workspace, baseConfig: DubConfig, segment
     );
   }
 
+  /*
+   * Голоса актёров — последним: длина каждой реплики уже решена, сокращения
+   * сделаны. X-Voice озвучивает реплику ровно в это время, и его клип встаёт
+   * на место уложенного клипа базового движка.
+   */
+  const actors = await voiceWithActors(workspace, config, segments, overrides, warnings);
+  const pulled = pullContinuations(segments, options.gapMs / 1000);
+  if (pulled > 0) log.step(`продолжения фраз подтянуты к началу: ${pulled}`);
+
   await workspace.writeSegments(segments);
   await workspace.writeJson(workspace.file('alignment.json'), { options, stats, plan });
 
-  return { segments, warnings, stats, provider: 'ffmpeg atempo' };
+  return { segments, warnings, stats, provider: actors ? `ffmpeg atempo + ${actors.provider}` : 'ffmpeg atempo' };
 }
 
 /** Placement used by S7 when S6 is disabled: originals, no tempo change. */

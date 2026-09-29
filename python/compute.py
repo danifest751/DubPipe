@@ -52,6 +52,13 @@ def onnx_providers(preference):
         for name in ("DmlExecutionProvider", "CUDAExecutionProvider", "ROCMExecutionProvider"):
             if name in available:
                 order.append(name)
+        if "CUDAExecutionProvider" in order and hasattr(ort, "preload_dlls"):
+            # onnxruntime-gpu из pip берёт cuDNN и cuBLAS из пакетов nvidia-* и
+            # сам их не находит: без этого сессия молча создаётся на процессоре.
+            try:
+                ort.preload_dlls()
+            except Exception as error:  # noqa: BLE001 — не вышло, onnxruntime откатится сам
+                note(f"библиотеки CUDA не подгружены заранее: {str(error)[:70]}")
     order.append("CPUExecutionProvider")
     return order
 

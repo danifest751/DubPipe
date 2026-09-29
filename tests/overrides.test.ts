@@ -33,8 +33,17 @@ const voiced = (id: number, speaker: string, ru: string) =>
 
 describe('§16.4: правки видео поверх настроек', () => {
   it('нормализует сырой JSON: мусор отбрасывается', () => {
-    const parsed = normalizeOverrides({ voices: { speaker_0: ' ru_RU-denis-medium ', speaker_1: 7 }, mix: { duck_db: -12, voice_gain_db: 'x', other: 1 } });
-    expect(parsed).toEqual({ voices: { speaker_0: 'ru_RU-denis-medium' }, names: {}, mix: { duck_db: -12 } });
+    const parsed = normalizeOverrides({
+      voices: { speaker_0: ' ru_RU-denis-medium ', speaker_1: 7 },
+      mix: { duck_db: -12, voice_gain_db: 'x', other: 1 },
+      refs: { speaker_0: 12, speaker_1: 'off', speaker_2: 'нет', speaker_3: -1 },
+    });
+    expect(parsed).toEqual({
+      voices: { speaker_0: 'ru_RU-denis-medium' },
+      names: {},
+      mix: { duck_db: -12 },
+      refs: { speaker_0: 12, speaker_1: 'off' },
+    });
     expect(normalizeOverrides(null)).toEqual(EMPTY_OVERRIDES);
   });
 

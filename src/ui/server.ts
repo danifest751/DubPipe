@@ -42,7 +42,7 @@ import { languageProfile, LANGUAGE_PROFILES } from '../core/languages.js';
 import { message, normalizeLanguage, type UiLanguage } from '../core/i18n.js';
 import { cancellation, isCancelled } from '../core/cancel.js';
 import { applyOverrides, EMPTY_OVERRIDES, normalizeOverrides, planReview } from '../core/overrides.js';
-import { defaultOutputName, isDubbedName, resolveOutputPath } from '../stages/s7-mix.js';
+import { defaultOutputName, isDubbedName, namingInput, resolveOutputPath } from '../stages/s7-mix.js';
 import { fitRuler } from '../stages/s3-translate.js';
 import { ensureWhisperModel, whisperModelPath } from '../providers/asr/whispercpp.js';
 import { ensureVadModel as ensureSileroVad } from '../providers/vad/silero.js';
@@ -50,6 +50,9 @@ import { ensureVoice } from '../providers/tts/voices.js';
 import { findTool, provisionTool, TOOLS, type ToolName } from '../util/tools.js';
 import { downloadYt, resolveYt, type DownloadQuality } from '../util/ytdlp.js';
 import { sha256 } from '../util/hash.js';
+import { moveToTrash } from '../util/trash.js';
+import { onServer, resetWorkerHealth, serverEnabled, workerHealth, type ServerStage, type WorkerHealth } from '../providers/remote/server.js';
+import { referenceOverview } from '../providers/tts/clone.js';
 
 /**
  * Local HTTP API behind the web interface (SPEC §16).
@@ -595,6 +598,46 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       needsToken?: boolean;
     }> = [];
 
+    /*
+     * Сервер с видеокартой: стадию, которую он берёт, не надо готовить здесь.
+     *
+     * Без этого экран требовал программу распознавания, модель голосов и токен
+     * Hugging Face на машине, где ничего этого не нужно, — считает сервер. Если
+     * сервер молчит, стадия откатится сюда, и тогда проверяется местный путь.
+     */
+    const health = serverEnabled(config) ? await workerHealth(config) : null;
+    const gpu = health?.gpu?.name ?? '';
+    const onGpuServer = (stage: ServerStage, capability: keyof WorkerHealth['capabilities']) =>
+      onServer(config, stage) && Boolean(health?.capabilities[capability]);
+    const serverItem = (id: string, title: string) => ({
+      id,
+      title,
+      state: 'ok' as const,
+      detail: message('ready.onServer', lang, { host: config.server.host ?? '', gpu }),
+      blocks: null,
+      hint: null,
+      canFix: false,
+      size: null,
+    });
+    if (serverEnabled(config)) {
+      items.push({
+        id: 'server',
+        title: message('ready.server.title', lang, { host: config.server.host ?? '' }),
+        state: health ? 'ok' : 'warn',
+        detail: health
+          ? message('ready.server.online', lang, {
+              gpu,
+              used: health.gpu ? (health.gpu.memory_used_mb / 1024).toFixed(1) : '—',
+              total: health.gpu ? (health.gpu.memory_total_mb / 1024).toFixed(0) : '—',
+            })
+          : message('ready.server.offline', lang),
+        blocks: health ? null : message('ready.server.blocks', lang),
+        hint: health ? null : message('ready.server.hint', lang),
+        canFix: false,
+        size: null,
+      });
+    }
+
     const media = await findTool('ffmpeg', toolsDir);
     const probe = await findTool('ffprobe', toolsDir);
     const mediaReady = Boolean(media && probe);
@@ -615,7 +658,8 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
     const whisper = await findTool('whisper-cli', toolsDir);
     const asrModel = whisperModelPath(config.asr.model, modelsDir);
     const asrReady = Boolean(whisper) && existsSync(asrModel);
-    items.push({
+    if (onGpuServer('asr', 'asr')) items.push(serverItem('whisper', message('ready.whisper.title', lang, { model: config.asr.model })));
+    else items.push({
       id: 'whisper',
       title: message('ready.whisper.title', lang, { model: config.asr.model }),
       state: asrReady ? 'ok' : 'blocked',
@@ -637,7 +681,9 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
      * сообщал «нет голоса» о голосе, которого у этого движка и не бывает, и
      * блокировал запуск там, где всё на месте.
      */
-    if (config.tts.engine === 'silero') {
+    if (config.tts.engine === 'silero' && onGpuServer('tts', 'tts')) {
+      items.push(serverItem('silero', message('ready.silero.title', lang, { voice: config.tts.default_voice })));
+    } else if (config.tts.engine === 'silero') {
       // Моделей у движка две, и нужна та, в которой живут голоса этого видео:
       // фильму на пятерых носителей вторая не понадобится вовсе.
       const wanted = new Set(
@@ -709,12 +755,15 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
     if (config.translate.engine === 'ollama') {
       const installed = await listLocalModels(config.translate.ollama_endpoint);
       const wanted = config.translate.model;
-      const found = installed.find((model) => model.name === wanted || model.name.split(':')[0] === wanted.split(':')[0]);
+      const has = (name: string) => installed.find((model) => model.name === name || model.name.split(':')[0] === name.split(':')[0]);
+      const found = has(wanted);
       const daemon = installed.length > 0;
+      // Нужной модели нет, но есть запасная: перевод пойдёт ею, это не преграда.
+      const spare = !found && daemon ? has(config.translate.fallback_model) : undefined;
       items.push({
         id: 'ollama',
         title: message('ready.ollama.title', lang, { model: wanted }),
-        state: found ? 'ok' : 'blocked',
+        state: found ? 'ok' : spare ? 'warn' : 'blocked',
         detail: found
           ? message('ready.ready', lang)
           : daemon
@@ -733,6 +782,22 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       });
     }
 
+    if (config.tts.clone.enabled) {
+      const cloneReady = onGpuServer('clone', 'clone');
+      items.push({
+        id: 'clone',
+        title: message('ready.clone.title', lang),
+        state: cloneReady ? 'ok' : 'warn',
+        detail: cloneReady
+          ? message('ready.onServer', lang, { host: config.server.host ?? '', gpu })
+          : message(serverEnabled(config) ? 'ready.clone.missing' : 'ready.clone.noServer', lang),
+        blocks: cloneReady ? null : message('ready.clone.blocks', lang),
+        hint: cloneReady ? null : message('ready.clone.hint', lang),
+        canFix: false,
+        size: null,
+      });
+    }
+
     const ytDlp = await findTool('yt-dlp', toolsDir);
     items.push({
       id: 'yt-dlp',
@@ -745,7 +810,9 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       size: message('ready.size.ytdlp', lang),
     });
 
-    if (config.asr.diarization.enabled && config.asr.diarization.engine !== 'none') {
+    if (config.asr.diarization.enabled && config.asr.diarization.engine !== 'none' && onGpuServer('diarization', 'diarization')) {
+      items.push(serverItem('diarization', message('ready.diarization.title', lang)));
+    } else if (config.asr.diarization.enabled && config.asr.diarization.engine !== 'none') {
       const diarization = await probeDiarization(config, modelsDir);
       items.push({
         id: 'diarization',
@@ -762,7 +829,9 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       });
     }
 
-    if (config.separation.enabled) {
+    if (config.separation.enabled && onGpuServer('separation', 'separation')) {
+      items.push(serverItem('python', message('ready.python.title', lang)));
+    } else if (config.separation.enabled) {
       const python = await probePythonOnce();
       items.push({
         id: 'python',
@@ -935,6 +1004,50 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
         sendJson(response, 200, { workingDir, files });
       } catch (error) {
         sendJson(response, 400, { error: (error as Error).message });
+      }
+      return true;
+    }
+
+    if (route === '/api/library/delete' && method === 'POST') {
+      /*
+       * Удалить видео из рабочей папки — в Корзину, вместе с рабочими файлами
+       * его дубляжа.
+       *
+       * Удаляется только медиафайл внутри выбранной папки: запрос приходит со
+       * страницы, и путь в нём проверяется здесь, а не принимается на веру.
+       * Файл, над которым идёт работа, не трогаем: задача упадёт посреди сведения.
+       */
+      const body = (await readBody(request)) as { path?: string };
+      const target = body.path ? path.resolve(body.path) : null;
+      const inside = (root: string | null) => root !== null && target !== null && target.startsWith(path.resolve(root) + path.sep);
+      if (!target || !inside(workingDir) || path.dirname(target) !== path.resolve(workingDir!)) {
+        sendJson(response, 403, { error: 'удалять можно только файлы из выбранной папки' });
+        return true;
+      }
+      if (!MEDIA_EXTENSIONS.has(path.extname(target).toLowerCase()) || !existsSync(target) || !statSync(target).isFile()) {
+        sendJson(response, 400, { error: 'это не видео или аудио из списка' });
+        return true;
+      }
+      if (job?.status === 'running' && path.resolve(job.input) === target) {
+        sendJson(response, 409, { error: 'этот файл сейчас обрабатывается — сначала остановите задачу' });
+        return true;
+      }
+      try {
+        const size = statSync(target).size;
+        const how = await moveToTrash(target);
+        knownOutputs.delete(target);
+        // Рабочие файлы дубляжа без исходника бесполезны: пересчитать из них ничего нельзя.
+        let freed = 0;
+        const projects = (await listProjects()) as Array<{ id: string; input: string }>;
+        for (const project of projects.filter((item) => path.resolve(item.input) === target)) {
+          const dir = path.join(cacheRoot, project.id);
+          freed += await directorySize(dir);
+          await rm(dir, { recursive: true, force: true });
+        }
+        log.debug(`удалено ${how === 'trash' ? 'в Корзину' : 'безвозвратно'}: ${target}; рабочих файлов ${freed} байт`);
+        sendJson(response, 200, { ok: true, how, size, workspaceBytes: freed });
+      } catch (error) {
+        sendJson(response, 500, { error: `не удалось удалить: ${(error as Error).message}` });
       }
       return true;
     }
@@ -1324,6 +1437,14 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       return true;
     }
 
+    if (route === '/api/server' && method === 'GET') {
+      // Свежий ответ, без кэша: человек нажал «Проверить связь» и ждёт правды.
+      resetWorkerHealth();
+      const health = await workerHealth(config, 0);
+      sendJson(response, 200, { host: serverEnabled(config) ? config.server.host : null, online: health !== null, health });
+      return true;
+    }
+
     if (route === '/api/devices' && method === 'GET') {
       // Опрос адаптеров идёт через PowerShell и занимает около секунды,
       // а железо за время работы программы не меняется.
@@ -1365,6 +1486,7 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
         const extension = meta.has_video ? '.mp4' : '.m4a';
         const candidates = [
           meta.output,
+          resolveOutputPath({ input: namingInput(meta), extension, configured: config.output, fallbackDir: workingDir ?? undefined }),
           resolveOutputPath({ input: meta.input, extension, configured: config.output, fallbackDir: workingDir ?? undefined }),
           // Прогоны до исправления пути складывали итог в рабочий каталог программы.
           path.resolve(defaultOutputName(meta.input, extension)),
@@ -1400,6 +1522,10 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
         fit: await fitRuler(workspace, config, segments),
         output,
         overrides: await workspace.readOverrides(),
+        // Голоса актёров: образцы по персонажам — выбранные и из чего выбирать.
+        clone: config.tts.clone.enabled
+          ? await referenceOverview(workspace, config, segments, await workspace.readOverrides())
+          : null,
         voices: voicesForEngine(config.tts.engine),
         defaultVoice: config.tts.default_voice,
         // Карта голосов с учётом пола, определённого на S2; правки видео поверх неё — в overrides.
