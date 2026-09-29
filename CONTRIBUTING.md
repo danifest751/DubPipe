@@ -29,11 +29,16 @@ npx tsx src/cli.ts ui
 ```
 src/core/       pipeline, workspace, cache, cancellation, logging
 src/stages/     s1…s7 and subtitles — one file per stage
-src/providers/  asr, llm, tts, vad, diarization — one folder per kind
+src/providers/  asr, llm, tts, vad, diarization — one folder per kind; remote — the
+                GPU-server client
 src/ui/         local API server and the web interface (src/ui/public)
 src/util/       ffmpeg, downloads, process execution, wav/srt helpers
-python/         optional sidecars: separation and diarization
+python/         optional sidecars (separation, diarization, faster-whisper, silero;
+                compute.py picks the device) and the GPU-server service
+                dubpipe_worker.py with the X-Voice bridge clone_bridge.py
 scripts/        checks that need real media, a window or the network
+scripts/server/ install script of the GPU-server service
+docker/worker/  Docker image of the GPU-server service
 tests/          vitest, offline only
 ```
 
@@ -91,8 +96,9 @@ Fixes #123
 | `revert` | undoing an earlier commit |
 
 **Scopes** name the part of the pipeline or the program: `asr`, `translate`, `tts`,
-`align`, `mix`, `subtitles`, `diarization`, `ui`, `cli`, `config`, `core`, `scripts`.
-Leave the scope out when a change spans too much to name.
+`align`, `mix`, `subtitles`, `diarization`, `clone`, `download`, `server`, `ui`, `cli`,
+`config`, `core`, `scripts`. Leave the scope out when a change spans too much
+to name.
 
 The rules:
 

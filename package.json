@@ -1,7 +1,7 @@
 {
   "name": "dubpipe",
   "version": "1.0.0",
-  "description": "Automatic English to Russian video dubbing and subtitles, running locally",
+  "description": "Automatic English to Russian video dubbing and subtitles, running locally or on your own GPU server",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -123,7 +123,13 @@
     "diarization",
     "ffmpeg",
     "video",
-    "electron"
+    "electron",
+    "faster-whisper",
+    "silero",
+    "ollama",
+    "voice-cloning",
+    "cuda",
+    "docker"
   ],
   "repository": {
     "type": "git",

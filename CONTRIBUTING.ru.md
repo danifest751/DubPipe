@@ -28,11 +28,16 @@ npx tsx src/cli.ts ui
 ```
 src/core/       конвейер, рабочий каталог, кэш, остановка, журнал
 src/stages/     s1…s7 и субтитры — по файлу на стадию
-src/providers/  asr, llm, tts, vad, диаризация — по папке на вид
+src/providers/  asr, llm, tts, vad, диаризация — по папке на вид; remote — клиент
+                сервера с видеокартой
 src/ui/         локальный API-сервер и веб-интерфейс (src/ui/public)
 src/util/       ffmpeg, загрузки, запуск процессов, wav/srt
-python/         необязательные сайдкары: разделение голоса и диаризация
+python/         необязательные сайдкары (разделение голоса, диаризация, faster-whisper,
+                silero; compute.py выбирает устройство) и сервис для сервера с видеокартой
+                dubpipe_worker.py с мостом к X-Voice clone_bridge.py
 scripts/        проверки, которым нужны настоящие медиа, окно или сеть
+scripts/server/ скрипт установки сервиса на сервер с видеокартой
+docker/worker/  образ Docker сервиса для сервера с видеокартой
 tests/          vitest, только офлайн
 ```
 
@@ -91,8 +96,8 @@ Fixes #123
 | `revert` | отмена прежнего коммита |
 
 **Области** называют часть конвейера или программы: `asr`, `translate`, `tts`, `align`,
-`mix`, `subtitles`, `diarization`, `ui`, `cli`, `config`, `core`, `scripts`. Если правка
-охватывает слишком многое, область опускается.
+`mix`, `subtitles`, `diarization`, `clone`, `download`, `server`, `ui`, `cli`, `config`,
+`core`, `scripts`. Если правка охватывает слишком многое, область опускается.
 
 Правила:
 

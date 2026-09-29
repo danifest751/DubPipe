@@ -7,6 +7,109 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+### Videos
+
+- A file in Videos can be deleted: the video goes to the Recycle Bin, and the work files of its
+  dub in the service folder are removed (useless without the source). Deletion asks first, naming the file and its
+  size; only a video from the chosen folder can go, and not one being processed right now.
+  Where there is no Recycle Bin (outside the desktop app on Linux or macOS without `gio`), the
+  file is deleted permanently, and the message says so.
+- Refresh became a visible button, and the list also refreshes itself when you come back to the window.
+
+### Settings
+
+- "Where to compute" lives in one group — Compute: a "This computer / GPU server" switch. It used
+  to sit in five places at once — the recognition build and the diarization device under
+  Recognition, the separation device under Audio, six switches under Server — and with the server
+  on, the local choices did nothing yet looked primary. The switch keeps the server address
+  (`server.enabled`).
+- Translation has one model field: its list comes from the Ollama that translates, and the
+  "Local" label reads "On the server (Ollama)" when the server is on. The "model on the server"
+  field that silently overrode the choice is gone; the fallback model shows in cloud mode, where it
+  is the fallback, not in local mode, where it duplicated the main one.
+- "Speaker voices" (speaker_0 differs in every film — that is done per video) and "Speech rate"
+  (measured after synthesis) left the settings page; `config.yaml` still reads them.
+- Actors' voices are disabled with a note without a server; their quality shows only when they
+  are on. Rarely used download settings moved under More.
+
+### Server in Docker
+
+- The service for the GPU machine installs with one command:
+  `docker compose -f docker/worker/compose.yaml up -d --build`. The image holds everything the
+  script used to install: two Python environments (the service and X-Voice), espeak-ng, the
+  workarounds for fastlid and the vocoder; package versions are pinned to the working server.
+  Weights download on first start onto a volume. It also runs on Windows with Docker Desktop —
+  for a GPU in your own computer.
+
+### Actors' voices
+
+- A line can sound in the voice of whoever speaks it in the original (`tts.clone`). X-Voice on
+  the GPU server does it; fitting decides the line length, and X-Voice speaks the text in exactly
+  that time at its own pace. The voice sample is a line of the character from the separated voice
+  track; it can be replaced or turned off in the Voices and characters panel. On the eighth
+  episode: 1.46 s per line and 95.5% intelligibility by back-recognition.
+- Every line in an actor's voice is checked (`tts.clone.check`, "Check actors' voices" under
+  Voice): the server recognizes the finished clip, and if there is a stray sound at the start or
+  the start or end went missing, the line is voiced again — up to three tries, the best one
+  stays. Lines still wrong are listed in a warning with timecodes. On a FRANCE 24 clip one line
+  of 45 stayed faulty instead of four, and actors' voicing took 26% longer; on the eighth
+  episode 10 lines of 222 were voiced again. Needs the updated service on the server.
+- The voice sample is cut at a pause in the voice track rather than at the recognition marks.
+  Those are off by tenths of a second, and a sample cut mid-word ("conver-") was finished by the
+  model at the start of voiced lines: "sation, with the government…". The line chosen is one
+  followed by a pause, preferably with a pause before it too. On a FRANCE 24 clip a junk
+  syllable opened 4 lines out of 45; now none.
+- The continuation of a sentence is pulled up to its beginning. Recognition splits a long
+  sentence into lines, and when the Russian start was shorter than the English one, the end of
+  the sentence waited for its place in the original — up to 2.7 s of silence mid-sentence, and the
+  dub sounded cut off. Now the parts of a sentence are at most 0.3 s apart; a line never starts
+  more than 3 s ahead of the original.
+- Choosing the original voice residual in the settings was not saved: the value went as a string
+  where the settings expected a number.
+
+### Gender follows the voice
+
+- A male voice no longer says "я могла", nor a female one "я сделал". The translator chose
+  the first-person gender itself — English "I could" has none — and did not know which
+  voice would speak the line. Now the voice's gender goes into the request, and after
+  translation, before synthesis and after shortening, whatever the speaker says about
+  themselves is checked against their voice and fixed by its ending, so the line changes
+  by a character or two. On the eighth episode that fixed 6 lines of 223.
+- Addressing someone ("ты пришёл/пришла") follows the listener's voice when the listener is
+  known: named, or the only other voice in the scene.
+- Changing a voice in the Voices and characters panel also changes the gender in its lines.
+- In single-voice mode the gender follows the character, not the narrator, as in voice-over.
+- The review gets the voice's gender rather than the pitch, and also watches nouns,
+  adjectives and forms of address like "дорогой/дорогая", which cannot be fixed mechanically.
+
+### A GPU server
+
+- The heavy networks can run on another machine with an NVIDIA card: recognition
+  (faster-whisper), speaker diarization (pyannote), voice separation (MDX-Net) and silero
+  synthesis go to `python/dubpipe_worker.py` on that machine, local translation to its
+  Ollama. Files, the interface and mixing stay here. Set `server.host`, or Settings → Compute →
+  GPU server; the service installs with Docker (`docker/worker/`) or
+  `scripts/server/install-worker.sh`. Six switches choose which stages go there. When the
+  server does not answer, a stage runs here and the report says so.
+- Translating on the server's Ollama, an untouched default model (qwen2.5:7b, meant for this
+  computer) is replaced by gemma4 26B-A4B — the fastest large model on the CMP 50HX; a model
+  chosen by hand is kept. If the chosen model is not in that Ollama, translation goes with
+  `translate.fallback_model` and the report says so, instead of stopping.
+- The service has no password and answers only private and loopback addresses, like Ollama
+  next to it. The Hugging Face token travels to it in a request header for each diarization
+  and is not stored there.
+- The service runs the same scripts as the local path, so the result does not depend on
+  where it was computed. On a CMP 50HX, a 27.6-minute episode is diarized in 39 seconds —
+  about thirteen minutes on the Radeon 780M through DirectML.
+- GPU memory is freed when a job lacks it: an idle ComfyUI first, then the Ollama models.
+  Without that a job quietly ran on the CPU — ten minutes for recognising an episode instead
+  of one. If the server still computes on the CPU, the run report says so.
+- Audio travels to the server and back as FLAC: on a 100 Mbit/s link the network, not the
+  GPU, was what separation waited for.
+- An NVIDIA card in the workstation itself needs no server: diarization moves the whole
+  pyannote pipeline to CUDA, silero takes CUDA by itself, and `asr.engine: faster-whisper`
+  recognises on it.
+
 ### Recognition quality
 
 - Whisper's invented subtitle boilerplate no longer reaches the dub. On a Korean episode

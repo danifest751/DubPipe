@@ -4,7 +4,7 @@
 > который не входит в репозиторий.
 
 
-Спецификация требований — техническом задании (внутренний документ, вне репозитория), версия 2.2.
+Спецификация требований — техническое задание (внутренний документ, вне репозитория), версия 2.3.
 Этот документ показывает, где каждое требование реализовано, и фиксирует решения,
 принятые исполнителем в рамках свободы, данной ТЗ §0.1.
 
@@ -21,12 +21,15 @@
 | FR-1 (S1) Приём входа | [src/stages/s1-input.ts](src/stages/s1-input.ts) | ✅ |
 | FR-2 (S2) Распознавание | [src/stages/s2-asr.ts](src/stages/s2-asr.ts), [s2-segments.ts](src/stages/s2-segments.ts) | ✅ |
 | FR-2 VAD-уточнение границ | [src/providers/vad/silero.ts](src/providers/vad/silero.ts) | ✅ |
-| FR-2 Диаризация | — | ⚠️ деградация до `speaker_0` |
+| FR-2 Диаризация | [src/providers/diarization/pyannote.ts](src/providers/diarization/pyannote.ts), [python/diarize.py](python/diarize.py) — здесь или на сервере с видеокартой | ✅ без Python, токена или весов — `speaker_0` |
+| FR-2 Распознавание на видеокарте (faster-whisper) | [src/providers/asr/faster-whisper.ts](src/providers/asr/faster-whisper.ts), [python/asr_whisper.py](python/asr_whisper.py) | ✅ |
 | FR-3 (S3) Перевод | [src/stages/s3-translate.ts](src/stages/s3-translate.ts) | ✅ |
 | §3.3, §15.2 Деградация до локальной LLM | [src/providers/llm/index.ts](src/providers/llm/index.ts) | ✅ |
 | FR-4 Дакинг при выключенной S4 | [src/util/pcm.ts](src/util/pcm.ts) `buildDuckEnvelope` | ✅ |
 | FR-4 (S4) Отделение голоса | [src/stages/s4-separate.ts](src/stages/s4-separate.ts), [python/mdx_separate.py](python/mdx_separate.py) | ✅ |
 | FR-5 (S5) Синтез | [src/stages/s5-tts.ts](src/stages/s5-tts.ts), [providers/tts](src/providers/tts/) | ✅ |
+| FR-5 Голоса актёров (клонирование, M6) | [src/providers/tts/clone.ts](src/providers/tts/clone.ts), [src/core/voice-refs.ts](src/core/voice-refs.ts), [src/core/clip-check.ts](src/core/clip-check.ts), [python/clone_bridge.py](python/clone_bridge.py) | ✅ только на сервере с видеокартой |
+| FR-5 Род в переводе по голосу спикера | [src/core/text-gender.ts](src/core/text-gender.ts) | ✅ |
 | FR-6 (S6) Подгонка | [src/stages/s6-align.ts](src/stages/s6-align.ts) | ✅ |
 | FR-7 (S7) Сведение и mux | [src/stages/s7-mix.ts](src/stages/s7-mix.ts) | ✅ |
 | §5.1 Контракт `segments.json` | [src/core/types.ts](src/core/types.ts) | ✅ |
@@ -37,6 +40,7 @@
 | §8 Краевые случаи | см. таблицу ниже | частично |
 | §15 Профили исполнения | [schema.ts](src/config/schema.ts), [load.ts](src/config/load.ts) | ✅ |
 | §15.3 Провижининг компонентов | [src/util/tools.ts](src/util/tools.ts), [download.ts](src/util/download.ts) | ✅ |
+| Сервер с видеокартой (вне ТЗ) | [src/providers/remote/server.ts](src/providers/remote/server.ts), [python/dubpipe_worker.py](python/dubpipe_worker.py) | ✅ |
 | §6 Выбор и сравнение моделей `[2.2]` | [src/providers/llm/catalog.ts](src/providers/llm/catalog.ts), [src/core/compare.ts](src/core/compare.ts) | ✅ |
 | §16 Графический интерфейс | [src/ui/server.ts](src/ui/server.ts), [src/ui/public/](src/ui/public/) | ✅ |
 | §16.3 Сборка приложения | [electron/main.cjs](electron/main.cjs), `build` в package.json | ✅ |
@@ -88,6 +92,11 @@ word-таймкодов недостаточно: последнее слово 
 Бинарники и веса загружаются в `.dubpipe/tools` и `.dubpipe/models`. Причины: не нужны
 права администратора, состав окружения воспроизводим, удаление каталога возвращает машину
 в исходное состояние. Компонент из `PATH` имеет приоритет над загруженным.
+
+Это правило рабочего компьютера. На сервере с видеокартой веса лежат не в `.dubpipe/`,
+а в каталоге сервиса: `~/dubpipe-worker/data` после `scripts/server/install-worker.sh`
+(веса X-Voice — в `~/dubpipe-worker/xvoice`) или том `/data` в образе Docker. Скрипт
+установки при этом ставит в систему службу systemd — через sudo.
 
 ### 2.4 Ключ кэша — цепочка отпечатков
 
@@ -185,8 +194,13 @@ word-таймкодов недостаточно: последнее слово 
 самое нативным кодом за секунды.
 
 PyTorch при этом не нужен: только numpy и onnxruntime, которые весят десятки
-мегабайт вместо двух с половиной гигабайт. Профиль A остаётся свободным от
-Python, пока стадия S4 выключена (а по умолчанию она выключена).
+мегабайт вместо двух с половиной гигабайт.
+
+С тех пор Python обслуживает не только S4: диаризацию (pyannote, PyTorch — включена
+по умолчанию), синтез silero, распознавание faster-whisper и сервис на сервере с
+видеокартой (`python/dubpipe_worker.py` с мостом к X-Voice). Без Python профиль A
+по-прежнему работает — на whisper.cpp и piper, с выключенной S4 (по умолчанию она
+выключена), а диаризация тогда деградирует до `speaker_0` с причиной в отчёте.
 
 Корректность спектральной обработки проверяется отдельно
 (`python scripts/check-separation.py`): прямое и обратное преобразование
@@ -888,5 +902,18 @@ p90 1.26), у 57 реплик из 84 — больше чем на 0.3 с; та�
 
 ## 4. Отступления от ТЗ
 
-Отступлений нет. Все правки требований согласованы до начала работ и внесены
-в техническом задании (внутренний документ, вне репозитория) версии 2.1 (раздел 14 документа).
+Отступлений нет. Правки требований внесены в техническое задание (внутренний документ,
+вне репозитория): согласованные до начала работ — в версию 2.1, последующие — в версии
+2.2 и 2.3 (раздел 14 документа).
+
+Решение исполнителя рядом с FR-6.5. FR-6.4 и FR-6.5 описывают только сдвиг реплики
+**вправо**. Подгонка дополнительно сдвигает **влево** продолжение фразы
+([`pullContinuations`](src/stages/s6-align.ts)): если у реплики тот же говорящий, что у
+предыдущей, пауза между ними в оригинале не длиннее 0.6 с, а перевод предыдущей не
+закончил предложение, реплика подтягивается к концу предыдущей, но не больше чем на
+`CONTINUATION_PULL_SECONDS` = 3 с раньше своего исходного начала. Причина: распознавание
+режет длинную фразу где придётся, и если русское начало короче английского, конец фразы
+ждал своего места в оригинале — на ролике FRANCE 24 это 2.7 с тишины посреди
+предложения. Шаг идёт последним, по готовым клипам, и на соседей не влияет. Сдвиг
+записывается в `shift_ms` реплики с отрицательным знаком, но в статистику сдвигов
+отчёта S6 (FR-6.6) не попадает: она считается по плану подгонки до этого шага.

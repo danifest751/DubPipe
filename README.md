@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-20%2B-brightgreen.svg)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-263-brightgreen.svg)](#development)
+[![Tests](https://img.shields.io/badge/tests-711-brightgreen.svg)](#development)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](#requirements)
 
 Automatic English → Russian video dubbing. Feed it a video file or a YouTube URL and get the
@@ -12,7 +12,8 @@ same picture back with a Russian voice track instead of the English speech, whil
 and effects stay where they were. It can also produce subtitles only — two SRT files, the
 original transcript and the translation.
 
-Everything except the translation step runs locally on the CPU. No GPU required.
+Everything except the translation step runs on this computer, or on your own GPU server on the
+local network. No GPU required: without one, everything runs on the CPU.
 
 > ### ⚠️ Personal use only
 >
@@ -37,6 +38,7 @@ Everything except the translation step runs locally on the CPU. No GPU required.
 - [Character voices](#character-voices)
 - [Review and fix the result](#review-and-fix-the-result)
 - [Configuration](#configuration)
+- [A GPU server](#a-gpu-server)
 - [Performance](#performance)
 - [Downloaded components and their licenses](#downloaded-components-and-their-licenses)
 - [Privacy and security](#privacy-and-security)
@@ -67,12 +69,15 @@ Everything except the translation step runs locally on the CPU. No GPU required.
 | Stage | What happens | Engine |
 |---|---|---|
 | S1 | Input handling, audio extraction | ffmpeg (+ yt-dlp for URLs) |
-| S2 | Recognition, word timings, speaker diarization | whisper.cpp, silero VAD, pyannote |
+| S2 | Recognition, word timings, speaker diarization | whisper.cpp or faster-whisper, silero VAD, pyannote |
 | S3 | Translation into Russian, written to fit the slot | Kilo Gateway (cloud) or Ollama (local) |
 | S4 | Voice/music separation (optional) | MDX-Net through a Python sidecar |
 | S5 | Russian speech synthesis | piper or silero |
-| S6 | Fitting each line into its slot (tempo, shortening) | ffmpeg + LLM |
+| S6 | Fitting each line into its slot (tempo, shortening, pulling up sentence continuations); actors' voices (optional) | ffmpeg + LLM; X-Voice on the GPU server |
 | S7 | Mixing and muxing back into the video | ffmpeg |
+
+Any of S2, S4, S5 and the actors' voices can run on [your own GPU server](#a-gpu-server)
+instead of this computer, and local translation can use that server's Ollama.
 
 Word timings come from whisper.cpp DTW alignment rather than the heuristic offsets: the
 heuristic puts the first words of a phrase at the start of the whole segment, which on real
@@ -91,12 +96,15 @@ not overlap are kept, because a character really can say "seriously?" twelve tim
 - **Node.js 20+** (tested on 25.9)
 - About 2 GB of free space for models and binaries
 - **No GPU needed**, though one helps: see [Using the GPU](#using-the-gpu)
-- Python is optional and only for two stages: voice separation (`pip install numpy
-  onnxruntime`) and speaker diarization (`pip install pyannote.audio`, which pulls in
-  PyTorch, ~1 GB). Without Python, separation falls back to ducking the original and every
-  line gets a single voice; the rest of the pipeline never touches Python. An optional
-  `pip install onnxruntime-directml` moves the speaker embeddings onto the GPU and makes
-  diarization four times faster.
+- Python is optional and only for the parts that are optional themselves: voice separation
+  (S4, `pip install numpy onnxruntime`), speaker diarization (S2, `pip install
+  pyannote.audio`, which pulls in PyTorch, ~1 GB), the silero voices (S5, `torch` and
+  `soundfile`) and recognition with `asr.engine: faster-whisper` (S2, `pip install
+  faster-whisper`). Without Python, separation falls back to ducking the original, every
+  line gets a single voice, synthesis uses piper and recognition whisper.cpp; the rest of the
+  pipeline never touches Python. A stage given to the [GPU server](#a-gpu-server) needs no
+  Python here at all. An optional `pip install onnxruntime-directml` moves the speaker
+  embeddings onto the GPU and makes diarization four times faster.
 
 The code targets Windows, Linux and macOS; the packaged desktop build and every measurement
 in this README come from Windows.
@@ -145,6 +153,14 @@ The interface is built around one object — a video file. The main screen is a 
 videos: each file shows whether it has been dubbed, with **Dub** and **Subtitles** buttons.
 The file page holds the run controls, per-stage progress with elapsed time, the finished
 video, a replica editor, a subtitle editor, model comparison and the log.
+
+The folder is re-read with the **Refresh** button, and by itself when the window gets focus
+back: videos get downloaded into it and finished dubs moved out of it behind the program's back.
+**Delete** moves a video to the Recycle Bin and removes the work files of its dub, which are
+useless without the source. Only a media file from the chosen folder can be deleted this way,
+and not the one being processed right now. When the interface runs in a browser (`npm run ui`)
+on Linux or macOS without `gio`, there is no Recycle Bin to reach, and the file is deleted
+permanently; the message says so.
 
 If something is missing — a program, model weights, a voice or an API key — a panel at the
 top states exactly what will not work and how to fix it. One button downloads everything in
@@ -199,6 +215,16 @@ up to 1.2 seconds, never crossing into the next one. On a Korean episode that
 took the number of rewritten replicas from 52 down to 1, and sped-up ones from
 114 down to 9.
 
+Recognition cuts a long sentence into replicas wherever it happens to, and the
+translation keeps the cut. When the Russian first half is shorter than the
+English one, the second half used to wait for its place in the original — on a
+FRANCE 24 clip that left 2.7 seconds of silence in the middle of a sentence. So
+a continuation is pulled up: when the same speaker goes on, the previous Russian
+line does not end a sentence, and the gap in the original is at most 0.6 seconds,
+the line starts earlier, so that the pause inside the sentence is no longer than
+0.3 seconds. It moves only earlier and at most 3 seconds, and this is the last
+step of fitting, done on the finished clips, actors' voices included.
+
 ## Subtitles
 
 The **Subtitles** button next to **Dub** (or `--subtitles` on the command line) runs
@@ -243,7 +269,7 @@ readiness panel, arrive in the chosen language too. Pipeline log messages stay i
 | Network after the models are downloaded | not needed | only for translation |
 | API keys | none | a Kilo Gateway key for S3 |
 | Translation | a local LLM through Ollama | `anthropic/claude-sonnet-4.5` |
-| Everything else | local | local |
+| Everything else | local, or your GPU server on the LAN | local, or your GPU server on the LAN |
 
 Switching takes one line in `config.yaml`:
 
@@ -273,7 +299,9 @@ translate:
 ```
 
 The Environment screen does not check that Ollama is installed; it asks the daemon whether
-the chosen model is actually there.
+the chosen model is actually there. If it is not, but `translate.fallback_model` is,
+translation runs on the fallback model and the run warns about it: a model name left over from
+the cloud or from another computer is no reason to stop.
 
 **An integrated GPU has to be enabled explicitly.** Ollama sees it and silently drops it —
 in the log that reads `dropping integrated GPU; to enable, set OLLAMA_IGPU_ENABLE=1`. Set
@@ -428,8 +456,9 @@ $env:KILO_API_KEY = "your-token"
 The variable name is set by `kilo_gateway.api_key_env`; the key itself never goes into
 `config.yaml`. In the app you paste it into a field and it is stored separately from the
 settings. The gateway routes `/chat/completions` only — it has no speech synthesis, and its
-transcription returns no timings — so the key is used **for translation only**, while
-recognition and synthesis always run locally.
+transcription returns no timings — so the key is used **for translation only**. Recognition
+and synthesis never go through the gateway: they run on this computer or on your own
+[GPU server](#a-gpu-server).
 
 ## Commands
 
@@ -515,14 +544,15 @@ the model answers at all, answers in Russian, and at what cost.
 ## Character voices
 
 Who is speaking is determined by pyannote (`pyannote/speaker-diarization-community-1`)
-locally on the CPU through the `python/diarize.py` sidecar. Speakers are named `speaker_0`,
+through the `python/diarize.py` sidecar — on this computer (CPU, DirectML or CUDA, see
+[Using the GPU](#using-the-gpu)) or on the [GPU server](#a-gpu-server). Speakers are named `speaker_0`,
 `speaker_1`… in order of first appearance; a replica where the speaker changes mid-phrase is
 split on a word boundary. One-time setup:
 
 1. Python 3.10+ and `pip install pyannote.audio` (the app does this from its *Download
    missing* button).
 2. A free Hugging Face account: accept the conditions on the model page, create a read token
-   and paste it into the settings or the `HF_TOKEN` variable. The token is only needed to
+   and paste it into the settings (Compute → Hugging Face token) or the `HF_TOKEN` variable. The token is only needed to
    download the weights (~30 MB); after that the stage works offline.
 
 Without any of that, the stage is skipped with a stated reason and every line gets
@@ -535,9 +565,11 @@ a speaker with no explicit assignment gets a voice of their own gender.
 only 9% of frames yield a stable pitch, one speaker on episode 3 produced 0.62 seconds of
 it, and 171 Hz sits in the middle of the band where the detector refuses to answer. Russian
 states gender outright — «я пришёл» is a man speaking, «ты сказала» a woman being addressed.
-The clue is independent: the translator is never told who is speaking, only the line's
-number, its time and the original, so the gender in the text comes from the scene rather
-than from our own measurement. It is collected after S3, when there is a text to read.
+The clue stays independent: the translator is told the gender only of speakers whose voice is
+already decided — by the pitch or by hand. For the rest, the ones this clue is needed for, the
+gender in the text comes from the scene rather than from our own measurement; telling the
+translator would invent the very clue the gender is later judged by. It is collected after
+S3, when there is a text to read.
 
 The two clues are not equally strong. First person speaks about whoever says the line.
 Second person speaks about whoever is addressed, and the pipeline does not always know who
@@ -550,6 +582,15 @@ decides; pitch is silent — the text answers; they disagree — nobody decides,
 shows in "Voices and characters" along with what it rests on. The review is given both, and
 told to leave gender alone where they disagree: it used to correct gender from a wrong
 measurement and damage text that was right.
+
+**The text is then made to agree with the voice.** The model slips even when told the gender,
+and a male voice saying «я могла» is heard at once. So after translation the endings are
+changed to match the gender of the voice that will speak: first person to the speaker's voice
+(«я могла» → «я мог»), «ты» to the voice of the person addressed when it is known — named, or
+the only other voice in the scene. It is done again before synthesis, because the voice may
+have been changed in the panel after translation, and the first person once more after
+shortening, because the model rewrote the line. The run reports how many lines were changed,
+with examples.
 
 Where the engine's own voices have a measured pitch — as all the silero speakers do — the
 choice goes further than gender: an actress gets a voice at *her* pitch rather than "a female
@@ -607,7 +648,8 @@ video's working folder and never touch the global settings.
 `config.yaml` is created by `dub config init` from [config.yaml.example](config.yaml.example),
 which documents every field. The main groups: `profile`, `asr` (model, language, VAD,
 diarization), `translate` (engine, model, batch size, length tolerance), `tts` (voice,
-`voice_map`), `separation`, `alignment`, `mix`, `subtitles`, `cache`.
+`voice_map`, actors' voices), `separation`, `alignment`, `mix`, `subtitles`, `download`,
+`server`, `cache`.
 
 Between stages you can edit `segments.json` by hand in the working folder and continue from
 any stage:
@@ -650,7 +692,7 @@ is kept next to the weights.
 
 The device is chosen per stage — `asr.diarization.device` and
 `separation.device`, sharing one vocabulary: `auto`, `cpu`, `gpu`, `igpu`,
-`dgpu`. There is deliberately no single "everything on the GPU" switch: the
+`dgpu`, and `cuda`, which means the same as `gpu`. There is deliberately no single "everything on the GPU" switch: the
 segmentation network is ten times slower there than on the CPU.
 
 The speaker breakdown is also not recomputed for nothing. It depends on the audio
@@ -665,6 +707,137 @@ ROCm on Windows is neither needed nor advised for this: MIOpen compiles its
 kernels at run time, the ROCm packages ship no C++ standard headers, and the
 compilation fails on every kernel. That is an AMD defect, reproducible on
 supported cards too ([ROCm#6150](https://github.com/ROCm/ROCm/issues/6150)).
+
+## A GPU server
+
+If there is a machine with an NVIDIA card in the house, the heavy networks of the
+pipeline can run there. The pipeline itself stays on the workstation — files,
+interface, ffmpeg, mixing — and the server takes:
+
+| Stage | How the server runs it |
+|---|---|
+| Recognition | faster-whisper (CTranslate2) in fp16, model from `asr.model` |
+| Speaker diarization | the whole pyannote pipeline on CUDA |
+| Voice separation | MDX-Net on onnxruntime with CUDA |
+| Synthesis (silero) | the voice model stays on the GPU |
+| Actors' voices | X-Voice, see [below](#actors-voices) |
+| Local translation | the server's Ollama, model from `translate.model` |
+
+The model name for local translation is the same field as without a server — the model list
+in the settings then comes from the server's Ollama. Only the untouched default,
+`qwen2.5:7b-instruct`, which is meant for an Ollama on this computer, is replaced with
+`gemma4:26b-a4b-it-qat` while translation is given to the server.
+
+The service is `python/dubpipe_worker.py`. It is thin on purpose: it runs the
+same scripts as the local path, so the result does not depend on where it was
+computed — only the speed does.
+
+**Installing with Docker** is the easiest: it needs the NVIDIA driver and the
+[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+(on Windows, Docker Desktop with WSL 2 passes the GPU through by itself). From
+the repository root:
+
+```bash
+docker compose -f docker/worker/compose.yaml up -d --build
+```
+
+The image is built once, in about half an hour, and takes about 22 GB: it holds
+two Python environments with their own CUDA libraries — the service's and
+X-Voice's, which are incompatible. Package versions are pinned
+(`docker/worker/*.lock.txt`), so the image is built from exactly what was tested
+on the server. Model weights are not in the image: X-Voice, its vocoder and the
+voice-check model (about 3 GB) download on first start, the rest on the first
+job; everything lives on the `dubpipe-data` volume and survives a rebuild. The
+port, actors' voices and
+the addresses of ComfyUI and Ollama on the same machine go into
+`docker/worker/.env` (see `.env.example`). No Ollama of your own —
+`--profile ollama` starts one next to it. The details — settings, updating, moving
+from the systemd unit, troubleshooting — are in [docker/worker/README.md](docker/worker/README.md).
+
+A GPU in the same computer as DubPipe uses the same container, with the address
+`127.0.0.1` in the settings.
+
+**Installing without Docker** — one command on Linux with an NVIDIA card (sudo is
+needed for the systemd unit; `--with-clone` adds actors' voices):
+
+```bash
+scp -r python scripts/server/install-worker.sh user@server:dubpipe-worker/
+ssh user@server 'bash dubpipe-worker/install-worker.sh'
+```
+
+Then point DubPipe at it — Settings → Compute → GPU server, or `config.yaml`:
+
+```yaml
+server:
+  host: 192.168.0.70
+```
+
+Everything else has a default: all six parts — recognition, diarization,
+separation, synthesis, actors' voices and local translation (`server.stages`) —
+go to the server, translation uses gemma4 26B-A4B, and when the server does not
+answer a stage runs here and says so in the report. `dub doctor` shows what runs
+where and whether the server answers.
+
+A few decisions that are not visible from the settings:
+
+- **Recognition uses faster-whisper, not Speaches**, even if Speaches is on the
+  server: it does not let you turn off conditioning on the previous text, and
+  with it one hallucination pulls in the next (see the hallucinations in
+  [How it works](#how-it-works)).
+- **GPU memory is freed when a job lacks it**: the card is shared with ComfyUI,
+  which keeps its last models there, and with Ollama, which holds gemma4 (15 GB)
+  for minutes after translating. Without that a job does not fail — it quietly
+  runs on the CPU, ten minutes instead of one for recognising an episode. The
+  service unloads an idle ComfyUI, then the Ollama models; a running generation
+  is never touched (`server.free_gpu_memory`). If the server still ends up on the
+  CPU, the run report says so.
+- **Audio travels as FLAC**, lossless and half the size of WAV: on a 100 Mbit/s
+  link the network, not the GPU, is what separation waits for.
+- **GPU jobs run one at a time**; the second waits in a queue, and the log shows
+  it. Stopping a run also stops its job on the server.
+- **The service only answers private and loopback addresses** — it has no
+  password, like Ollama and Speaches next to it. A VPN on ordinary private
+  addresses works; Tailscale's IPv4 addresses (100.64.0.0/10) do not count as
+  private and are refused. Do not forward the port to the internet.
+
+### Actors' voices
+
+A line can sound in the voice of whoever speaks it in the original: `tts.clone.enabled: true`
+or the "Actors' voices" switch under Voice. [X-Voice](https://github.com/sunnyxrxrx/X-Voice)
+does it on the GPU server (installed with `install-worker.sh --with-clone`).
+
+- **Fitting decides the line length, not the model.** The base engine (silero or piper)
+  stays: fitting uses its clips to decide how much time each line gets and shortens what does
+  not fit. X-Voice voices the line in exactly that time, at its own pace, instead of being
+  stretched afterwards. A line that fitting would have cut at its slot is spoken whole.
+- **The voice sample is one line of the character**, taken from the separated voice track:
+  about five seconds, dense speech, nobody else talking. A line with a long pause inside gives
+  the model text that does not match the sound, and stray sounds creep into the start of
+  phrases. The edges are cut at real pauses in the voice track, not at the recognizer's marks:
+  those are off by tenths of a second, and a sample cut mid-word made the model finish that
+  word at the start of every line. Stage S4 is recommended: without it the sample is taken
+  from the original track, music and all, and the run warns about it. In the Voices and characters panel the sample can be played, replaced by
+  another line, or cloning turned off for the character.
+- **Every line is checked** (`tts.clone.check`, on by default). X-Voice slips on single lines,
+  differently each time: it finishes a scrap of the sample at the start, or drops the last
+  word. The server recognizes the finished clip, the program compares what was heard with the
+  text and voices a failed line again — up to three tries, the best one stays. Slips of the
+  recognition itself (Latin for Cyrillic, names, endings, interjections) do not count. Lines
+  still wrong after three tries are listed in a warning with timecodes. On a FRANCE 24 clip
+  (45 lines) one faulty line remained instead of four, and voicing took 26% longer; on the
+  eighth episode 10 lines of 222 were voiced again, actors' voicing took 5 min 53 s.
+- **A refusal leaves no gaps.** A line the server did not voice, and a character with no fit
+  sample, speak with the base voice; the report says how many.
+
+Measured on the eighth episode (27.6 min, 222 lines, CMP 50HX): 1.46 s per line, 6 minutes per
+episode; intelligibility by back-recognition 95.5% against 99% for silero. X-Voice slips on
+names and single words. X-Voice weights are CC BY-NC: non-commercial use only.
+
+**A GPU in the workstation itself** needs no server: leave `server.host` empty.
+Diarization on CUDA moves the whole pyannote pipeline to the card, not only the
+embedding network, as on DirectML; silero picks
+CUDA by itself, and recognition uses `asr.engine: faster-whisper` (`pip install
+faster-whisper`) or the CUDA build of whisper.cpp, which is chosen automatically.
 
 ## Performance
 
@@ -689,6 +862,27 @@ The speaker breakdown is cached against the recording, so a second run of the sa
 it entirely. A whole run served from cache takes milliseconds. Subtitles for an already
 processed file are written just as fast.
 
+With the GPU server (NVIDIA CMP 50HX, see [A GPU server](#a-gpu-server)), a 27.6-minute
+English episode, `large-v3` recognition, gemma4 26B-A4B translation on the same server,
+models warm:
+
+| Stage | Time | Where |
+|---|---|---|
+| Recognition, `large-v3` | 1 min 0 s (46 s on the server) | server, faster-whisper |
+| Speaker diarization | 39 s | server, pyannote on CUDA |
+| Translation, 223 lines | 4 min 24 s | server, Ollama |
+| Voice separation | 1 min 58 s (65 s of compute) | server, onnxruntime CUDA |
+| Synthesis | 12 s | server, silero |
+| Fitting | 13 s | CPU (ffmpeg) |
+| Mixing and muxing | 1 min 41 s | CPU (ffmpeg) |
+| **Whole run** | **about 10 min** | |
+
+The rest of separation is the network: the workstation sits on 100 Mbit/s, and the film's
+tracks take longer to travel than to compute. gemma4 fits 31–43% of lines into their slot
+from run to run — on par with the earlier local models and well below the cloud Sonnet
+(72%) — so the hybrid profile keeps translation in the cloud and uses the server as its
+fallback.
+
 ## Downloaded components and their licenses
 
 DubPipe itself is MIT. It does **not** bundle or redistribute third-party binaries: they are
@@ -705,16 +899,23 @@ downloaded from their upstream sources on first use and stay under their own lic
 | piper `ru_RU-*` voices | ~60 MB each | MIT / CC BY |
 | silero `v5_5_ru` (5 accent-free voices) | 138 MB | CC BY-NC-SA 4.0 |
 | silero `v5_cis_base` (29 voices) | 92 MB | CC BY-NC-SA 4.0 |
-| pyannote diarization (optional) | 38 MB | MIT, gated by a free Hugging Face account |
+| pyannote diarization (optional) | 38 MB | library MIT; `speaker-diarization-community-1` weights CC BY 4.0, gated by a free Hugging Face account |
 | MDX-Net separation model (optional) | 67 MB | MIT |
+
+The [GPU server](#a-gpu-server) downloads its own models, on that machine: the faster-whisper
+weights in CTranslate2 format (`Systran/faster-whisper-*`,
+`deepdml/faster-whisper-large-v3-turbo-ct2`) are MIT; X-Voice is MIT for the code and
+CC BY-NC 4.0 for the weights — non-commercial; its vocoder `charactr/vocos-mel-24khz` is MIT;
+the fastText language-identification model (the `julien-c/fasttext-language-id` mirror) is
+CC BY-SA 4.0.
 
 See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for the details, including what this
 means if you package the application yourself.
 
-**On networked synthesis:** there is none. Synthesis runs locally, through `piper` or
-`silero`. The unofficial edge-tts client was once listed in the settings but never
-implemented, and has been removed: using it violates Microsoft's terms and its limits move
-without notice.
+**On networked synthesis:** there is no cloud synthesis. `piper` and `silero` run on this
+computer; `silero` and the X-Voice actors' voices can also run on your own GPU server. The
+unofficial edge-tts client was once listed in the settings but never implemented, and has been
+removed: using it violates Microsoft's terms and its limits move without notice.
 
 ## Privacy and security
 
@@ -723,9 +924,16 @@ without notice.
 - The API key is never sent to the web page — only the fact that it is set, plus a masked
   form. Keys live in `secrets.json` inside the cache directory, separately from
   `config.yaml`, which stays safe to share.
-- In the `offline` profile nothing leaves the machine once the models are downloaded. In
-  `hybrid`, only the text of the replicas goes to the translation gateway — never audio or
-  video.
+- Without a GPU server, in the `offline` profile nothing leaves the machine once the models
+  are downloaded. In `hybrid`, only the text of the replicas goes to the translation gateway —
+  never audio or video.
+- With `server.host` set, the stages given to the server send their data to your
+  `dubpipe-worker` over plain, unencrypted HTTP on the local network: the audio track (as
+  FLAC), the text of the lines and the voice samples for actors' voices. Local translation
+  goes to that machine's Ollama. The worker deletes a job's files once they are fetched, but
+  keeps the voice samples so they are not sent again. The Hugging Face token travels in the
+  `X-HF-Token` header of diarization requests, only so the server can download the weights;
+  the worker does not store it.
 - Report vulnerabilities privately: see [SECURITY.md](SECURITY.md).
 
 ## How much disk this takes
@@ -766,8 +974,9 @@ measurements and the reasoning behind them are recorded in [SPEC.md](SPEC.md) (i
    default — removing the voice only under our own speech — leaves an undubbed song intact.
 4. The GPU is used where it pays and only there: recognition through a Vulkan build of
    whisper.cpp (twice as fast, chosen by hand because the project publishes no AMD builds),
-   speaker embeddings and voice separation through DirectML. Synthesis, fitting and mixing
-   stay on the CPU. ROCm under Windows is not used — MIOpen fails to build its kernels, an
+   speaker embeddings and voice separation through DirectML; with an NVIDIA card, faster-whisper
+   and the whole of pyannote on CUDA, and silero takes CUDA by itself when it is there — here or
+   on the [GPU server](#a-gpu-server). Fitting and mixing stay on the CPU. ROCm under Windows is not used — MIOpen fails to build its kernels, an
    open AMD defect.
 5. Estimating a line's duration is a fitted model — a fixed cost per replica plus characters
    over a rate — measured per voice, not a constant. It is still an estimate: the exact fit is
