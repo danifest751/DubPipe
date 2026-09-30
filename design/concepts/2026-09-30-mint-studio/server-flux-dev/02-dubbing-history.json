@@ -1,0 +1,197 @@
+{
+  "prompt": [
+    24,
+    "077caa6a-490d-4426-a05e-2eb530bb713a",
+    {
+      "1": {
+        "class_type": "UnetLoaderGGUF",
+        "inputs": {
+          "unet_name": "flux2-dev-Q3_K_M.gguf"
+        }
+      },
+      "2": {
+        "class_type": "LoraLoaderModelOnly",
+        "inputs": {
+          "model": [
+            "1",
+            0
+          ],
+          "lora_name": "Flux2TurboComfyv2.safetensors",
+          "strength_model": 1.0
+        }
+      },
+      "3": {
+        "class_type": "CondCacheLoad",
+        "inputs": {
+          "name": "dubpipe_20260930_1790714497_02-dubbing"
+        }
+      },
+      "4": {
+        "class_type": "FluxGuidance",
+        "inputs": {
+          "conditioning": [
+            "3",
+            0
+          ],
+          "guidance": 2.5
+        }
+      },
+      "5": {
+        "class_type": "BasicGuider",
+        "inputs": {
+          "model": [
+            "2",
+            0
+          ],
+          "conditioning": [
+            "4",
+            0
+          ]
+        }
+      },
+      "6": {
+        "class_type": "RandomNoise",
+        "inputs": {
+          "noise_seed": 930262
+        }
+      },
+      "7": {
+        "class_type": "KSamplerSelect",
+        "inputs": {
+          "sampler_name": "euler"
+        }
+      },
+      "8": {
+        "class_type": "Flux2Scheduler",
+        "inputs": {
+          "steps": 8,
+          "width": 1536,
+          "height": 960
+        }
+      },
+      "9": {
+        "class_type": "EmptyFlux2LatentImage",
+        "inputs": {
+          "width": 1536,
+          "height": 960,
+          "batch_size": 1
+        }
+      },
+      "10": {
+        "class_type": "SamplerCustomAdvanced",
+        "inputs": {
+          "noise": [
+            "6",
+            0
+          ],
+          "guider": [
+            "5",
+            0
+          ],
+          "sampler": [
+            "7",
+            0
+          ],
+          "sigmas": [
+            "8",
+            0
+          ],
+          "latent_image": [
+            "9",
+            0
+          ]
+        }
+      },
+      "11": {
+        "class_type": "VAELoader",
+        "inputs": {
+          "vae_name": "flux2-vae.safetensors"
+        }
+      },
+      "12": {
+        "class_type": "VAEDecode",
+        "inputs": {
+          "samples": [
+            "10",
+            0
+          ],
+          "vae": [
+            "11",
+            0
+          ]
+        }
+      },
+      "13": {
+        "class_type": "SaveImage",
+        "inputs": {
+          "images": [
+            "12",
+            0
+          ],
+          "filename_prefix": "dubpipe-design/2026-09-30-flux-dev/02-dubbing"
+        }
+      }
+    },
+    {
+      "client_id": "dubpipe_20260930_1790714497",
+      "create_time": 1790714564395
+    },
+    [
+      "13"
+    ]
+  ],
+  "outputs": {
+    "13": {
+      "images": [
+        {
+          "filename": "02-dubbing_00001_.png",
+          "subfolder": "dubpipe-design/2026-09-30-flux-dev",
+          "type": "output"
+        }
+      ]
+    }
+  },
+  "status": {
+    "status_str": "success",
+    "completed": true,
+    "messages": [
+      [
+        "execution_start",
+        {
+          "prompt_id": "077caa6a-490d-4426-a05e-2eb530bb713a",
+          "timestamp": 1790714724675
+        }
+      ],
+      [
+        "execution_cached",
+        {
+          "nodes": [
+            "1",
+            "2",
+            "7",
+            "8",
+            "9",
+            "11"
+          ],
+          "prompt_id": "077caa6a-490d-4426-a05e-2eb530bb713a",
+          "timestamp": 1790714724676
+        }
+      ],
+      [
+        "execution_success",
+        {
+          "prompt_id": "077caa6a-490d-4426-a05e-2eb530bb713a",
+          "timestamp": 1790714847505
+        }
+      ]
+    ]
+  },
+  "meta": {
+    "13": {
+      "node_id": "13",
+      "display_node": "13",
+      "parent_node": null,
+      "real_node_id": "13"
+    }
+  }
+}

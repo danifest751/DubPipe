@@ -1,0 +1,24 @@
+[
+  {
+    "name": "01-library",
+    "prompt_id": "48602c5b-4288-4350-a1e1-f365f4585e84",
+    "seed": 930261,
+    "output": "01-library.png",
+    "server_image": {
+      "filename": "01-library_00001_.png",
+      "subfolder": "dubpipe-design/2026-09-30",
+      "type": "output"
+    }
+  },
+  {
+    "name": "02-dubbing",
+    "prompt_id": "fa2c5bbc-5e24-4b26-a06e-0cc6d9fc9244",
+    "seed": 930262,
+    "output": "02-dubbing.png",
+    "server_image": {
+      "filename": "02-dubbing_00001_.png",
+      "subfolder": "dubpipe-design/2026-09-30",
+      "type": "output"
+    }
+  }
+]

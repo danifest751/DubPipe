@@ -1,0 +1,190 @@
+{
+  "prompt": [
+    23,
+    "871fd59d-68c6-4611-8993-84e407ac0d3d",
+    {
+      "1": {
+        "class_type": "UnetLoaderGGUF",
+        "inputs": {
+          "unet_name": "flux2-dev-Q3_K_M.gguf"
+        }
+      },
+      "2": {
+        "class_type": "LoraLoaderModelOnly",
+        "inputs": {
+          "model": [
+            "1",
+            0
+          ],
+          "lora_name": "Flux2TurboComfyv2.safetensors",
+          "strength_model": 1.0
+        }
+      },
+      "3": {
+        "class_type": "CondCacheLoad",
+        "inputs": {
+          "name": "dubpipe_20260930_1790714497_01-library"
+        }
+      },
+      "4": {
+        "class_type": "FluxGuidance",
+        "inputs": {
+          "conditioning": [
+            "3",
+            0
+          ],
+          "guidance": 2.5
+        }
+      },
+      "5": {
+        "class_type": "BasicGuider",
+        "inputs": {
+          "model": [
+            "2",
+            0
+          ],
+          "conditioning": [
+            "4",
+            0
+          ]
+        }
+      },
+      "6": {
+        "class_type": "RandomNoise",
+        "inputs": {
+          "noise_seed": 930261
+        }
+      },
+      "7": {
+        "class_type": "KSamplerSelect",
+        "inputs": {
+          "sampler_name": "euler"
+        }
+      },
+      "8": {
+        "class_type": "Flux2Scheduler",
+        "inputs": {
+          "steps": 8,
+          "width": 1536,
+          "height": 960
+        }
+      },
+      "9": {
+        "class_type": "EmptyFlux2LatentImage",
+        "inputs": {
+          "width": 1536,
+          "height": 960,
+          "batch_size": 1
+        }
+      },
+      "10": {
+        "class_type": "SamplerCustomAdvanced",
+        "inputs": {
+          "noise": [
+            "6",
+            0
+          ],
+          "guider": [
+            "5",
+            0
+          ],
+          "sampler": [
+            "7",
+            0
+          ],
+          "sigmas": [
+            "8",
+            0
+          ],
+          "latent_image": [
+            "9",
+            0
+          ]
+        }
+      },
+      "11": {
+        "class_type": "VAELoader",
+        "inputs": {
+          "vae_name": "flux2-vae.safetensors"
+        }
+      },
+      "12": {
+        "class_type": "VAEDecode",
+        "inputs": {
+          "samples": [
+            "10",
+            0
+          ],
+          "vae": [
+            "11",
+            0
+          ]
+        }
+      },
+      "13": {
+        "class_type": "SaveImage",
+        "inputs": {
+          "images": [
+            "12",
+            0
+          ],
+          "filename_prefix": "dubpipe-design/2026-09-30-flux-dev/01-library"
+        }
+      }
+    },
+    {
+      "client_id": "dubpipe_20260930_1790714497",
+      "create_time": 1790714564345
+    },
+    [
+      "13"
+    ]
+  ],
+  "outputs": {
+    "13": {
+      "images": [
+        {
+          "filename": "01-library_00001_.png",
+          "subfolder": "dubpipe-design/2026-09-30-flux-dev",
+          "type": "output"
+        }
+      ]
+    }
+  },
+  "status": {
+    "status_str": "success",
+    "completed": true,
+    "messages": [
+      [
+        "execution_start",
+        {
+          "prompt_id": "871fd59d-68c6-4611-8993-84e407ac0d3d",
+          "timestamp": 1790714564346
+        }
+      ],
+      [
+        "execution_cached",
+        {
+          "nodes": [],
+          "prompt_id": "871fd59d-68c6-4611-8993-84e407ac0d3d",
+          "timestamp": 1790714564348
+        }
+      ],
+      [
+        "execution_success",
+        {
+          "prompt_id": "871fd59d-68c6-4611-8993-84e407ac0d3d",
+          "timestamp": 1790714724323
+        }
+      ]
+    ]
+  },
+  "meta": {
+    "13": {
+      "node_id": "13",
+      "display_node": "13",
+      "parent_node": null,
+      "real_node_id": "13"
+    }
+  }
+}
