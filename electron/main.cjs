@@ -6,7 +6,7 @@
  * здесь нет и быть не должно — иначе замена оболочки (например, на Tauri)
  * потребует переписывать интерфейс, что запрещено требованием §16.2.
  */
-const { app, BrowserWindow, dialog, ipcMain, Menu, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, shell, nativeTheme } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
@@ -248,6 +248,8 @@ async function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Графитовая студия не зависит от светлой темы Windows.
+  nativeTheme.themeSource = 'dark';
   registerDialogs();
   registerLanguage();
   buildMenu();

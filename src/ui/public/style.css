@@ -26,29 +26,6 @@
   --radius-sm: 7px;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #f0f4f1;
-    --surface: #ffffff;
-    --surface-2: #f6f8f6;
-    --surface-3: #e8efea;
-    --line: #d3dfd7;
-    --line-soft: #e1e9e3;
-    --text: #1c2924;
-    --text-dim: #576b60;
-    --text-faint: #74867b;
-    --accent: #2c725a;
-    --accent-soft: rgba(44, 114, 90, 0.1);
-    --ok: #2c725a;
-    --ok-soft: rgba(44, 114, 90, 0.1);
-    --warn: #b57b17;
-    --warn-soft: rgba(181, 123, 23, 0.12);
-    --bad: #cf4436;
-    --bad-soft: rgba(207, 68, 54, 0.1);
-    --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 8px 24px rgba(16, 24, 40, 0.07);
-  }
-}
-
 * { box-sizing: border-box; }
 
 /*

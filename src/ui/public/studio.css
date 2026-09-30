@@ -1,6 +1,5 @@
 /* Мятная студия: оформление по двум первым концептам DubPipe. */
 :root { --radius: 12px; --radius-sm: 8px; --sidebar-width: 220px; --page-padding: 28px; color-scheme: dark; }
-@media (prefers-color-scheme: light) { :root { color-scheme: light; } }
 body { font-size: 14px; }
 .shell { min-height: 100dvh; }
 .sidebar { width: 220px; height: 100dvh; background: var(--bg); }
@@ -28,7 +27,6 @@ button { min-height: 36px; transition: background .18s, color .18s, border-color
 button:active:not(:disabled) { transform: translateY(1px); }
 button.primary { color: #13271f; background: var(--accent); border-color: var(--accent); font-weight: 600; }
 button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent), white 10%); border-color: var(--accent); }
-@media (prefers-color-scheme: light) { button.primary { color: #fff; } }
 input[type="search"] { background: var(--surface); border: 1px solid var(--line); color: var(--text); border-radius: var(--radius-sm); padding: 9px 12px; min-width: 0; font: inherit; }
 input[type="search"]:focus { border-color: var(--accent); outline: 2px solid var(--accent-soft); }
 .library-layout { display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: 24px; align-items: start; }
@@ -44,7 +42,6 @@ input[type="search"]:focus { border-color: var(--accent); outline: 2px solid var
 .filter-pills button { padding: 7px 10px; min-height: 32px; background: transparent; font-size: 11px; }
 .filter-pills button span { margin-left: 6px; opacity: .7; font-variant-numeric: tabular-nums; }
 .filter-pills button.active { color: #13271f; background: var(--accent); border-color: var(--accent); }
-@media (prefers-color-scheme: light) { .filter-pills button.active { color: white; } }
 .filter-select { position: absolute; width: 1px; height: 1px; min-width: 0; padding: 0; opacity: 0; pointer-events: none; }
 #librarySearch { flex: 1 1 180px; font-size: 12px; }
 #libraryCount { width: 100%; font-size: 11px; text-align: right; }

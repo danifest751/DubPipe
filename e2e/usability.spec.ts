@@ -420,13 +420,15 @@ test('real remix saves levels, writes a new playable result and clears pending e
 });
 
 for (const width of [1400, 900, 760]) {
-  test(`screens fit ${width}px in light and dark themes`, async ({ page }) => {
+  test(`screens stay graphite and fit ${width}px under light and dark OS preferences`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     for (const colorScheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
       for (const name of ['library', 'downloads', 'settings', 'environment']) {
         await page.locator(`#nav [data-view="${name}"]`).click();
         await expect(page.locator(`.view[data-view="${name}"]`)).toBeVisible();
+        await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(21, 25, 26)');
+        await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark');
         if (width === 760) {
           const nav = await page.locator('#nav').boundingBox();
           const footer = await page.locator('.sidebar-foot').boundingBox();
@@ -440,6 +442,7 @@ for (const width of [1400, 900, 760]) {
       await openInterview(page);
       for (const name of ['preview', 'segments', 'subtitles', 'compare', 'log']) {
         await page.locator(`#subtabs [data-sub="${name}"]`).click();
+        await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(21, 25, 26)');
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
         await page.evaluate(() => window.scrollTo(0, 0));
         await page.screenshot({ path: `output/playwright/project-${name}-${width}-${colorScheme}.png`, animations: 'disabled', fullPage: true });
@@ -452,6 +455,8 @@ test('Electron uses the same working interface and native bridge', async () => {
   const app = await _electron.launch({ args: [path.resolve('scripts/usability-electron.cjs')], cwd: runtime });
   try {
     const page = await app.firstWindow();
+    expect(await app.evaluate(({ nativeTheme }) => ({ source: nativeTheme.themeSource, dark: nativeTheme.shouldUseDarkColors }))).toEqual({ source: 'dark', dark: true });
+    await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(21, 25, 26)');
     await page.locator('#legalOk').click();
     await expect(page.locator('#libraryList [data-open]')).toHaveCount(3);
     expect(await page.evaluate(() => (window as any).dubpipeNative.available)).toBe(true);
