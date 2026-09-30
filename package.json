@@ -26,8 +26,9 @@
     "dev": "tsx src/cli.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "typecheck": "tsc -p tsconfig.check.json",
-    "lint": "eslint src tests scripts electron",
+    "lint": "eslint src tests scripts electron e2e playwright.config.ts",
     "lint:fix": "eslint src tests scripts electron --fix",
     "ui": "tsx src/cli.ts ui",
     "app:dev": "npm run build && electron electron/main.cjs",
@@ -41,6 +42,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.63.0",
     "@types/node": "^22.7.4",
     "electron": "^44.3.0",
     "electron-builder": "^26.15.3",
@@ -72,6 +74,7 @@
       "buildResources": "electron"
     },
     "win": {
+      "icon": "electron/icon.ico",
       "target": [
         {
           "target": "nsis",

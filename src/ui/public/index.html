@@ -1,10 +1,13 @@
 <!doctype html>
 <html lang="ru">
   <head>
+    <link rel="icon" href="brand.svg" />
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>DubPipe</title>
     <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="components.css" />
+    <link rel="stylesheet" href="studio.css" />
   </head>
   <body>
     <!-- Значки инлайном: страница обязана открываться без сети. -->
@@ -26,16 +29,16 @@
       <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" /></symbol>
       <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" /></symbol>
       <symbol id="i-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20zM12 9v5M12 17.5v.5" /></symbol>
+      <symbol id="i-text" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 9h4m3 0h3M7 14h10"/></symbol>
+      <symbol id="i-sliders" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h5m5 0h6M4 17h9m5 0h2"/><circle cx="11.5" cy="7" r="2.5"/><circle cx="15.5" cy="17" r="2.5"/></symbol>
+      <symbol id="i-document" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6M8 13h8m-8 4h5"/></symbol>
     </svg>
 
     <div class="shell">
       <aside class="sidebar">
         <div class="brand">
-          <b>DubPipe</b><span id="version"></span>
-          <select id="uiLang" class="lang-switch" data-i18n-title="lang.label" aria-label="Language">
-            <option value="ru">RU</option>
-            <option value="en">EN</option>
-          </select>
+          <img src="brand.svg" class="brand-mark" alt="" /><b>DubPipe</b><span id="version"></span>
+
         </div>
         <nav class="nav" id="nav">
           <button data-view="library" class="active"><svg class="ico"><use href="#i-video" /></svg> <span data-i18n="nav.library">Видео</span></button>
@@ -45,7 +48,13 @@
         </nav>
         <div class="sidebar-foot">
           <button class="jobchip" id="jobChip" hidden></button>
+          <div class="system-state" id="systemState" aria-live="polite"></div>
           <div class="meta" id="profileNote"></div>
+                    <select id="uiLang" class="lang-switch" data-i18n-title="lang.label" aria-label="Language">
+            <option value="ru">RU</option>
+            <option value="en">EN</option>
+          </select>
+          <button id="aboutOpen" class="ghost small" data-i18n="studio.about">О программе</button>
         </div>
       </aside>
 
@@ -55,14 +64,14 @@
 
           <!-- ================= Видео ================= -->
           <section data-view="library" class="view active">
-            <div class="readiness" id="readiness" hidden></div>
-
+            <div class="library-layout"><div class="library-main">
             <div class="view-head">
               <div>
-                <h1 data-i18n="library.title">Видео</h1>
-                <p class="lead" data-i18n="library.lead">Выберите папку — файлы появятся списком. Нажмите «Дублировать», и через несколько минут рядом появится озвученная копия.</p>
+                <div class="eyebrow" data-i18n="studio.workspace">Рабочая папка</div>
+                <h1 data-i18n="library.title">Мои видео</h1>
+                <p class="lead" data-i18n="library.lead">Выберите папку, откройте видео и проверьте параметры перед запуском. Готовые результаты можно просмотреть и поправить.</p>
               </div>
-              <button id="openOther" class="ghost"><svg class="ico"><use href="#i-link" /></svg> <span data-i18n="library.other">Другой файл или ссылка</span></button>
+              <button id="openOther" class="primary"><svg class="ico"><use href="#i-up" /></svg> <span data-i18n="studio.addVideo">Добавить видео</span></button>
             </div>
 
             <div class="workdir">
@@ -71,28 +80,49 @@
                 <div class="meta" data-i18n="library.folder">Папка с видео</div>
                 <div class="mono" id="workdirPath" data-i18n="library.noFolder">не выбрана</div>
               </div>
-              <button id="pickFolder" class="primary" data-i18n="library.pickFolder">Выбрать папку</button>
+              <button id="pickFolder" data-i18n="library.pickFolder">Выбрать папку</button>
               <button id="refreshLibrary" type="button"><svg class="ico"><use href="#i-refresh" /></svg> <span data-i18n="library.refresh">Обновить</span></button>
             </div>
 
+            <div class="readiness" id="readiness" hidden></div>
+
+            <div class="row library-tools">
+              <div id="libraryFilters" class="filter-pills" aria-label="Фильтры видео"></div>
+              <input id="librarySearch" type="search" data-i18n-placeholder="library.search" aria-label="Поиск видео" />
+              <select id="libraryFilter" class="filter-select" tabindex="-1" aria-hidden="true" aria-label="Фильтр видео">
+                <option value="all" data-i18n="library.filter.all">Все файлы</option>
+                <option value="source" data-i18n="library.filter.source">Исходные файлы</option>
+                <option value="ready" data-i18n="library.filter.ready">Готовый дубляж</option>
+                <option value="new" data-i18n="library.filter.new">Не обработаны</option>
+              </select><span class="meta" id="libraryCount" aria-live="polite"></span>
+            </div>
             <div id="libraryList" class="cards"></div>
 
             <details class="more" id="historyBlock">
               <summary data-i18n="library.recentFolders">Ранее обработанные файлы из других папок</summary>
               <div id="projectList" class="cards"></div>
             </details>
+            </div>
+            <aside class="library-aside">
+              <div id="libraryActivity" class="activity-card" aria-live="polite"></div>
+              <button id="libraryAdd" class="import-card" type="button"><svg class="ico"><use href="#i-folder" /></svg><b data-i18n="studio.addVideo">Добавить видео</b><span data-i18n="studio.addHint">Выберите файл или вставьте ссылку</span></button>
+            </aside></div>
           </section>
 
           <!-- ================= Загрузки ================= -->
           <section data-view="downloads" class="view">
             <div class="view-head">
               <div>
+                <div class="eyebrow" data-i18n="studio.sources"></div>
                 <h1 data-i18n="downloads.title">Загрузки</h1>
                 <p class="lead" data-i18n="downloads.lead">Вставьте ссылку на YouTube: покажу название, длительность и размер до начала загрузки, а файл положу туда же, где лежат остальные видео.</p>
               </div>
             </div>
 
-            <div class="card">
+            <div class="downloads-layout"><div class="downloads-main">
+            <div class="card download-composer">
+              <div class="panel-heading"><svg class="ico"><use href="#i-link" /></svg><h2 data-i18n="studio.links">Ссылки на видео</h2><span class="keyboard-hint">Ctrl + Enter</span></div>
+              <label for="dlInput" class="sr-only" data-i18n="studio.links">Ссылки на видео</label>
               <div class="row nowrap">
                 <textarea id="dlInput" rows="2" placeholder="https://youtu.be/… — по одной ссылке в строке" data-i18n-placeholder="downloads.placeholder"></textarea>
                 <button id="dlResolve" class="primary" data-i18n="downloads.resolve">Разобрать</button>
@@ -100,23 +130,27 @@
               <div class="row">
                 <label class="field"><span data-i18n="downloads.quality">Качество</span><select id="dlQuality"></select></label>
                 <label class="check"><input type="checkbox" id="dlAudioOnly" /> <span data-i18n="downloads.audioOnly">Только звук</span></label>
+                </div>
+              <details class="more"><summary data-i18n="downloads.more">Плейлист, субтитры и доступ</summary><div class="row">
                 <label class="check"><input type="checkbox" id="dlWholePlaylist" /> <span data-i18n="downloads.wholePlaylist">Весь плейлист</span></label>
                 <label class="check"><input type="checkbox" id="dlThumbnail" /> <span data-i18n="settings.dlThumbnail">Сохранять превью</span></label>
                 <label class="check"><input type="checkbox" id="dlSubtitles" /> <span data-i18n="settings.dlSubtitles">Скачивать субтитры YouTube</span></label>
                 <label class="field"><span data-i18n="downloads.cookies">Куки браузера</span><select id="dlCookies"></select></label>
                 <label class="field"><span data-i18n="downloads.items">Номера из плейлиста</span><input id="dlItems" type="text" placeholder="1-3,7" readonly title="" /></label>
                 <span class="grow"></span>
-                <span class="meta" id="dlFolder"></span>
+
               </div>
+              </details>
+              <div class="download-destination"><svg class="ico"><use href="#i-folder" /></svg><span class="meta" id="dlFolder"></span></div>
               <div id="dlInfo"></div>
             </div>
 
-            <div id="dlActive"></div>
 
             <details class="more" id="dlHistoryBlock" hidden>
               <summary data-i18n="downloads.history">Ранее скачанное</summary>
               <div id="dlHistory" class="cards"></div>
             </details>
+            </div><aside class="download-queue card"><div class="panel-heading"><svg class="ico"><use href="#i-down" /></svg><h2 data-i18n="studio.queue">Очередь загрузок</h2><span id="downloadQueueCount" class="pill"></span></div><div id="dlActive"></div></aside></div>
           </section>
 
           <!-- ================= Проект ================= -->
@@ -131,20 +165,16 @@
               <span class="pill" id="projectStatus"></span>
             </div>
 
+            <div class="project-controls">
             <div class="card action-bar">
-              <button id="startJob" class="primary big"><svg class="ico"><use href="#i-play" /></svg> <span data-i18n="project.dub">Дублировать</span></button>
+              <button id="startJob" class="primary big"><svg class="ico"><use href="#i-play" /></svg> <span data-i18n="project.startDub">Запустить дубляж</span></button>
               <button id="cancelJob" disabled data-i18n="project.stop">Остановить</button>
               <button id="toggleAdvanced" class="ghost"><span data-i18n="project.advanced">Дополнительно</span> <svg class="ico"><use href="#i-chev" /></svg></button>
               <span class="grow"></span>
               <span class="meta" id="actionHint"></span>
             </div>
 
-            <div class="card advanced" id="advanced" hidden>
-              <div class="row">
-                <label class="field"><span data-i18n="project.fromStage">Со стадии</span><select id="fromStage"></select></label>
-                <label class="field"><span data-i18n="project.toStage">По стадию</span><select id="toStage"></select></label>
-                <label class="field"><span data-i18n="project.modelOnce">Модель перевода на этот раз</span><input id="modelOverride" type="text" placeholder="из настроек" data-i18n-placeholder="project.modelOnce.placeholder" list="modelList" /><datalist id="modelList"></datalist></label>
-              </div>
+            <div class="card output-settings">
               <div class="out-place">
                 <b data-i18n="project.outPlace">Куда сохранить итог</b>
                 <div class="row" role="radiogroup">
@@ -157,16 +187,29 @@
                 </div>
                 <span class="meta" id="outPreview"></span>
               </div>
+            </div>
+
+            </div>
+            <div class="card advanced" id="advanced" hidden>
+              <div class="row">
+                <label class="field"><span data-i18n="project.fromStage">Со стадии</span><select id="fromStage"></select></label>
+                <label class="field"><span data-i18n="project.toStage">По стадию</span><select id="toStage"></select></label>
+                <label class="field"><span data-i18n="project.modelOnce">Модель перевода на этот раз</span><input id="modelOverride" type="text" placeholder="из настроек" data-i18n-placeholder="project.modelOnce.placeholder" list="modelList" /><datalist id="modelList"></datalist></label>
+              </div>
               <button id="clearProjectCache" class="ghost small" data-i18n="project.clearCache">Сбросить кэш этого файла</button>
               <span id="projectCacheSize" class="muted"></span>
               <span id="projectCost" class="muted"></span>
             </div>
 
-            <div class="stepper" id="stepper"></div>
+            <div id="stageRail" class="stage-rail" aria-label="Этапы обработки"></div>
+            <details class="more" id="stageDetails"><summary data-i18n="project.progress">Этапы обработки</summary><div class="stepper" id="stepper"></div></details>
             <div id="jobResult" class="stack"></div>
 
+<div class="studio-workspace">
+            <div data-subview="preview" class="subview studio-media">
+              <div class="notice" id="previewEmpty" data-i18n="project.noPreview">После обработки здесь появится видео с дубляжом. Пока можно подготовить запуск или работать с репликами.</div>
             <div class="card review" id="review" hidden>
-              <div class="row between">
+              <div class="row between review-heading">
                 <h2 style="margin:0" data-i18n="review.title">Просмотр и правка</h2>
                 <span class="meta" data-i18n="review.lead">Смотрите готовый файл; всё, что не так, помечайте здесь — потом одна кнопка пересведёт файл.</span>
               </div>
@@ -174,41 +217,22 @@
                 <video id="reviewVideo" controls preload="metadata"></video>
                 <div class="review-side">
                   <div class="review-now" id="reviewNow"></div>
-                  <div class="review-mix">
-                    <div class="opt-text"><b data-i18n="review.levels">Громкости</b><span data-i18n="review.levelsNote">Действуют только для этого видео.</span></div>
-                    <label class="slider"><span><span data-i18n="review.originalLevel">Оригинал</span> <em id="mixBgLabel"></em></span><input id="mixBg" type="range" min="-30" max="6" step="1" /></label>
-                    <label class="slider"><span><span data-i18n="review.voiceLevel">Русская речь</span> <em id="mixVoiceLabel"></em></span><input id="mixVoice" type="range" min="-12" max="12" step="1" /></label>
-                    <label class="slider"><span><span data-i18n="review.duck">Приглушение оригинала под речью</span> <em id="mixDuckLabel"></em></span><input id="mixDuck" type="range" min="-40" max="0" step="1" /></label>
-                  </div>
+
                 </div>
               </div>
               <div class="review-marks" id="reviewMarks"></div>
               <div class="row">
-                <button id="reviewApply" class="primary" data-i18n="review.apply">Внести правки и пересвести</button>
+                <button id="reviewSave" data-i18n="project.saveOnly">Сохранить правки</button>
+                <button id="reviewApply" class="primary" data-i18n="project.applyChanges">Сохранить и обновить дубляж</button>
                 <button id="reviewDiscard" class="ghost" data-i18n="review.discard">Отменить пометки</button>
                 <span class="grow"></span>
-                <button id="reviewReset" class="ghost danger" data-i18n="review.reset">Начать заново</button>
+
               </div>
             </div>
 
-            <div class="subtabs" id="subtabs">
-              <button data-sub="segments" class="active" data-i18n="tab.segments">Реплики</button>
-              <button data-sub="subtitles" data-i18n="tab.subtitles">Субтитры</button>
-              <button data-sub="compare" data-i18n="tab.compare">Сравнение моделей</button>
-              <button data-sub="log" data-i18n="tab.log">Журнал</button>
             </div>
 
-            <div data-subview="segments" class="subview active">
-              <div class="row" style="margin-bottom: 10px">
-                <button id="saveSegments" class="primary" data-i18n="segments.save">Сохранить правки</button>
-                <button id="reloadSegments" class="ghost" data-i18n="common.reload">Перечитать</button>
-                <div class="menu-wrap">
-                  <button id="toggleColumns" class="ghost" data-i18n="segments.columns">Колонки</button>
-                  <div class="menu" id="columnPicker" hidden></div>
-                </div>
-                <span class="meta" id="editorInfo"></span>
-                <span class="meta" id="reviewInfo" hidden></span>
-              </div>
+<aside class="studio-inspector">
               <div class="card cast" id="cast" hidden>
                 <div class="row between">
                   <b data-i18n="cast.title">Голоса и персонажи</b>
@@ -216,7 +240,36 @@
                 </div>
                 <div class="cast-list" id="castList"></div>
               </div>
-              <audio id="player" class="row-player" controls preload="none"></audio>
+                  <div class="review-mix" id="mixPanel" hidden>
+                    <div class="opt-text"><b data-i18n="review.levels">Громкости</b><span data-i18n="review.levelsNote">Действуют только для этого видео.</span></div>
+                    <label class="slider"><span><span data-i18n="review.originalLevel">Оригинал</span> <em id="mixBgLabel"></em></span><input id="mixBg" type="range" min="-30" max="6" step="1" /></label>
+                    <label class="slider"><span><span data-i18n="review.voiceLevel">Русская речь</span> <em id="mixVoiceLabel"></em></span><input id="mixVoice" type="range" min="-12" max="12" step="1" /></label>
+                    <label class="slider"><span><span data-i18n="review.duck">Приглушение оригинала под речью</span> <em id="mixDuckLabel"></em></span><input id="mixDuck" type="range" min="-40" max="0" step="1" /></label>
+                  </div>
+</aside></div>
+            <div class="subtabs" id="subtabs">
+              <button data-sub="preview" data-i18n="tab.preview">Просмотр</button>
+              <button data-sub="segments" class="active" data-i18n="tab.segments">Реплики</button>
+              <button data-sub="subtitles" data-i18n="tab.subtitles">Субтитры</button>
+              <button data-sub="compare" data-i18n="tab.compare">Сравнение моделей</button>
+              <button data-sub="log" data-i18n="tab.log">Журнал</button>
+            </div>
+
+            <div data-subview="segments" class="subview active">
+              <div class="row editor-actions">
+                <button id="saveSegments" class="primary" data-i18n="segments.save">Сохранить правки</button>
+                <button id="reloadSegments" class="ghost" data-i18n="common.reload">Перечитать</button>
+                <div class="menu-wrap">
+                  <button id="toggleColumns" class="ghost" data-i18n="segments.columns">Колонки</button>
+                  <div class="menu" id="columnPicker" hidden></div>
+                </div>
+                <button id="applySegments" data-i18n="project.applyChanges">Сохранить и обновить дубляж</button>
+                <span class="meta" id="projectEditStatus" aria-live="polite"></span>
+                <span class="meta" id="editorInfo"></span>
+                <span class="meta" id="reviewInfo" hidden></span>
+              </div>
+              <input id="segmentSearch" type="search" data-i18n-placeholder="segments.search" aria-label="Поиск реплик" />
+              <audio id="player" hidden class="row-player" controls preload="none"></audio>
               <div class="table-wrap" style="margin-top: 10px">
                 <table id="segmentsTable">
                   <colgroup></colgroup>
@@ -227,6 +280,7 @@
             </div>
 
             <div data-subview="subtitles" class="subview">
+              <div class="workspace-heading"><svg class="ico"><use href="#i-text" /></svg><h2 data-i18n="studio.subtitleEditor"></h2></div>
               <div class="card stack">
                 <div class="row">
                   <div class="seg" role="radiogroup">
@@ -256,7 +310,8 @@
             </div>
 
             <div data-subview="compare" class="subview">
-              <div class="card stack">
+              <div class="workspace-heading"><svg class="ico"><use href="#i-sliders" /></svg><h2 data-i18n="studio.compareTitle"></h2></div>
+              <div class="card stack comparison-form">
                 <p class="lead" style="margin:0" data-i18n="compare.lead">Одни и те же реплики проходят через несколько моделей. Рядом — укладка в слот, время и стоимость. Понравившийся вариант применяется одной кнопкой.</p>
                 <div class="row">
                   <label class="field"><span data-i18n="compare.limit">Реплик для пробы</span><input id="compareLimit" type="number" min="1" value="10" style="min-width:90px" /></label>
@@ -273,11 +328,13 @@
             </div>
 
             <div data-subview="log" class="subview">
+              <div class="workspace-heading"><svg class="ico"><use href="#i-document" /></svg><h2 data-i18n="studio.logTitle"></h2></div>
               <div class="row" style="margin-bottom: 10px">
                 <label class="check"><input type="checkbox" id="showDebug" /> <span data-i18n="log.debug">подробные строки</span></label>
                 <button id="clearLog" class="ghost small" data-i18n="log.clear">Очистить</button>
               </div>
               <pre id="logView" class="log"></pre>
+              <div id="logEmpty" class="empty-state"><svg class="ico"><use href="#i-document" /></svg><b data-i18n="studio.logEmpty">Журнал пока пуст</b><p data-i18n="studio.logHint">События появятся после запуска обработки.</p></div>
             </div>
           </section>
 
@@ -285,22 +342,24 @@
           <section data-view="settings" class="view">
             <div class="view-head">
               <div>
+                <div class="eyebrow" data-i18n="studio.preferences"></div>
                 <h1 data-i18n="nav.settings">Настройки</h1>
                 <p class="lead" data-i18n="settings.lead">Изменения применяются после сохранения. Значения проверяются, ошибка показывается у поля.</p>
               </div>
             </div>
 
             <div class="settings">
-              <nav class="settings-nav" id="settingsNav">
-                <button data-group="compute" class="active" data-i18n="settings.group.compute">Вычисления</button>
-                <button data-group="translate" data-i18n="settings.group.translate">Перевод</button>
-                <button data-group="voice" data-i18n="settings.group.voice">Голос</button>
-                <button data-group="asr" data-i18n="settings.group.asr">Распознавание</button>
-                <button data-group="audio" data-i18n="settings.group.audio">Звук</button>
-  <button data-group="fit" data-i18n="settings.group.fit">Подгонка</button>
-  <button data-group="download" data-i18n="settings.group.download">Загрузки</button>
-  <button data-group="system" data-i18n="settings.group.system">Система</button>
-                <button data-group="yaml" data-i18n="settings.group.yaml">Файл YAML</button>
+              <nav class="settings-nav" id="settingsNav" aria-label="Разделы настроек">
+                <div class="settings-index-title" data-i18n="studio.preferences">Параметры студии</div>
+                <button data-group="compute" class="active"><svg class="ico"><use href="#i-chip" /></svg><span data-i18n="settings.group.compute">Вычисления</span></button>
+                <button data-group="translate"><svg class="ico"><use href="#i-text" /></svg><span data-i18n="settings.group.translate">Перевод</span></button>
+                <button data-group="voice"><svg class="ico"><use href="#i-sound" /></svg><span data-i18n="settings.group.voice">Голос</span></button>
+                <button data-group="asr"><svg class="ico"><use href="#i-video" /></svg><span data-i18n="settings.group.asr">Распознавание</span></button>
+                <button data-group="audio"><svg class="ico"><use href="#i-sliders" /></svg><span data-i18n="settings.group.audio">Звук</span></button>
+  <button data-group="fit"><svg class="ico"><use href="#i-refresh" /></svg><span data-i18n="settings.group.fit">Подгонка</span></button>
+  <button data-group="download"><svg class="ico"><use href="#i-down" /></svg><span data-i18n="settings.group.download">Загрузки</span></button>
+  <button data-group="system"><svg class="ico"><use href="#i-gear" /></svg><span data-i18n="settings.group.system">Система</span></button>
+                <button data-group="yaml"><svg class="ico"><use href="#i-document" /></svg><span data-i18n="settings.group.yaml">Файл YAML</span></button>
               </nav>
 
               <form class="settings-form" id="settingsForm" onsubmit="return false">
@@ -778,6 +837,7 @@
           <section data-view="environment" class="view">
             <div class="view-head">
               <div>
+                <div class="eyebrow" data-i18n="studio.components"></div>
                 <h1 data-i18n="nav.environment">Окружение</h1>
                 <p class="lead" data-i18n="env.lead">Программы и модели загружаются в служебный каталог — без установки в систему и прав администратора.</p>
               </div>
@@ -786,22 +846,25 @@
                 <button id="refreshEnv" class="ghost" data-i18n="env.recheck">Проверить заново</button>
               </div>
             </div>
-            <div id="envList" class="cards"></div>
+            <div id="envSummary" class="environment-summary" aria-live="polite"></div>
+            <div id="envList" class="cards environment-board"></div>
           </section>
         </main>
       </div>
     </div>
 
-    <div id="legal" class="overlay" hidden>
+    <div id="legal" class="overlay" role="dialog" aria-modal="true" aria-labelledby="legalTitle" hidden>
       <div class="dialog">
-        <h2 data-i18n="legal.title">Только для личного просмотра</h2>
+        <img src="brand.svg" class="dialog-brand" alt="" />
+        <h2 id="legalTitle" data-i18n="legal.title">Только для личного просмотра</h2>
         <p id="legalText" class="lead"></p>
         <div class="row between"><span></span><button id="legalOk" class="primary" data-i18n="common.ok">Понятно</button></div>
       </div>
     </div>
 
-    <div id="browser" class="overlay" hidden>
+    <div id="browser" class="overlay" role="dialog" aria-modal="true" aria-labelledby="browserTitle" hidden>
       <div class="dialog">
+        <img src="brand.svg" class="dialog-brand" alt="" />
         <div class="row between"><h2 id="browserTitle" data-i18n="browser.title">Выберите папку</h2><button id="browserClose" class="ghost small" data-i18n="common.close">Закрыть</button></div>
         <div class="mono" id="browserPath"></div>
         <div id="browserList" class="browser-list"></div>
@@ -809,9 +872,10 @@
       </div>
     </div>
 
-    <div id="otherDialog" class="overlay" hidden>
+    <div id="otherDialog" class="overlay" role="dialog" aria-modal="true" aria-labelledby="otherTitle" hidden>
       <div class="dialog">
-        <div class="row between"><h2 data-i18n="library.other">Другой файл или ссылка</h2><button id="otherClose" class="ghost small" data-i18n="common.close">Закрыть</button></div>
+        <img src="brand.svg" class="dialog-brand" alt="" />
+        <div class="row between"><h2 id="otherTitle" data-i18n="library.other">Другой файл или ссылка</h2><button id="otherClose" class="ghost small" data-i18n="common.close">Закрыть</button></div>
         <p class="lead" style="margin:0" data-i18n="other.lead">Путь к файлу на диске или ссылка на YouTube.</p>
         <div class="row nowrap">
           <input id="otherInput" type="text" placeholder="C:\videos\lecture.mp4 или https://youtu.be/…" />
@@ -821,7 +885,18 @@
       </div>
     </div>
 
-    <div class="toasts" id="toasts"></div>
+    <div id="aboutDialog" class="overlay" role="dialog" aria-modal="true" aria-labelledby="aboutTitle" hidden>
+      <div class="dialog about-dialog">
+        <img src="brand.svg" class="dialog-brand" alt="" />
+        <div class="row between"><h2 id="aboutTitle" data-i18n="studio.about">О программе</h2><button id="aboutClose" class="ghost small" data-i18n="common.close">Закрыть</button></div>
+        <div class="about-product"><b>DubPipe</b><span id="aboutVersion" class="pill"></span></div>
+        <p class="lead" data-i18n="studio.aboutSummary">Студия перевода, озвучки и субтитров для ваших видео.</p>
+        <div class="notice" data-i18n="legal.title">Только для личного просмотра</div>
+        <p id="aboutLegal" class="meta"></p>
+      </div>
+    </div>
+
+    <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
     <script src="i18n.js"></script>
     <script src="app.js"></script>
   </body>

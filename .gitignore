@@ -9,6 +9,8 @@ key/
 tests/fixtures/.build/
 release/
 scripts/screens/
+output/playwright/
+.playwright-cli/
 
 # Материал для проверок, положенный в корень проекта: видео весит гигабайты
 # и попадает в индекс одним рассеянным `git add .`

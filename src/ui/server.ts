@@ -52,6 +52,7 @@ import { downloadYt, resolveYt, type DownloadQuality } from '../util/ytdlp.js';
 import { sha256 } from '../util/hash.js';
 import { moveToTrash } from '../util/trash.js';
 import { onServer, resetWorkerHealth, serverEnabled, workerHealth, type ServerStage, type WorkerHealth } from '../providers/remote/server.js';
+import { createPreviewLoader } from './media-preview.js';
 import { referenceOverview } from '../providers/tts/clone.js';
 
 /**
@@ -496,6 +497,8 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
    * итог текущей задачи и исходники из выбранной пользователем папки.
    * Всё остальное — отказ (ТЗ §16.6).
    */
+  const loadPreview = createPreviewLoader(cacheRoot);
+
   const safeMediaPath = (raw: string): string | null => {
     const resolved = path.resolve(raw);
     const under = (root: string | null) =>
@@ -1521,6 +1524,7 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
         // паузой, замеренный темп с надбавкой и допуск из настроек.
         fit: await fitRuler(workspace, config, segments),
         output,
+        pendingReview: (await workspace.readJson<{ fromStage: StageId }>(workspace.file('pending-review.json')))?.fromStage ?? null,
         overrides: await workspace.readOverrides(),
         // Голоса актёров: образцы по персонажам — выбранные и из чего выбирать.
         clone: config.tts.clone.enabled
@@ -1571,9 +1575,20 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
         await workspace.readSpeakers(),
         createTtsProvider(workspace, config).fingerprint,
       );
+      const previousPending = await workspace.readJson<{ fromStage: StageId }>(workspace.file('pending-review.json'));
+      const editedContent = body.segments.some((segment, index) => {
+        const before = previous[index];
+        return !before || ['start', 'end', 'text_en', 'text_ru', 'speaker'].some((key) => before[key as keyof Segment] !== segment[key as keyof Segment]);
+      });
+      const meta = await workspace.readMeta();
+      const needed = plan.fromStage ?? (editedContent && meta?.output ? 's5' : null);
+      const fromStage = previousPending?.fromStage && needed
+        ? (previousPending.fromStage < needed ? previousPending.fromStage : needed)
+        : previousPending?.fromStage ?? needed;
       await workspace.writeSegments(plan.segments);
       await workspace.writeOverrides(nextOverrides);
-      sendJson(response, 200, { ok: true, affected: plan.affected, fromStage: plan.fromStage });
+      if (fromStage) await workspace.writeJson(workspace.file('pending-review.json'), { fromStage });
+      sendJson(response, 200, { ok: true, affected: plan.affected, fromStage, segments: plan.segments });
       return true;
     }
 
@@ -1698,6 +1713,25 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       const target = workspace.cuesPath(body.kind);
       if (existsSync(target)) await rm(target, { force: true });
       sendJson(response, 200, { ok: true });
+      return true;
+    }
+
+    if (route === '/api/thumbnail' && method === 'GET') {
+      const raw = url.searchParams.get('path');
+      const resolved = raw ? safeMediaPath(raw) : null;
+      if (!resolved || !MEDIA_EXTENSIONS.has(path.extname(resolved).toLowerCase())) {
+        sendJson(response, 403, { error: 'путь вне рабочего каталога' });
+        return true;
+      }
+      try {
+        const preview = await loadPreview(resolved);
+        const bytes = await readFile(preview);
+        response.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=3600' });
+        response.end(bytes);
+      } catch {
+        response.writeHead(404);
+        response.end();
+      }
       return true;
     }
 
@@ -1901,6 +1935,10 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
           current.output = report.output;
           current.subtitles = report.subtitles;
           current.status = 'done';
+          if (!subtitlesOnly && planned.includes('s7') && report.output) {
+            const workspace = await Workspace.open(body.input!, runConfig);
+            await rm(workspace.file('pending-review.json'), { force: true });
+          }
         } catch (error) {
           finishStages(current.stages, new Date().toISOString(), 'pending');
           if (isCancelled(error) || cancelRequested) {

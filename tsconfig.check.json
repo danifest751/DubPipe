@@ -8,6 +8,6 @@
     "noEmit": true,
     "rootDir": "."
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.mts"],
+  "include": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.mts", "e2e/**/*.ts", "playwright.config.ts"],
   "exclude": ["node_modules", "dist"]
 }

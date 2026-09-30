@@ -67,6 +67,7 @@ const put = (path, body) => api(path, { method: 'PUT', body: JSON.stringify(body
  */
 let mediaVersion = Date.now();
 const mediaUrl = (filePath) => `/api/media?path=${encodeURIComponent(filePath)}&token=${TOKEN}&v=${mediaVersion}`;
+const thumbnailUrl = (filePath, version = '') => `/api/thumbnail?path=${encodeURIComponent(filePath)}&token=${TOKEN}&v=${encodeURIComponent(version)}`;
 const icon = (name, cls = 'ico') => `<svg class="${cls}"><use href="#i-${name}" /></svg>`;
 
 function escapeHtml(value) {
@@ -104,6 +105,7 @@ async function withBusy(button, task) {
   } finally {
     button.classList.remove('busy');
     button.disabled = false;
+    if (button.closest('[data-view="project"]')) updateProjectEdits();
   }
 }
 
@@ -113,13 +115,136 @@ function getPath(object, dotted) {
 
 // --- навигация -------------------------------------------------------------
 
+// Compare only user-editable data: pipeline progress must not mark a draft dirty.
+function projectSnapshot() {
+  return JSON.stringify({
+    segments: state.segments.map(({ id, start, end, speaker, text_en, text_ru }) => ({ id, start, end, speaker, text_en, text_ru })),
+    overrides: state.overrides,
+  });
+}
+
+function projectDirty() {
+  return Boolean(state.projectBaseline && (state.projectBaseline !== projectSnapshot() || $('#segmentsTable .invalid')));
+}
+
+function pendingStage() {
+  return state.pendingReview ?? null;
+}
+
+function setPendingStage(stage) {
+  state.pendingReview = stage;
+}
+
+function updateProjectEdits() {
+  const dirty = projectDirty();
+  const busy = state.job?.status === 'running' || state.jobPending || state.savingProject;
+  $('#projectEditStatus').textContent = state.projectBaseline ? t(dirty ? 'project.pending' : pendingStage() ? 'project.savedNeedsRun' : 'project.clean') : '';
+  for (const id of ['saveSegments', 'reviewSave']) $(`#${id}`).disabled = Boolean(!dirty || busy);
+  for (const id of ['reviewApply', 'applySegments']) $(`#${id}`).disabled = Boolean(!state.output || (!dirty && !pendingStage()) || busy);
+  $('#startJob').disabled = Boolean(busy || dirty || subs.dirty);
+  $('#makeSubtitles').disabled = Boolean(busy || dirty || subs.dirty);
+}
+
+function canStartJob() {
+  if (!state.project || state.jobPending || state.savingProject || state.job?.status === 'running') return false;
+  if (outMode() === 'folder' && !state.outDir) { toast(t('project.folderRequired'), 'warn'); return false; }
+  return true;
+}
+
+function acceptStartedJob(job) {
+  // The event stream can finish a short job before its HTTP response arrives.
+  if (state.job?.id === job?.id && state.job.status !== 'running' && job.status === 'running') return;
+  state.job = job;
+}
+
+async function saveProjectEdits(apply) {
+  if (!state.project || state.savingProject || state.jobPending || state.job?.status === 'running') return;
+  if (!state.segments.length) return;
+  if (apply && outMode() === 'folder' && !state.outDir) { toast(t('project.folderRequired'), 'warn'); return; }
+  const invalid = $('#segmentsTable .invalid');
+  if (invalid) { showSubtab('segments'); invalid.reportValidity(); invalid.focus(); return; }
+  const input = state.project;
+  const snapshot = projectSnapshot();
+  const submitted = JSON.parse(snapshot);
+  const segments = JSON.parse(JSON.stringify(state.segments));
+  state.savingProject = true;
+  $('#segmentsTable').inert = true;
+  $('#review').inert = true;
+  updateProjectEdits();
+  try {
+    const plan = await post('/api/project/review', { input, segments, overrides: submitted.overrides });
+    if (state.project !== input) return;
+    // Saving never starts expensive processing. Keep a retryable plan if launching fails.
+    const stage = plan.fromStage;
+    setPendingStage(stage);
+    state.segments = plan.segments;
+    state.projectBaseline = snapshot;
+    state.voicesDirty = false;
+    state.namesDirty = false;
+    if (review.baseline) {
+      review.baseline.segments = submitted.segments;
+      review.baseline.overrides = submitted.overrides;
+    }
+    if (apply && stage) {
+      state.jobPending = true;
+      renderJob();
+      acceptStartedJob(await post('/api/jobs', { input, fromStage: stage, outDir: outMode() === 'folder' && state.outDir ? state.outDir : undefined }));
+      toast(t('job.started'), 'ok');
+    } else toast(t(stage ? 'project.savedNeedsRun' : 'segments.saved', { count: state.segments.length }), 'ok');
+  } finally {
+    state.savingProject = false;
+    $('#segmentsTable').inert = false;
+    $('#review').inert = false;
+    state.jobPending = false;
+    renderSegments();
+    renderJob();
+    if (review.data) renderReviewMarks();
+  }
+}
+
+function filterSegments() {
+  const query = $('#segmentSearch').value.trim().toLocaleLowerCase();
+  $$('#segmentsTable tbody tr[data-index]').forEach((row) => {
+    const segment = state.segments[Number(row.dataset.index)];
+    row.querySelectorAll('[data-field]').forEach((field) => field.setAttribute('aria-label', `${t('segments.' + ({text_en: 'source', text_ru: 'target'}[field.dataset.field] ?? field.dataset.field))} ${segment.id}`));
+    row.hidden = !`${segment.id} ${segment.text_en} ${segment.text_ru ?? ''} ${speakerLabel(segment.speaker)}`.toLocaleLowerCase().includes(query);
+  });
+}
+$('#segmentSearch').addEventListener('input', filterSegments);
+window.addEventListener('beforeunload', (event) => {
+  if (projectDirty() || subs.dirty || Object.keys(state.dirty).length || state.yamlDirty) {
+    event.preventDefault();
+    event.returnValue = '';
+  }
+});
+
+// Drafts stay in memory while navigating; keyboard users get the same dialogs.
+document.addEventListener('keydown', (event) => {
+  const overlay = !$('#legal').hidden ? $('#legal') : !$('#browser').hidden ? $('#browser') : !$('#otherDialog').hidden ? $('#otherDialog') : !$('#aboutDialog').hidden ? $('#aboutDialog') : null;
+  if (!overlay) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    if (overlay.id === 'legal') $('#legalOk').click();
+    else if (overlay.id === 'browser') closeBrowser(null);
+    else if (overlay.id === 'aboutDialog') closeAbout();
+    else { overlay.hidden = true; $('#openOther').focus(); }
+  }
+  if (event.key === 'Tab') {
+    const focusable = [...overlay.querySelectorAll('button, input, select, textarea, [tabindex]')].filter((element) => !element.disabled && element.getClientRects().length);
+    const first = focusable[0], last = focusable.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  }
+});
+
 function showView(name) {
+  if (name !== 'project') { $('#reviewVideo').pause(); $('#subsVideo').pause(); $('#player').pause(); }
   $$('#nav button').forEach((button) => button.classList.toggle('active', button.dataset.view === name));
   $$('.view').forEach((view) => view.classList.toggle('active', view.dataset.view === name));
   if (name === 'library') $$('#nav button[data-view="library"]')[0].classList.add('active');
   if (name === 'project') $$('#nav button[data-view="library"]')[0].classList.add('active');
     if (name === 'environment') loadEnvironment().catch(showError);
-    if (name === 'settings') loadSettings().catch(showError);
+    if (name === 'settings' && !state.settingsLoaded) loadSettings().catch(showError);
     if (name === 'downloads') loadDownloads().catch(showError);
   window.scrollTo(0, 0);
 }
@@ -128,9 +253,15 @@ $$('#nav button').forEach((button) => button.addEventListener('click', () => sho
 $('#backToLibrary').addEventListener('click', () => showView('library'));
 
 function showSubtab(name) {
+  $('[data-view="project"]').dataset.tab = name;
+  $('#reviewVideo').pause();
+  $('#subsVideo').pause();
+  $('#player').pause();
   $$('#subtabs button').forEach((button) => button.classList.toggle('active', button.dataset.sub === name));
   $$('.subview').forEach((view) => view.classList.toggle('active', view.dataset.subview === name));
-  if (name === 'subtitles') loadSubtitles().catch(showError);
+  if (name === 'preview' && review.data) { renderReviewNow(); renderReviewMarks(); }
+  if (name === 'segments' && !$('#segmentsTable .invalid')) renderSegments();
+  if (name === 'subtitles' && !subs.dirty) loadSubtitles().catch(showError);
 }
 
 $$('#subtabs button').forEach((button) => button.addEventListener('click', () => showSubtab(button.dataset.sub)));
@@ -140,6 +271,8 @@ $$('#subtabs button').forEach((button) => button.addEventListener('click', () =>
 function renderReadiness(data) {
   const box = $('#readiness');
   const problems = data.items.filter((item) => item.state !== 'ok');
+  $('#systemState').textContent = t(problems.length ? 'studio.attention' : 'studio.ready');
+  $('#systemState').classList.toggle('needs-attention', problems.length > 0);
   $('#envBadge').innerHTML = data.blocked > 0 ? '<span class="pill bad">!</span>' : data.warnings > 0 ? '<span class="pill warn">!</span>' : '';
 
   // Когда всё в порядке, ничего не показываем: человек пришёл озвучивать видео,
@@ -154,11 +287,14 @@ function renderReadiness(data) {
   box.innerHTML = `
     <div class="readiness-box ${data.blocked > 0 ? 'blocked' : ''}">
       <div class="head">${icon('warn')} ${escapeHtml(data.summary)}</div>
+      <details class="more" id="readinessComponents" ${state.readinessExpanded ? 'open' : ''}>
+      <summary>${t('readiness.components')}</summary>
       <ul>
         ${problems
           .map((item) => `<li><b>${escapeHtml(item.title)}</b> — ${escapeHtml(item.detail)}${item.blocks ? `. ${escapeHtml(item.blocks)}` : ''}${item.hint ? ` <span class="meta">${escapeHtml(item.hint)}</span>` : ''}</li>`)
           .join('')}
       </ul>
+      </details>
       <div class="row">
         ${fixable ? `<button id="readinessFix" class="primary small">${icon('down')} ${t('env.fetch')}</button>` : ''}
         ${problems.some((item) => item.id === 'apikey') ? `<button id="readinessKey" class="small">${t('readiness.enterKey')}</button>` : ''}
@@ -167,7 +303,8 @@ function renderReadiness(data) {
       </div>
     </div>`;
 
-  $('#readinessFix')?.addEventListener('click', (event) => startProvisioning(event.currentTarget));
+  $('#readinessComponents').addEventListener('toggle', (event) => { state.readinessExpanded = event.currentTarget.open; });
+  $('#readinessFix')?.addEventListener('click', (event) => startProvisioning(event.currentTarget).catch(showError));
   $('#readinessKey')?.addEventListener('click', () => {
     showView('settings');
     showSettingsGroup('translate');
@@ -237,16 +374,19 @@ const native = window.dubpipeNative;
 const browserState = { dir: null, mode: 'folder', resolve: null };
 
 async function openBrowser(mode, startDir) {
+  browserState.returnFocus = document.activeElement;
   browserState.mode = mode;
   $('#browserTitle').textContent = t(mode === 'folder' ? 'browser.titleFolder' : 'browser.titleFile');
   $('#browserChoose').hidden = mode !== 'folder';
   $('#browser').hidden = false;
   await browseTo(startDir ?? state.workingDir ?? null);
+  $('#browserClose').focus();
   return new Promise((resolve) => { browserState.resolve = resolve; });
 }
 
 function closeBrowser(result) {
   $('#browser').hidden = true;
+  browserState.returnFocus?.focus();
   const resolve = browserState.resolve;
   browserState.resolve = null;
   if (resolve) resolve(result ?? null);
@@ -266,11 +406,11 @@ async function browseTo(dir) {
   $('#browserHint').textContent = t(browserState.mode === 'folder' ? 'browser.hintFolder' : 'browser.hintFile');
 
   const rows = [];
-  if (data.parent !== null) rows.push(`<div class="browser-item" data-dir="${escapeAttr(data.parent)}">${icon('up')}<span>${t('browser.up')}</span></div>`);
-  else if (data.dir) rows.push(`<div class="browser-item" data-dir="">${icon('up')}<span>${t('browser.drives')}</span></div>`);
+  if (data.parent !== null) rows.push(`<button type="button" class="browser-item" data-dir="${escapeAttr(data.parent)}">${icon('up')}<span>${t('browser.up')}</span></button>`);
+  else if (data.dir) rows.push(`<button type="button" class="browser-item" data-dir="">${icon('up')}<span>${t('browser.drives')}</span></button>`);
   for (const entry of data.entries) {
     const attribute = entry.isDir ? `data-dir="${escapeAttr(entry.path)}"` : `data-file="${escapeAttr(entry.path)}"`;
-    rows.push(`<div class="browser-item" ${attribute}>${icon(entry.isDir ? 'folder' : 'video')}<span>${escapeHtml(entry.name)}</span><span class="size">${entry.isDir ? '' : formatBytes(entry.size)}</span></div>`);
+    rows.push(`<button type="button" class="browser-item" ${!entry.isDir && browserState.mode !== 'file' ? 'disabled' : ''} ${attribute}>${icon(entry.isDir ? 'folder' : 'video')}<span>${escapeHtml(entry.name)}</span><span class="size">${entry.isDir ? '' : formatBytes(entry.size)}</span></button>`);
   }
   if (data.entries.length === 0 && data.dir) rows.push(`<div class="browser-item"><span class="meta">${t('browser.empty')}</span></div>`);
 
@@ -304,7 +444,7 @@ $('#refreshLibrary').addEventListener('click', (event) => withBusy(event.current
 // --- другой файл или ссылка ------------------------------------------------
 
 $('#openOther').addEventListener('click', () => { $('#otherDialog').hidden = false; $('#otherInput').focus(); });
-$('#otherClose').addEventListener('click', () => { $('#otherDialog').hidden = true; });
+$('#otherClose').addEventListener('click', () => { $('#otherDialog').hidden = true; $('#openOther').focus(); });
 $('#otherPick').addEventListener('click', async () => {
   const chosen = await pickFilePath().catch(showError);
   if (chosen) $('#otherInput').value = chosen;
@@ -313,8 +453,28 @@ $('#otherOpen').addEventListener('click', () => {
   const value = $('#otherInput').value.trim();
   if (!value) return;
   $('#otherDialog').hidden = true;
-  openProject(value);
+  if (/^https?:\/\//i.test(value)) { showView('downloads'); $('#dlInput').value = value; $('#dlResolve').focus(); }
+  else openProject(value).catch(showError);
 });
+
+$('#otherInput').addEventListener('keydown', (event) => { if (event.key === 'Enter') $('#otherOpen').click(); });
+
+let aboutReturnFocus;
+function openAbout() {
+  aboutReturnFocus = document.activeElement;
+  $('#aboutVersion').textContent = $('#version').textContent;
+  $('#aboutLegal').textContent = $('#legalText').textContent;
+  $('#aboutDialog').hidden = false;
+  $('#aboutClose').focus();
+}
+function closeAbout() {
+  $('#aboutDialog').hidden = true;
+  aboutReturnFocus?.focus();
+}
+$('#aboutOpen').addEventListener('click', openAbout);
+$('#aboutClose').addEventListener('click', closeAbout);
+window.dubpipeAbout = openAbout;
+
 
 // --- загрузки по ссылке ----------------------------------------------------
 
@@ -380,6 +540,7 @@ function renderDownloadInfo() {
         ? `<span class="pill bad">${t('downloads.live')}</span>`
         : `<button id="dlStart" class="primary">${icon('down')} ${t('downloads.start')}</button>`}
     </div>`;
+  $('#dlStart')?.addEventListener('click', (event) => withBusy(event.currentTarget, startDownload).catch(showError));
 }
 
 const downloadStatusText = (item) =>
@@ -397,14 +558,14 @@ function downloadCard(item, { active = false } = {}) {
     : '';
   const action = active
     ? `<button class="ghost" data-cancel-active="1">${t('downloads.cancel')}</button>`
-    : `<button class="ghost small" data-cancel-queued="${escapeAttr(item.id)}">${t('downloads.cancel')}</button>`;
+    : !['done', 'error', 'cancelled'].includes(item.status) ? `<button class="ghost small" data-cancel-queued="${escapeAttr(item.id)}">${t('downloads.cancel')}</button>` : '';
   const file = (item.files ?? [])[0];
   const dub = !active && file ? `<button class="ghost small" data-dub="${escapeAttr(file)}">${t('downloads.dub')}</button>` : '';
   return `
     <div class="card dl-job ${item.status}">
       <div class="grow">
         <div class="name">${escapeHtml(item.title)}</div>
-        <div class="meta">${escapeHtml(downloadStatusText(item))}</div>
+        <div class="meta">${escapeHtml(!active && item.status === 'running' ? t('downloads.waiting') : downloadStatusText(item))}</div>
         ${bar}
       </div>
       ${action}${dub}
@@ -417,10 +578,11 @@ function renderDownloads() {
   $('#dlBadge').textContent = active ? '●' : queue.length ? String(queue.length) : '';
 
   const box = $('#dlActive');
+  $('#downloadQueueCount').textContent = String(queue.length + (active ? 1 : 0));
   box.innerHTML = [
     active ? downloadCard(active, { active: true }) : '',
     ...queue.map((item) => downloadCard(item)),
-  ].join('');
+  ].join('') || `<div class="empty-state">${icon('down')}<b>${t('studio.queueEmpty')}</b><p>${t('studio.queueHint')}</p></div>`;
 
   box.querySelectorAll('[data-cancel-active]').forEach((button) =>
     button.addEventListener('click', () => post('/api/download/jobs/cancel').catch(showError)),
@@ -435,7 +597,7 @@ function renderDownloads() {
   $('#dlHistory').innerHTML = history.map((item) => downloadCard(item)).join('');
   $$('#dlHistory [data-dub]').forEach((button) =>
     button.addEventListener('click', () => {
-      if (button.dataset.dub) openProject(button.dataset.dub);
+      if (button.dataset.dub) openProject(button.dataset.dub).catch(showError);
     }),
   );
 }
@@ -470,7 +632,7 @@ async function resolveDownload() {
     state.downloadLinks = links;
     renderDownloadInfo();
     fillDownloadControls();
-    $('#dlStart')?.addEventListener('click', () => startDownload().catch(showError));
+
   } catch (error) {
     state.download = null;
     state.downloadLinks = null;
@@ -538,9 +700,79 @@ function statusPill(stages, dubbed = false) {
 }
 
 async function loadLibrary() {
-  const list = $('#libraryList');
   const data = await api('/api/library');
+  state.libraryFiles = data.files;
   state.workingDir = data.workingDir;
+  renderLibrary();
+}
+
+$('#librarySearch').addEventListener('input', renderLibrary);
+$('#libraryFilter').addEventListener('change', renderLibrary);
+$('#libraryFilters').addEventListener('click', (event) => {
+  const button = event.target.closest('[data-filter]');
+  if (!button) return;
+  $('#libraryFilter').value = button.dataset.filter;
+  renderLibrary();
+});
+$('#libraryAdd').addEventListener('click', () => $('#openOther').click());
+
+function bindThumbnails(root) {
+  root.querySelectorAll('img[data-thumbnail]').forEach((img) => {
+    img.addEventListener('error', () => { img.hidden = true; });
+  });
+}
+
+function renderLibraryActivity() {
+  const box = $('#libraryActivity');
+  const job = state.job;
+  const project = job ?? state.projects.find((item) => !/\.ru\./i.test(item.input));
+  if (!project) {
+    box.innerHTML = `<div class="eyebrow">DubPipe Studio</div><div class="activity-empty">${icon('sound')}<h2>${t('studio.idle')}</h2><p>${t('studio.idleHint')}</p></div>`;
+    return;
+  }
+  const running = job?.status === 'running';
+  const current = job?.stages.find((stage) => stage.state === 'running');
+  const percent = current?.progress?.percent;
+  const done = job?.stages.filter((stage) => stage.state === 'done').length ?? 0;
+  box.innerHTML = `<h2>${t(running ? 'studio.current' : 'studio.last')}</h2>
+    <div class="activity-thumbnail">${icon('video')}<img data-thumbnail src="${escapeAttr(thumbnailUrl(project.input))}" alt="" /></div>
+    <b class="activity-name">${escapeHtml(baseName(project.input))}</b>
+    ${job ? `<div class="activity-progress"><strong>${running && percent != null ? `${percent}%` : `${done} / ${job.stages.length}`}</strong><span class="meta">${current ? t(STAGE_SHORT[current.id]) : t(`job.${job.status}`)}</span>
+    ${running ? `<div class="bar ${percent == null ? 'indeterminate' : ''}"><i style="width:${percent == null ? 30 : percent}%"></i></div>` : ''}</div>` : statusPill(project.stages)}
+    <button id="activityOpen" class="primary">${t('studio.open')}</button>`;
+  bindThumbnails(box);
+  $('#activityOpen').addEventListener('click', () => openProject(project.input).catch(showError));
+  $$('#libraryList .library-row').forEach((row) => row.classList.toggle('processing', running && row.dataset.file === job.input));
+}
+
+function renderStageRail() {
+  const job = state.job?.input === state.project ? state.job : null;
+  const known = new Set(state.projects.find((project) => project.input === state.project)?.stages ?? []);
+  $('#stageRail').innerHTML = state.stages.map((stage, index) => {
+    const status = job?.stages.find((item) => item.id === stage.id)?.state ?? (known.has(stage.id) ? 'done' : 'pending');
+    return `<div class="rail-step ${status}" title="${escapeAttr(t(STAGE_SHORT[stage.id]))}"><span>${status === 'done' ? icon('check') : status === 'running' ? icon('spin') : index + 1}</span><b>${t(STAGE_SHORT[stage.id])}</b></div>`;
+  }).join('');
+}
+
+
+function renderLibrary() {
+  const list = $('#libraryList');
+  const query = $('#librarySearch').value.trim().toLocaleLowerCase();
+  const filter = $('#libraryFilter').value;
+  const data = { workingDir: state.workingDir, files: (state.libraryFiles ?? []).filter((file) => {
+    if (!file.name.toLocaleLowerCase().includes(query)) return false;
+    if (filter === 'source') return !file.dubbed;
+    if (filter === 'ready') return file.dubbed || file.stages.includes('s7');
+    if (filter === 'new') return !file.dubbed && file.stages.length === 0;
+    return true;
+  }) };
+  const files = state.libraryFiles ?? [];
+  const counts = { all: files.length, source: files.filter((file) => !file.dubbed).length,
+    ready: files.filter((file) => file.dubbed || file.stages.includes('s7')).length,
+    new: files.filter((file) => !file.dubbed && !file.stages.length).length };
+  $('#libraryFilters').innerHTML = ['all', 'ready', 'new', 'source'].map((key) => `<button class="${key === filter ? 'active' : ''}" data-filter="${key}" aria-pressed="${key === filter}">${t(`library.filter.${key}`)} <span>${counts[key]}</span></button>`).join('');
+  renderLibraryActivity();
+  $('#libraryCount').textContent = `${data.files.length} / ${(state.libraryFiles ?? []).length}`;
   $('#workdirPath').textContent = data.workingDir ?? t('library.noFolder');
 
   if (!data.workingDir) {
@@ -548,39 +780,34 @@ async function loadLibrary() {
     return;
   }
   if (data.files.length === 0) {
-    list.innerHTML = `<div class="notice warn">${t('library.noMedia')}</div>`;
+    list.innerHTML = `<div class="notice warn">${t((state.libraryFiles ?? []).length ? 'library.noMatches' : 'library.noMedia')}</div>`;
     return;
   }
 
   list.innerHTML = data.files
     .map((file) => `
-      <div class="card row-card">
+      <div class="card row-card library-row" data-file="${escapeAttr(file.path)}">
+        <div class="file-thumbnail">${icon(/\.(mp3|m4a|wav|opus|ogg|flac|aac)$/i.test(file.name) ? 'sound' : 'video')}${/\.(mp3|m4a|wav|opus|ogg|flac|aac)$/i.test(file.name) ? '' : `<img data-thumbnail loading="lazy" src="${escapeAttr(thumbnailUrl(file.path, file.processedAt ?? file.size))}" alt="" />`}<span>${escapeHtml(file.name.split('.').pop().toUpperCase())}</span></div>
         <div class="grow">
           <div class="name">${escapeHtml(file.name)}</div>
-          <div class="meta">${formatBytes(file.size)}${file.processedAt ? ` · ${t('library.dubbedAt', { date: new Date(file.processedAt).toLocaleString() })}` : ''}</div>
+          <div class="meta">${formatBytes(file.size)}${file.processedAt ? ` · ${t('library.processedAt', { date: new Date(file.processedAt).toLocaleString() })}` : ''}</div>
         </div>
         ${statusPill(file.stages, file.dubbed)}
-        <button data-dub="${escapeAttr(file.path)}" data-dubbed="${file.dubbed ? '1' : '0'}" class="primary small">${icon('play')} ${t('library.dub')}</button>
-        <button data-subs="${escapeAttr(file.path)}" class="small" title="${escapeAttr(t('library.subtitlesHint'))}">${t('library.subtitles')}</button>
-        <button data-open="${escapeAttr(file.path)}" class="small">${t('common.open')}</button>
+        <button data-open="${escapeAttr(file.path)}" class="small library-open">${t(file.dubbed || file.stages.includes('s7') ? 'common.open' : 'library.prepare')}</button>
+        ${file.dubbed ? '' : `<button data-subs="${escapeAttr(file.path)}" class="small">${t('library.subtitles')}</button>`}
         <button data-delete="${escapeAttr(file.path)}" data-size="${file.size}" class="ghost small danger" title="${escapeAttr(t('library.deleteHint'))}" aria-label="${escapeAttr(t('library.delete'))}">${icon('trash')}</button>
       </div>`)
     .join('');
 
+  bindThumbnails(list);
+  renderLibraryActivity();
   list.querySelectorAll('[data-delete]').forEach((button) =>
     button.addEventListener('click', () =>
       withBusy(button, () => deleteFile(button.dataset.delete, Number(button.dataset.size))).catch(showError),
     ),
   );
-  list.querySelectorAll('[data-dub]').forEach((button) =>
-    button.addEventListener('click', () => {
-      // Дубляж дубляжа — почти всегда промах по кнопке, а стоит он часа работы.
-      if (button.dataset.dubbed === '1' && !window.confirm(t('library.isDubConfirm'))) return;
-      openProject(button.dataset.dub, { start: true });
-    }),
-  );
-  list.querySelectorAll('[data-subs]').forEach((button) => button.addEventListener('click', () => openProject(button.dataset.subs, { subtitles: true })));
-  list.querySelectorAll('[data-open]').forEach((button) => button.addEventListener('click', () => openProject(button.dataset.open)));
+  list.querySelectorAll('[data-subs]').forEach((button) => button.addEventListener('click', () => openProject(button.dataset.subs, { subtitles: true }).catch(showError)));
+  list.querySelectorAll('[data-open]').forEach((button) => button.addEventListener('click', () => openProject(button.dataset.open).catch(showError)));
 }
 
 /**
@@ -633,13 +860,40 @@ function renderProjects() {
         <button data-open="${escapeAttr(project.input)}" class="small">${t('common.open')}</button>
       </div>`)
     .join('');
-  list.querySelectorAll('[data-open]').forEach((button) => button.addEventListener('click', () => openProject(button.dataset.open)));
+  list.querySelectorAll('[data-open]').forEach((button) => button.addEventListener('click', () => openProject(button.dataset.open).catch(showError)));
 }
 
 // --- проект ----------------------------------------------------------------
 
 async function openProject(input, options = {}) {
+  if (state.savingProject) { toast(t('project.pending'), 'warn'); return; }
+  if (state.project === input && state.projectBaseline) {
+    showView('project');
+    if (options.subtitles) showSubtab('subtitles');
+    return;
+  }
+  if (state.project && (projectDirty() || subs.dirty) && !window.confirm(t('project.unsavedConfirm'))) return;
   state.project = input;
+  state.segments = [];
+  state.projectBaseline = null;
+  state.pendingReview = null;
+  state.output = null;
+  state.dubbed = false;
+  state.overrides = { voices: {}, names: {}, mix: {}, refs: {} };
+  review.data = null;
+  subs.data = null;
+  subs.dirty = false;
+  $('#segmentSearch').value = '';
+  $('#review').hidden = true;
+  $('#mixPanel').hidden = true;
+  $('#previewEmpty').hidden = false;
+  $('#player').hidden = true;
+  $('#player').pause();
+  $('#player').removeAttribute('src');
+  $('#fromStage').value = 's1';
+  $('#toStage').value = 's7';
+  $('#stageDetails').open = false;
+  renderSegments();
   $('#projectName').textContent = baseName(input);
   $('#projectPath').textContent = input === baseName(input) ? '' : input;
   state.outDir = null;
@@ -654,26 +908,31 @@ async function openProject(input, options = {}) {
   renderJob();
   void showProjectCacheSize();
   void showProjectCost();
-  await loadSegments().catch(() => {});
+  await loadSegments();
+  if (state.project !== input) return;
+  showSubtab(state.output ? 'preview' : 'segments');
   if (options.subtitles) {
     showSubtab('subtitles');
-    await loadSubtitles().catch(() => {});
-    startSubtitles().catch(showError);
+    await loadSubtitles();
   }
-  if (options.start) startJob().catch(showError);
+
 }
 
 function fillStageSelects() {
+  const from = $('#fromStage').value || 's1';
+  const to = $('#toStage').value || 's7';
   const options = state.stages.map((stage) => `<option value="${stage.id}">${stage.id} — ${stage.title}</option>`).join('');
   $('#fromStage').innerHTML = options;
   $('#toStage').innerHTML = options;
-  $('#toStage').value = 's7';
+  $('#fromStage').value = from;
+  $('#toStage').value = to;
 }
 
-$('#toggleAdvanced').addEventListener('click', () => { $('#advanced').hidden = !$('#advanced').hidden; });
+$('#toggleAdvanced').addEventListener('click', (event) => { $('#advanced').hidden = !$('#advanced').hidden; event.currentTarget.setAttribute('aria-expanded', String(!$('#advanced').hidden)); });
 
 async function startJob() {
-  if (!state.project) return;
+  if (!canStartJob()) return;
+  if (projectDirty() || subs.dirty) { toast(t('project.pending'), 'warn'); return; }
   // Запуск на готовом дубляже спрашивают здесь же: до библиотеки человек может
   // и не дойти, а цена ошибки — прогон целиком.
   if (state.dubbed && !window.confirm(t('library.isDubConfirm'))) return;
@@ -685,7 +944,11 @@ async function startJob() {
   const fromStage = $('#fromStage').value;
   const toStage = $('#toStage').value;
   const model = $('#modelOverride').value.trim();
-  state.job = await post('/api/jobs', {
+  if (Number(fromStage.slice(1)) > Number(toStage.slice(1))) { toast(t('project.stageRange'), 'warn'); return; }
+  state.jobPending = true;
+  renderJob();
+  try {
+  const startedJob = await post('/api/jobs', {
     input: state.project,
     fromStage: fromStage && fromStage !== 's1' ? fromStage : undefined,
     toStage: toStage && toStage !== 's7' ? toStage : undefined,
@@ -694,8 +957,10 @@ async function startJob() {
     // от того, раскрыта ли панель «Дополнительно».
     outDir: outMode() === 'folder' && state.outDir ? state.outDir : undefined,
   });
+  acceptStartedJob(startedJob);
   renderJob();
   toast(t('job.started'), 'ok', 3000);
+  } finally { state.jobPending = false; renderJob(); }
 }
 
 $('#startJob').addEventListener('click', () => startJob().catch(showError));
@@ -712,7 +977,10 @@ $('#cancelJob').addEventListener('click', (event) => {
 });
 $('#clearProjectCache').addEventListener('click', (event) =>
   withBusy(event.currentTarget, async () => {
+    if (!window.confirm(t('review.resetConfirm'))) return;
     await post('/api/cache/clear', { input: state.project });
+    subs.dirty = false;
+    subs.data = null;
     void showProjectCacheSize();
     toast(t('project.cacheCleared'), 'ok');
     await loadSegments().catch(() => {});
@@ -725,6 +993,8 @@ const STAGE_SHORT = {
 };
 
 function renderJob() {
+  renderLibraryActivity();
+  renderStageRail();
   const job = state.job;
   const mine = job && state.project && job.input === state.project;
   const chip = $('#jobChip');
@@ -755,7 +1025,16 @@ function renderJob() {
    * оставалось закрывать программу. Чужую задачу перед остановкой спросим.
    */
   $('#cancelJob').disabled = !(job && job.status === 'running');
-  $('#startJob').classList.toggle('busy', Boolean(mine && job.status === 'running'));
+  $('#clearProjectCache').disabled = job?.status === 'running';
+  $('#clearAllCache').disabled = job?.status === 'running';
+  const running = job?.status === 'running';
+  $('#startJob').disabled = Boolean(running || state.jobPending || projectDirty() || subs.dirty);
+  $('#makeSubtitles').disabled = Boolean(running || state.jobPending || projectDirty() || subs.dirty);
+  $('#cancelJob').hidden = !running;
+  $('#startJob').classList.toggle('busy', Boolean(state.jobPending || (mine && running)));
+  if (mine && running) $('#stageDetails').open = true;
+  if (running && !mine) $('#actionHint').textContent = t('project.busyOther');
+  updateProjectEdits();
 
   if (!mine) {
     // Задача не идёт: показываем, что уже есть в кэше для этого файла.
@@ -771,7 +1050,7 @@ function renderJob() {
       })
       .join('');
     result.innerHTML = '';
-    $('#actionHint').textContent = finished
+    if (!running) $('#actionHint').textContent = finished
       ? t('project.hint.done')
       : t('project.hint.fresh');
     return;
@@ -978,7 +1257,7 @@ const HIDDEN_STORE = 'dubpipe.segmentColumnsHidden';
 /** Колонки, скрытые на этом устройстве: на узком экране нужны не все. */
 function hiddenColumns() {
   try {
-    const saved = JSON.parse(localStorage.getItem(HIDDEN_STORE) ?? '[]');
+    const saved = JSON.parse(localStorage.getItem(HIDDEN_STORE) ?? '["slot","speaker","flags"]');
     return new Set(Array.isArray(saved) ? saved.filter((key) => typeof key === 'string') : []);
   } catch {
     return new Set();
@@ -1141,7 +1420,7 @@ function renderCast() {
         .join('');
       return `<div class="cast-row">
         <div class="cast-who">${genderMark(speaker)}<span class="mono">${escapeHtml(speaker)}</span></div>
-        <input class="cast-name" data-cast-name="${escapeAttr(speaker)}" value="${escapeAttr(state.overrides?.names?.[speaker] ?? '')}" placeholder="${escapeAttr(t('cast.namePlaceholder'))}" />
+        <input type="text" class="cast-name" data-cast-name="${escapeAttr(speaker)}" value="${escapeAttr(state.overrides?.names?.[speaker] ?? '')}" placeholder="${escapeAttr(t('cast.namePlaceholder'))}" />
         <span class="cast-voice">
           <select data-cast-voice="${escapeAttr(speaker)}">${voices}</select>
           <button class="ghost small" data-cast-try="${escapeAttr(speaker)}" title="${escapeAttr(t('cast.tryHint'))}">${icon('play')} ${t('cast.try')}</button>
@@ -1248,6 +1527,7 @@ function setReference(speaker, value) {
 }
 
 function renderSegments() {
+  updateProjectEdits();
   renderColumns();
   renderColumnPicker();
   renderCast();
@@ -1285,16 +1565,21 @@ function renderSegments() {
   }
 
   body.querySelectorAll('input, textarea').forEach((field) =>
-    field.addEventListener('change', () => {
+    field.addEventListener('input', () => {
       const segment = state.segments[Number(field.closest('tr').dataset.index)];
       const key = field.dataset.field;
       if (key === 'start' || key === 'end') {
         const value = Number(field.value.replace(',', '.'));
-        if (Number.isFinite(value)) segment[key] = value;
+        const valid = field.value.trim() && Number.isFinite(value) && value >= 0 && (key === 'start' ? value < segment.end : value > segment.start);
+        field.setCustomValidity(valid ? '' : t('segments.badTime'));
+        field.classList.toggle('invalid', !valid);
+        if (valid) segment[key] = value;
       } else segment[key] = field.value;
-      renderSegments();
+      updateProjectEdits();
+      if (review.data) renderReviewMarks();
     }),
   );
+  filterSegments();
   body.querySelectorAll('[data-review-undo]').forEach((button) =>
     button.addEventListener('click', () => {
       const segment = state.segments[Number(button.dataset.reviewUndo)];
@@ -1674,6 +1959,7 @@ let stopAt = null;
 function playAt(source, start, end) {
   const player = $('#player');
   if (!source) { toast(t('segments.noAudio'), 'warn'); return; }
+  player.hidden = false;
   stopAt = end ?? null;
   const go = () => {
     player.currentTime = Math.max(0, start);
@@ -1700,6 +1986,7 @@ function playAt(source, start, end) {
 function showInReview(start, end, muted = false, scroll = true) {
   const video = $('#reviewVideo');
   if (!state.output || !video.dataset.src) return false;
+  if (scroll) showSubtab('preview');
   stopReviewAt = end ?? null;
   video.muted = muted;
   const go = () => {
@@ -1723,8 +2010,7 @@ function showInReview(start, end, muted = false, scroll = true) {
 function playOriginal(start, end) {
   // Кадры — в плеере просмотра, звук — исходная дорожка снизу. Картинка идёт
   // без своего звука, иначе слышно было бы две дорожки сразу.
-  showInReview(start, end, true);
-  playAt(state.originalAudio, start, end);
+  playAt(state.originalAudio ?? state.project, start, end);
 }
 $('#player').addEventListener('timeupdate', () => {
   const player = $('#player');
@@ -1733,7 +2019,9 @@ $('#player').addEventListener('timeupdate', () => {
 
 async function loadSegments() {
   if (!state.project) return;
-  const data = await api(`/api/segments?input=${encodeURIComponent(state.project)}`);
+  const input = state.project;
+  const data = await api(`/api/segments?input=${encodeURIComponent(input)}`);
+  if (state.project !== input) return;
   state.segments = data.segments;
   state.originalAudio = data.originalAudio;
   // Пол голоса определяется на S2 и нужен таблице реплик, а не только режиму
@@ -1758,6 +2046,7 @@ async function loadSegments() {
   state.review = data.review ?? null;
   state.reviewById = new Map((data.review?.entries ?? []).filter((entry) => entry.verdict === 'applied').map((entry) => [entry.id, entry]));
   state.output = data.output ?? null;
+  setPendingStage(data.pendingReview);
   mediaVersion = Date.now();
   // Голоса нужны таблице, а не только режиму просмотра: пол переключают прямо
   // в строке. Хранилище правок одно на страницу — карточка просмотра пишет
@@ -1781,6 +2070,8 @@ async function loadSegments() {
   state.defaultOutputDir = data.defaultOutputDir ?? null;
   renderOutPlace();
   $('#player').dataset.source = '';
+  state.projectBaseline = projectSnapshot();
+  $('#previewEmpty').hidden = Boolean(data.output && data.segments.length);
   renderSegments();
   renderJob();
   setupReview(data);
@@ -1801,16 +2092,17 @@ function setupReview(data) {
   const box = $('#review');
   if (!data.output || !state.segments.length) {
     box.hidden = true;
+    $('#mixPanel').hidden = true;
     review.data = null;
     return;
   }
   review.data = data;
   review.overrides = state.overrides;
   review.baseline = {
-    segments: state.segments.map((segment) => ({ speaker: segment.speaker, text_ru: segment.text_ru })),
+    segments: state.segments.map((segment) => ({ ...segment })),
     overrides: JSON.parse(JSON.stringify(review.overrides)),
   };
-  review.index = -1;
+  review.index = 0;
   const video = $('#reviewVideo');
   const url = mediaUrl(data.output);
   if (video.dataset.src !== url) {
@@ -1821,6 +2113,7 @@ function setupReview(data) {
     $(`#${id}`).value = review.overrides.mix[key] ?? data.mix[key];
   }
   box.hidden = false;
+  $('#mixPanel').hidden = false;
   renderMixLabels();
   renderReviewNow();
   renderReviewMarks();
@@ -1915,9 +2208,8 @@ function renderReviewNow() {
   $('#reviewPrev').addEventListener('click', () => seekTo(review.index - 1));
   $('#reviewNext').addEventListener('click', () => seekTo(review.index + 1));
   $('#reviewReplay').addEventListener('click', () => seekTo(review.index));
-  $('#reviewText').addEventListener('change', (event) => {
+  $('#reviewText').addEventListener('input', (event) => {
     segment.text_ru = event.target.value;
-    renderSegments();
     renderReviewMarks();
   });
   $('#reviewSpeaker').addEventListener('change', (event) => {
@@ -1966,9 +2258,9 @@ function renderReviewMarks() {
   const box = $('#reviewMarks');
   box.innerHTML = marks.length
     ? `<b>${t('review.marks', { count: marks.length })}</b> ${marks.map((mark) => `<span class="chip mark-${mark.kind}">${escapeHtml(mark.text)}</span>`).join(' ')}`
-    : `<span class="meta">${t('review.noMarks')}</span>`;
-  $('#reviewApply').disabled = marks.length === 0;
-  $('#reviewDiscard').disabled = marks.length === 0;
+    : `<span class="meta">${t(projectDirty() ? 'project.pending' : pendingStage() ? 'project.savedNeedsRun' : 'review.noMarks')}</span>`;
+  updateProjectEdits();
+  $('#reviewDiscard').disabled = !projectDirty();
 }
 
 function renderMixLabels() {
@@ -1995,7 +2287,7 @@ $('#reviewVideo').addEventListener('timeupdate', (event) => {
   }
   if (!review.data) return;
   const index = currentReviewIndex(event.target.currentTime);
-  if (index !== review.index) {
+  if (index !== review.index && document.activeElement?.id !== 'reviewText') {
     review.index = index;
     renderReviewNow();
   }
@@ -2005,7 +2297,7 @@ $('#reviewDiscard').addEventListener('click', () => {
   if (!review.data) return;
   state.segments.forEach((segment, index) => {
     const base = review.baseline.segments[index];
-    if (base) { segment.speaker = base.speaker; segment.text_ru = base.text_ru; }
+    if (base) Object.assign(segment, { start: base.start, end: base.end, speaker: base.speaker, text_en: base.text_en, text_ru: base.text_ru });
   });
   state.overrides = JSON.parse(JSON.stringify(review.baseline.overrides));
   review.overrides = state.overrides;
@@ -2018,31 +2310,9 @@ $('#reviewDiscard').addEventListener('click', () => {
   renderReviewMarks();
 });
 
-$('#reviewApply').addEventListener('click', (event) =>
-  withBusy(event.currentTarget, async () => {
-    const result = await post('/api/project/review', { input: state.project, segments: state.segments, overrides: review.overrides });
-    if (!result.fromStage) { toast(t('review.nothingToApply'), 'warn'); return; }
-    state.job = await post('/api/jobs', { input: state.project, fromStage: result.fromStage });
-    renderJob();
-    toast(
-      result.fromStage === 's7'
-        ? t('review.appliedMix')
-        : t('review.applied', { count: result.affected.length }),
-      'ok',
-      6000,
-    );
-  }).catch(showError),
-);
-
-$('#reviewReset').addEventListener('click', (event) =>
-  withBusy(event.currentTarget, async () => {
-    if (!window.confirm(t('review.resetConfirm'))) return;
-    await post('/api/cache/clear', { input: state.project });
-    void showProjectCacheSize();
-    toast(t('review.resetDone'), 'ok', 6000);
-    await loadSegments().catch(() => {});
-  }).catch(showError),
-);
+$('#reviewApply').addEventListener('click', (event) => withBusy(event.currentTarget, () => saveProjectEdits(true)).catch(showError));
+$('#reviewSave').addEventListener('click', (event) => withBusy(event.currentTarget, () => saveProjectEdits(false)).catch(showError));
+$('#applySegments').addEventListener('click', (event) => withBusy(event.currentTarget, () => saveProjectEdits(true)).catch(showError));
 
 $('#toggleColumns').addEventListener('click', (event) => {
   const menu = $('#columnPicker');
@@ -2056,38 +2326,11 @@ document.addEventListener('click', (event) => {
   if (!menu.contains(event.target) && event.target !== $('#toggleColumns')) menu.hidden = true;
 });
 
-$('#reloadSegments').addEventListener('click', (event) => withBusy(event.currentTarget, loadSegments).catch(showError));
-$('#saveSegments').addEventListener('click', (event) =>
-  withBusy(event.currentTarget, async () => {
-    if (!state.segments.length) { toast(t('segments.nothingToSave'), 'warn'); return; }
-
-    // Правка голоса без переозвучки бессмысленна, поэтому такие правки идут тем
-    // же путём, что и из режима просмотра: он сам считает, что пересчитать, и
-    // трогает только затронутые реплики.
-    if (state.voicesDirty || state.namesDirty) {
-      const plan = await post('/api/project/review', {
-        input: state.project,
-        segments: state.segments,
-        overrides: state.overrides,
-      });
-      state.voicesDirty = false;
-      state.namesDirty = false;
-      // Имена на озвучку не влияют: переозвучивать нечего, и это не ошибка.
-      if (!plan.fromStage) { toast(t('segments.saved', { count: state.segments.length }), 'ok', 6000); return; }
-      if (!window.confirm(t('segments.revoiceConfirm', { count: plan.affected.length }))) {
-        toast(t('segments.savedNoRun'), 'ok', 8000);
-        return;
-      }
-      state.job = await post('/api/jobs', { input: state.project, fromStage: plan.fromStage });
-      renderJob();
-      toast(t('review.applied', { count: plan.affected.length }), 'ok', 6000);
-      return;
-    }
-
-    const result = await put('/api/segments', { input: state.project, segments: state.segments });
-    toast(t('segments.saved', { count: result.count }), 'ok', 8000);
-  }).catch(showError),
-);
+$('#reloadSegments').addEventListener('click', (event) => withBusy(event.currentTarget, async () => {
+  if (projectDirty() && !window.confirm(t('project.reloadConfirm'))) return;
+  await loadSegments();
+}).catch(showError));
+$('#saveSegments').addEventListener('click', (event) => withBusy(event.currentTarget, () => saveProjectEdits(false)).catch(showError));
 
 // --- субтитры --------------------------------------------------------------
 //
@@ -2129,12 +2372,16 @@ function parseTimecode(text) {
 }
 
 async function loadSubtitles() {
-  if (!state.project) return;
-  subs.data = await api(`/api/subtitles?input=${encodeURIComponent(state.project)}`);
+  if (!state.project || subs.dirty) return;
+  const input = state.project;
+  const data = await api(`/api/subtitles?input=${encodeURIComponent(input)}`);
+  if (input !== state.project || subs.dirty) return;
+  subs.data = data;
   const source = subs.data.languages.find((item) => item.kind === 'source');
   $('#subSourceLabel').textContent = source ? t('subs.sourceWithLang', { name: source.name }) : t('subs.source');
   subs.kind = subsKind();
   subs.dirty = false;
+  updateProjectEdits();
   const video = $('#subsVideo');
   const preview = $('#subsPreview');
   if (subs.data.source) {
@@ -2152,6 +2399,8 @@ function renderSubtitles() {
   const current = currentSubs();
   const cues = current?.cues ?? [];
 
+  $('#saveSubtitles').disabled = cues.length === 0;
+  $('#rebuildSubtitles').disabled = !current?.edited;
   if (!subs.data?.hasSegments) {
     body.innerHTML = `<tr><td colspan="7"><span class="meta">${t('subs.none')}</span></td></tr>`;
     $('#subsSummary').textContent = '';
@@ -2181,7 +2430,7 @@ function renderSubtitles() {
   }
 
   body.querySelectorAll('[data-cue-field]').forEach((field) =>
-    field.addEventListener('change', (event) => {
+    field.addEventListener('input', (event) => {
       const row = event.target.closest('[data-cue]');
       const cue = currentSubs().cues[Number(row.dataset.cue)];
       const kind = event.target.dataset.cueField;
@@ -2189,11 +2438,15 @@ function renderSubtitles() {
         cue.lines = event.target.value.split('\n').map((line) => line.trim()).filter(Boolean);
       } else {
         const parsed = parseTimecode(event.target.value);
-        if (parsed === null) { toast(t('subs.badTime'), 'warn'); renderSubtitles(); return; }
+        const valid = event.target.value.trim() && parsed !== null && parsed >= 0 && (kind === 'start' ? parsed < cue.end : parsed > cue.start);
+        event.target.setCustomValidity(valid ? '' : t('segments.badTime'));
+        event.target.classList.toggle('invalid', !valid);
+        if (!valid) { subs.dirty = true; updateProjectEdits(); return; }
         cue[kind] = parsed;
       }
       subs.dirty = true;
-      renderSubtitles();
+      $('#subsSummary').textContent = t('subs.summary', { count: currentSubs().cues.length }) + t('subs.summary.dirty');
+      updateProjectEdits();
     }),
   );
   body.querySelectorAll('[data-cue-play]').forEach((button) =>
@@ -2228,14 +2481,19 @@ $$('input[name="subKind"]').forEach((radio) =>
 );
 
 async function startSubtitles() {
-  if (!state.project) return;
-  state.job = await post('/api/jobs', {
+  if (!canStartJob()) return;
+  state.jobPending = true;
+  renderJob();
+  try {
+  const startedJob = await post('/api/jobs', {
     input: state.project,
     mode: 'subtitles',
     outDir: outMode() === 'folder' && state.outDir ? state.outDir : undefined,
   });
+  acceptStartedJob(startedJob);
   renderJob();
   toast(t('subs.started'), 'ok', 6000);
+  } finally { state.jobPending = false; renderJob(); }
 }
 
 $('#makeSubtitles').addEventListener('click', (event) => withBusy(event.currentTarget, startSubtitles).catch(showError));
@@ -2244,6 +2502,8 @@ $('#saveSubtitles').addEventListener('click', (event) =>
   withBusy(event.currentTarget, async () => {
     const current = currentSubs();
     if (!current || current.cues.length === 0) return;
+    const invalid = $('#subsTable .invalid');
+    if (invalid) { invalid.reportValidity(); invalid.focus(); return; }
     const result = await put('/api/subtitles', {
       input: state.project,
       kind: subs.kind,
@@ -2288,7 +2548,7 @@ async function loadCatalog() {
     const options = data.models.map((model) => `<option value="${escapeAttr(model.id)}"></option>`).join('');
     $('#modelList').innerHTML = options;
     $('#modelCatalog').innerHTML = data.models
-      .map((model) => `<span class="chip ${model.free ? 'free' : ''}" data-model="${escapeAttr(model.id)}">${escapeHtml(model.id)}${model.free ? ` · ${t('settings.free')}` : ` · $${(model.promptPrice * 1e6).toFixed(2)}/$${(model.completionPrice * 1e6).toFixed(2)}`}</span>`)
+      .map((model) => `<button type="button" class="chip ${model.free ? 'free' : ''}" data-model="${escapeAttr(model.id)}">${escapeHtml(model.id)}${model.free ? ` · ${t('settings.free')}` : ` · $${(model.promptPrice * 1e6).toFixed(2)}/$${(model.completionPrice * 1e6).toFixed(2)}`}</button>`)
       .join('');
     $('#modelCatalog').querySelectorAll('[data-model]').forEach((chip) =>
       chip.addEventListener('click', () => {
@@ -2330,7 +2590,7 @@ function renderComparison(report) {
     <h2>${escapeHtml(t('compare.slot', { id: line.id, slot: line.slot.toFixed(2), text: line.text_en }))}</h2>
     <div class="table-wrap"><table><tbody>${ok.map((model) => {
       const c = model.lines[index];
-      return c ? `<tr><td class="meta">${escapeHtml(model.model)}</td><td class="fit ${c.fits ? 'ok' : 'long'}">${c.fits ? '✓' : '✗'}</td><td>${escapeHtml(c.text_ru)}</td></tr>` : '';
+      return c ? `<tr><td class="meta">${escapeHtml(model.model)}</td><td class="fit ${c.fits ? 'ok' : 'long'}">${icon(c.fits ? 'check' : 'x')}</td><td>${escapeHtml(c.text_ru)}</td></tr>` : '';
     }).join('')}</tbody></table></div>`).join('');
 
   $('#compareResult').innerHTML = summary + lines;
@@ -2340,7 +2600,7 @@ function renderComparison(report) {
         const chosen = report.models.find((model) => model.model === button.dataset.apply);
         const byId = new Map(chosen.lines.map((line) => [line.id, line.text_ru]));
         for (const segment of state.segments) { const text = byId.get(segment.id); if (text) segment.text_ru = text; }
-        await put('/api/segments', { input: state.project, segments: state.segments });
+        await saveProjectEdits(false);
         renderSegments();
         toast(t('compare.applied', { model: chosen.model }), 'ok', 8000);
       }).catch(showError),
@@ -2366,6 +2626,8 @@ const SLIDER_LABELS = {
 const SLIDER_TARGETS = { 'mix.background_gain_db': '#bgLabel', 'mix.voice_gain_db': '#voiceLabel', 'alignment.max_tempo': '#tempoLabel' };
 
 function showSettingsGroup(name) {
+  const current = $('#settingsNav button.active')?.dataset.group;
+  if ((name === 'yaml' && Object.keys(state.dirty).length) || (current === 'yaml' && name !== 'yaml' && state.yamlDirty)) { toast(t('settings.switchDraft'), 'warn'); return; }
   $$('#settingsNav button').forEach((button) => button.classList.toggle('active', button.dataset.group === name));
   $$('#settingsForm fieldset').forEach((set) => set.classList.toggle('active', set.dataset.group === name));
 }
@@ -2473,6 +2735,18 @@ async function loadDevices() {
   renderDeviceOptions();
 }
 
+  $$('input[name="compute"]').forEach((radio) =>
+  radio.addEventListener('change', () => {
+    const onServer = radio.value === 'server';
+    markDirty('server.enabled', onServer);
+    applyComputeVisibility(computeOnServer());
+    // Сервер выбран, а адреса нет — сразу туда, где его вписать.
+    if (onServer && !computeOnServer()) $('[data-key="server.host"]')?.focus();
+  }),
+);
+$('[data-key="server.host"]')?.addEventListener('input', () => applyComputeVisibility(computeOnServer()));
+
+
 function fillForm(config) {
   state.config = config;
   // Облачная модель запоминается отдельно: поле модели одно на оба движка, и
@@ -2484,6 +2758,8 @@ function fillForm(config) {
 
   $$('#settingsForm [data-key]').forEach((field) => {
     const value = getPath(config, field.dataset.key);
+    const labelText = field.closest('.opt')?.querySelector('.opt-text b')?.textContent;
+    if (labelText) field.setAttribute('aria-label', labelText);
     if (field.type === 'checkbox') field.checked = Boolean(value);
     else field.value = value ?? '';
     field.closest('.opt')?.classList.remove('invalid');
@@ -2491,17 +2767,6 @@ function fillForm(config) {
     const label = SLIDER_TARGETS[field.dataset.key];
     if (label) $(label).textContent = SLIDER_LABELS[field.dataset.key](field.value);
   });
-
-  $$('input[name="compute"]').forEach((radio) =>
-  radio.addEventListener('change', () => {
-    const onServer = radio.value === 'server';
-    markDirty('server.enabled', onServer);
-    applyComputeVisibility(computeOnServer());
-    // Сервер выбран, а адреса нет — сразу туда, где его вписать.
-    if (onServer && !computeOnServer()) $('[data-key="server.host"]')?.focus();
-  }),
-);
-$('[data-key="server.host"]')?.addEventListener('input', () => applyComputeVisibility(computeOnServer()));
 
 $$('input[name="profile"]').forEach((radio) => { radio.checked = radio.value === config.profile; });
   applyProfileVisibility(config.profile);
@@ -2637,8 +2902,9 @@ async function checkServer() {
 $('#serverCheck')?.addEventListener('click', () => void checkServer());
 
 function markDirty(key, value) {
-  state.dirty[key] = value;
-  $('#savebar').hidden = false;
+  if (JSON.stringify(getPath(state.config, key)) === JSON.stringify(value)) delete state.dirty[key];
+  else state.dirty[key] = value;
+  $('#savebar').hidden = !Object.keys(state.dirty).length && !state.yamlDirty;
   $('#saveNote').textContent = t('settings.dirtyCount', { count: Object.keys(state.dirty).length });
 }
 
@@ -2691,7 +2957,7 @@ $$('input[name="profile"]').forEach((radio) =>
   }),
 );
 
-$('#configText').addEventListener('input', () => { state.yamlDirty = true; $('#savebar').hidden = false; $('#saveNote').textContent = t('settings.yamlDirty'); });
+$('#configText').addEventListener('input', () => { state.yamlDirty = $('#configText').value !== state.yamlBaseline; $('#savebar').hidden = !state.yamlDirty && !Object.keys(state.dirty).length; $('#saveNote').textContent = t('settings.yamlDirty'); });
 
 // --- модель перевода в настройках: поле с подсказками по всему каталогу ------
 
@@ -2907,6 +3173,8 @@ function fillSourceLanguages(selected) {
 }
 
 async function loadSettings() {
+  $$('#settingsForm fieldset').forEach((fieldset) => { fieldset.disabled = true; });
+  try {
   const [configData, voices, key, hfToken, stateData] = await Promise.all([
     api('/api/config'), api('/api/voices'), api('/api/key'), api('/api/hf-token'), api('/api/state'), loadSettingsCatalog(),
   ]);
@@ -2914,6 +3182,7 @@ async function loadSettings() {
   renderVoiceChoices(voices);
   $('#configPath').textContent = configData.path + (configData.exists ? '' : t('settings.willBeCreated'));
   $('#configText').value = configData.text;
+  state.yamlBaseline = configData.text;
   $('#cacheDir').textContent = stateData.cacheDir;
   state.yamlDirty = false;
   fillSourceLanguages(configData.parsed.asr.language);
@@ -2921,7 +3190,9 @@ async function loadSettings() {
   renderModelList();
   renderKey(key);
   renderHfToken(hfToken);
+  state.settingsLoaded = true;
   void showCacheSize();
+  } finally { $$('#settingsForm fieldset').forEach((fieldset) => { fieldset.disabled = false; }); }
 }
 
 function renderHfToken(token) {
@@ -3003,10 +3274,14 @@ $('#previewVoice').addEventListener('click', (event) =>
 
 $('#clearAllCache').addEventListener('click', (event) =>
   withBusy(event.currentTarget, async () => {
+    if (!window.confirm(t('settings.clearConfirm'))) return;
     const result = await post('/api/cache/clear');
+    subs.dirty = false;
+    subs.data = null;
     void showCacheSize();
     toast(t('settings.cleared', { count: result.removed }), 'ok');
     await refreshState();
+    if (state.project) await loadSegments();
   }).catch(showError),
 );
 
@@ -3043,24 +3318,32 @@ $('#saveSettings').addEventListener('click', (event) =>
 // --- окружение -------------------------------------------------------------
 
 async function loadEnvironment() {
-  $('#envList').innerHTML = `<div class="notice">${t('env.checking')}</div>`;
-  const [readiness, env] = await Promise.all([api('/api/readiness'), api('/api/environment')]);
-  renderReadiness(readiness);
+  $('#envSummary').innerHTML = '';
+  $('#envList').innerHTML = `<div class="skeleton-list" aria-label="${escapeAttr(t('env.checking'))}"><i></i><i></i><i></i></div>`;
+  try {
+    const [readiness, env] = await Promise.all([api('/api/readiness'), api('/api/environment')]);
+    renderReadiness(readiness);
 
-  const items = readiness.items.map((item) => `
-    <div class="card row-card">
-      <div class="grow">
-        <div class="name">${escapeHtml(item.title)}</div>
-        <div class="meta">${escapeHtml(item.detail)}${item.blocks && item.state !== 'ok' ? ` — ${escapeHtml(item.blocks)}` : ''}</div>
-        ${item.hint && item.state !== 'ok' ? `<div class="meta">${escapeHtml(item.hint)}</div>` : ''}
-      </div>
-      ${item.size ? `<span class="meta">${escapeHtml(item.size)}</span>` : ''}
-      <span class="pill ${item.state === 'ok' ? 'ok' : item.state === 'warn' ? 'warn' : 'bad'}">${t(`env.state.${item.state}`)}</span>
-    </div>`);
+    $('#envSummary').innerHTML = [['ok','studio.componentsReady'], ['warn','studio.componentsWarn'], ['blocked','studio.componentsMissing']].map(([status, label]) => `<div class="environment-metric ${status}"><strong>${readiness.items.filter((item) => item.state === status).length}</strong><span>${t(label)}</span></div>`).join('');
+    const items = readiness.items.map((item) => `
+      <div class="card row-card environment-item ${item.state}">
+        <span class="component-mark">${icon(item.state === 'ok' ? 'check' : 'warn')}</span>
+        <div class="grow">
+          <div class="name">${escapeHtml(item.title)}</div>
+          <div class="meta">${escapeHtml(item.detail)}${item.blocks && item.state !== 'ok' ? ` — ${escapeHtml(item.blocks)}` : ''}</div>
+          ${item.hint && item.state !== 'ok' ? `<div class="meta">${escapeHtml(item.hint)}</div>` : ''}
+        </div>
+        ${item.size ? `<span class="meta">${escapeHtml(item.size)}</span>` : ''}
+        <span class="pill ${item.state === 'ok' ? 'ok' : item.state === 'warn' ? 'warn' : 'bad'}">${t(`env.state.${item.state}`)}</span>
+      </div>`);
 
-  const tools = env.tools.filter((tool) => tool.path).map((tool) => `<div class="card row-card"><div class="grow"><div class="name">${tool.name}</div><div class="meta mono">${escapeHtml(tool.path)}</div></div><span class="pill ok">${t(tool.source === 'local' ? 'env.tool.local' : 'env.tool.system')}</span></div>`);
+    const tools = env.tools.filter((tool) => tool.path).map((tool) => `<div class="card row-card"><div class="grow"><div class="name">${tool.name}</div><div class="meta mono">${escapeHtml(tool.path)}</div></div><span class="pill ok">${t(tool.source === 'local' ? 'env.tool.local' : 'env.tool.system')}</span></div>`);
 
-  $('#envList').innerHTML = items.join('') + `<h2>${t('env.toolsTitle')}</h2>` + (tools.join('') || `<div class="notice">${t('env.noTools')}</div>`);
+    $('#envList').innerHTML = items.join('') + `<h2>${t('env.toolsTitle')}</h2>` + (tools.join('') || `<div class="notice">${t('env.noTools')}</div>`);
+  } catch (error) {
+    $('#envList').innerHTML = `<div class="notice error">${escapeHtml(error.message)}</div>`;
+    throw error;
+  }
 }
 
 $('#refreshEnv').addEventListener('click', (event) => withBusy(event.currentTarget, loadEnvironment).catch(showError));
@@ -3103,7 +3386,7 @@ const FILLING_STAGES = new Set(['s2', 's3', 's5', 's6']);
 const filled = { job: null, stages: new Set(), at: 0 };
 
 function fillSegmentsDuringRun(job) {
-  if (!job || job.input !== state.project) return;
+  if (!job || job.input !== state.project || projectDirty() || subs.dirty) return;
   if (filled.job !== job.id) {
     filled.job = job.id;
     filled.stages = new Set();
@@ -3165,7 +3448,8 @@ function connectEvents() {
       toast(state.job.status === 'done' ? t('job.finishedOk') : t('job.finishedOther', { status: state.job.status }), state.job.status === 'done' ? 'ok' : 'error', 8000);
       refreshState().catch(() => {});
       loadLibrary().catch(() => {});
-      if (state.project === state.job.input) {
+      if (state.project === state.job.input && state.job.status === 'done' && state.job.mode !== 'subtitles' && state.job.stages.some((stage) => stage.id === 's7' && stage.state === 'done') && state.job.output) setPendingStage(null);
+      if (state.project === state.job.input && !projectDirty() && !subs.dirty) {
         loadSegments().catch(() => {});
         if (state.job.mode === 'subtitles') loadSubtitles().catch(() => {});
       }

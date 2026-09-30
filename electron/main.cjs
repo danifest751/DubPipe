@@ -188,15 +188,7 @@ function buildMenu() {
       submenu: [
         {
           label: text.about,
-          click: () => {
-            dialog.showMessageBox(window, {
-              type: 'info',
-              title: 'DubPipe',
-              message: text.aboutMessage,
-              detail: text.aboutDetail,
-              buttons: [text.ok],
-            });
-          },
+          click: () => window?.webContents.executeJavaScript('window.dubpipeAbout && window.dubpipeAbout()'),
         },
       ],
     },
@@ -219,7 +211,8 @@ async function createWindow() {
     height: 860,
     minWidth: 900,
     minHeight: 600,
-    backgroundColor: '#14161a',
+    backgroundColor: '#15191a',
+    icon: path.join(here, process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
     title: 'DubPipe',
     show: false,
     webPreferences: {
