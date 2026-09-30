@@ -7,6 +7,26 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+### Dubbing studio
+
+- Graphite surfaces, mint accents and a shared D mark now cover the whole application,
+  including downloads, all nine settings categories, environment diagnostics, subtitles,
+  comparison, logs, dialogs and notifications. The app remains dark when Windows uses
+  light colors; Electron and the portable executable have their own branded icon.
+- The library has real cached video thumbnails, name search and visible filters. Opening
+  a file prepares it without starting processing. Preview stays beside the replica editor,
+  voices and mix controls; seven-stage progress has an expandable detailed view.
+- Saving review edits no longer starts processing. Updating the dub is a separate action;
+  saved changes remain pending across restarts and can be retried after a failed launch.
+  Drafts survive navigation, invalid timings block saving, and duplicate starts are blocked.
+- Downloads separate link preparation, the active queue and completed history. The
+  destination stays visible, and completed/cancelled jobs do not offer a Cancel action.
+- Subtitle and settings drafts survive tab changes. Switching between settings form and
+  YAML requires resolving the draft; cache clearing requires explicit confirmation.
+- A separate Playwright suite checks 37 browser/Electron scenarios, every section and all
+  settings categories at three widths, including light OS preferences, error recovery,
+  real S1 extraction and S7 mixing. Offline tests remain independent of external tools.
+
 ### Videos
 
 - A file in Videos can be deleted: the video goes to the Recycle Bin, and the work files of its

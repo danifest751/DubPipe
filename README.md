@@ -149,10 +149,21 @@ npm run app:dev     # the same thing in an application window
 npm run app:build   # build the .exe (installer + portable)
 ```
 
-The interface is built around one object — a video file. The main screen is a folder of
-videos: each file shows whether it has been dubbed, with **Dub** and **Subtitles** buttons.
-The file page holds the run controls, per-stage progress with elapsed time, the finished
-video, a replica editor, a subtitle editor, model comparison and the log.
+The interface uses a graphite background and mint accents, independent of the system's
+light/dark preference. The same design covers the browser and Electron app, including
+downloads, settings, environment checks, editors and dialogs.
+
+The main screen is a folder of videos, with real frame thumbnails, name search and filters
+for source files, finished dubs and unprocessed files. Opening a file prepares the studio;
+it does not start processing. The studio keeps the video beside the replica editor and the
+character/voice and volume controls. A seven-stage rail shows progress; detailed stages,
+subtitles, model comparison and the log remain available on their own tabs.
+
+**Downloads** separates link preparation from the active queue and completed history. Paste
+one or several URLs, inspect the first link, choose quality and start downloading. The
+destination stays visible. **Settings** has nine categories: Compute, Translation, Voice,
+Recognition, Sound, Fitting, Downloads, System and YAML. Draft settings survive navigation;
+switching between the form and YAML requires saving or discarding changes first.
 
 The folder is re-read with the **Refresh** button, and by itself when the window gets focus
 back: videos get downloaded into it and finished dubs moved out of it behind the program's back.
@@ -166,12 +177,18 @@ If something is missing — a program, model weights, a voice or an API key — 
 top states exactly what will not work and how to fix it. One button downloads everything in
 parallel, with progress bars.
 
-The packaged app needs neither Node.js nor Python: an installer and a portable build, about
-229 MB each. Its working directory is `%APPDATA%/DubPipe`.
+The packaged app needs no separate Node.js installation. Python is needed only for optional
+local engines described under [Requirements](#requirements). Build artifacts are written to
+`release/`; the Windows x64 portable built on 2026-09-30 is about 155 MiB. Both installer and
+portable use `%APPDATA%/DubPipe` for configuration and working data. To build only portable:
 
-> **On the interface language:** the application UI is in Russian, since the tool dubs *into*
-> Russian. The code, this README and the configuration reference are what an English-speaking
-> contributor needs; source comments are in Russian or English depending on the module.
+```bash
+npm run build
+npx electron-builder --win portable --x64
+```
+
+The interface supports Russian and English. The language selector in the sidebar remembers
+the choice, including the Electron menus. Pipeline diagnostic messages remain in Russian.
 
 ### What happens to the original track
 
@@ -635,13 +652,19 @@ npx tsx scripts/voice-pitch.mts <directory with wav files> --match 195,176
 
 ## Review and fix the result
 
-Once a dub exists, the file page shows a **Review and fix** panel: the finished video, the
-replica playing right now, and controls to change its translation, its speaker, the voice of
-that speaker (including one-click *make this voice male/female*) and the volume of the
-original, the Russian speech and the ducking. Changes accumulate as marks; one button saves
-them and re-runs only what is needed — re-synthesis of the affected replicas, or just a
-re-mix when only volumes changed. Per-video edits live in `overrides.json` inside that
-video's working folder and never touch the global settings.
+The studio shows the current replica with controls for translation, speaker, voice and
+volume levels. The **Replicas** tab offers search and table editing, alongside the same video.
+**Save changes** writes edits without starting processing. **Save and update dubbing** saves
+and re-runs only the affected synthesis/alignment/mixing stages; volume-only changes need
+just a re-mix. Saved edits that have not reached a new output remain marked as pending even
+after restarting the app, and a failed launch can be retried.
+
+Edits remain while moving between tabs and sections. Changing the video asks before
+discarding a draft. Invalid timecodes prevent saving; a running job prevents a duplicate
+launch. Per-video voice and mix overrides live in `overrides.json`, replica edits in
+`segments.json`, and the pending update marker in `pending-review.json` in the video's
+working folder. These files do not alter global settings. Subtitle drafts have a separate
+**Save SRT** action; rebuilding from replicas replaces their manual edits deliberately.
 
 ## Configuration
 
@@ -954,7 +977,9 @@ To keep the scratch tracks around while working on the sound: `cache.keep_interm
 ```bash
 npm test              # the whole suite; no ffmpeg, no network and no keys required
 npm run typecheck
+npm run lint
 npm run build
+npm run test:e2e       # browser + Electron integration tests; see prerequisites below
 npx electron scripts/screenshot-ui.cjs     # screenshots of every screen
 npx tsx scripts/check-subtitles.mts FILE   # validate generated SRT files
 node scripts/make-fixture.mjs              # rebuild the test clip and its reference
@@ -962,6 +987,16 @@ node scripts/make-fixture.mjs              # rebuild the test clip and its refer
 
 The test clip is synthesized locally with piper, so the fixture is reproducible and carries
 nobody's rights: every boundary in `tests/fixtures/golden.json` is constructed, not measured.
+
+`npm test` runs 711 offline tests. The separate Playwright suite runs 37 integration scenarios
+against isolated media and configuration under `output/playwright/runtime`. It needs Chrome,
+FFmpeg and FFprobe (on `PATH`, or the project's downloaded Windows bundle), plus a current
+`npm run build` for Electron. It synthesizes short color/tone clips without piper or model
+downloads, checks real S1 extraction and S7 mixing, and mocks external downloads/model
+responses. Screenshots cover every section and all settings categories at 1400, 900 and
+760 px under light and dark OS preferences; the application stays graphite in both.
+Reports, screenshots and failure traces are under `output/playwright/` and are not committed.
+The existing CI runs offline tests, types, lint and build; Playwright is a separate local check.
 
 Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Engineering decisions,
 measurements and the reasoning behind them are recorded in [SPEC.md](SPEC.md) (in Russian).

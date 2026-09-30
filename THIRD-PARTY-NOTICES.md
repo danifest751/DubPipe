@@ -62,7 +62,8 @@ for private viewing, as the rest of DubPipe's output.
 ## Bundled dependencies
 
 The npm dependencies (`commander`, `yaml`, `zod`, `onnxruntime-node`) and the development
-dependencies (`typescript`, `vitest`, `electron`, `electron-builder`, `tsx`) are all under
+dependencies (`typescript`, `vitest`, `electron`, `electron-builder`, `tsx`,
+`@playwright/test`, `playwright`, `playwright-core`) are all under
 permissive licenses — MIT, ISC or Apache-2.0. See `package.json` and `npm ls --all` for the
 exact set and versions.
 

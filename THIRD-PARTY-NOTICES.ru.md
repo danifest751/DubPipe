@@ -62,7 +62,8 @@ DubPipe распространяется под [лицензией MIT](LICENSE
 ## Зависимости проекта
 
 Зависимости npm (`commander`, `yaml`, `zod`, `onnxruntime-node`) и зависимости разработки
-(`typescript`, `vitest`, `electron`, `electron-builder`, `tsx`) — под разрешительными
+(`typescript`, `vitest`, `electron`, `electron-builder`, `tsx`, `@playwright/test`,
+`playwright`, `playwright-core`) — под разрешительными
 лицензиями MIT, ISC или Apache-2.0. Точный состав и версии — в `package.json` и в выводе
 `npm ls --all`.
 

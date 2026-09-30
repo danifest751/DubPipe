@@ -15,7 +15,20 @@ npm test            # the whole suite; no ffmpeg, no network and no API keys nee
 
 The tests deliberately need nothing external: if a change forces a test to require ffmpeg,
 the network or a key, the test is in the wrong place — move that part behind a script in
-`scripts/`.
+`scripts/` or a separate integration scenario in `e2e/`; never make `npm test` depend on it.
+
+For interface changes also run the separate browser/Electron suite:
+
+```bash
+npm run build
+npm run test:e2e
+```
+
+It needs Chrome, FFmpeg and FFprobe, and uses generated clips and an isolated config under
+`output/playwright/runtime`. On Windows the fixture can use `.dubpipe/tools/ffmpeg` after
+`doctor --fetch`; otherwise put both tools on `PATH`. No API keys or GPU models are needed.
+See [README.md](README.md#development) for coverage and output paths. The existing CI remains
+independent of these prerequisites.
 
 To run the tool itself without building:
 
@@ -40,6 +53,8 @@ scripts/        checks that need real media, a window or the network
 scripts/server/ install script of the GPU-server service
 docker/worker/  Docker image of the GPU-server service
 tests/          vitest, offline only
+e2e/            Playwright browser/Electron scenarios, separate from npm test
+design/concepts/ raster references, prompts and model generation comparisons
 ```
 
 A stage reads and writes `segments.json` through `Workspace` and reports progress through
@@ -51,7 +66,8 @@ caching, progress bars and cancellation for free.
 - **One change per pull request.** A bug fix and a refactor in one diff is two reviews.
 - **Add a test that fails without your change.** Tests live next to the rules they protect;
   see `tests/subtitles.test.ts` for the style — a test per rule, named in plain language.
-- Run `npm run typecheck` and `npm test` before pushing. TypeScript runs in strict mode.
+- Run `npm run typecheck`, `npm run lint`, `npm test` and `npm run build` before pushing.
+  For UI changes also run `npm run test:e2e`. TypeScript runs in strict mode.
 - Keep comments explaining *why*, not *what*. Existing comments are in Russian in the parts
   that were written for the Russian-speaking author and in English elsewhere; write new ones
   in whichever language the surrounding file uses.
